@@ -1,0 +1,1619 @@
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  copyToClipboard,
+  downloadElementImage,
+  downloadElementPdf,
+  downloadElementSvg,
+  downloadText,
+  formatCompact,
+  formatPct,
+  toCsv,
+} from "../utils/helpers";
+import { IITs, THEME_COLORS, YEARS } from "../constants";
+import { COMPARE_HIERARCHY, KPI_BY_ID } from "../data/compareHierarchy";
+import { kpiValue } from "../data/kpiDefs";
+
+const LEGACY_IITS = ["IITB", "IITD", "IITK", "IITKGP", "IITM"];
+const PALETTE = ["#2563eb", "#f59e0b", "#14b8a6", "#8b5cf6", "#ec4899", "#64748b", "#0f766e"];
+const TOP_TABS = ["Compare View", "Filters", "Compare Mode", "Saved Sets"];
+const VIEW_OPTIONS = [
+  { id: "grouped", label: "Grouped", help: "Compare the same or compatible metrics side by side for the focus year." },
+  { id: "trend", label: "Trend", help: "Track one metric over the selected year range." },
+  { id: "smallMultiples", label: "Small multiples", help: "Keep dense or mixed comparisons in separate tiles." },
+  { id: "table", label: "Table", help: "Show the broadest structurally valid comparison in tabular form." },
+];
+const SCALE_OPTIONS = [
+  { id: "raw", label: "Raw" },
+  { id: "indexed", label: "Indexed 100" },
+];
+
+function cn(...parts) {
+  return parts.filter(Boolean).join(" ");
+}
+
+function valueForKpi(facts, kpi, instituteId, year) {
+  const rows = (facts?.[kpi.fact] ?? []).filter((row) => row.InstituteId === instituteId && row.Year === year);
+  return kpiValue(kpi, rows);
+}
+
+function fmtRaw(kpi, value) {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  if (kpi?.format === "pct") return `${(Number(value) * 100).toFixed(1)}%`;
+  const hasFraction = Math.abs(Number(value) % 1) > 0.0001;
+  return new Intl.NumberFormat("en-IN", { maximumFractionDigits: hasFraction ? 2 : 0 }).format(Number(value));
+}
+
+function fmtDisplay(kpi, value, scale = "raw") {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  if (scale === "indexed") return `${Math.round(Number(value))}`;
+  if (kpi?.format === "pct") return `${Number(value).toFixed(1)}%`;
+  return formatCompact(value);
+}
+
+function normalizeToLeader(values) {
+  const valid = values.filter((item) => item != null && Number.isFinite(Number(item)));
+  const leader = valid.length ? Math.max(...valid.map(Number)) : null;
+  return values.map((item) => {
+    if (item == null || !Number.isFinite(Number(item))) return null;
+    if (!leader || leader === 0) return 0;
+    return (Number(item) / leader) * 100;
+  });
+}
+
+function normalizeToBase(values) {
+  const base = values.find((item) => item != null && Number.isFinite(Number(item)) && Number(item) !== 0);
+  return values.map((item) => {
+    if (item == null || !Number.isFinite(Number(item))) return null;
+    if (!base) return 0;
+    return (Number(item) / Number(base)) * 100;
+  });
+}
+
+function truncate(text, max = 40) {
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function summarizeList(values, max = 3) {
+  if (!values?.length) return "None selected";
+  if (values.length <= max) return values.join(", ");
+  return `${values.slice(0, max).join(", ")} +${values.length - max} more`;
+}
+
+function compareIcon(kind, active = false, tone = "#2563eb") {
+  const stroke = active ? "white" : tone;
+  const common = {
+    fill: "none",
+    stroke,
+    strokeWidth: 1.8,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
+
+  const wrappers = {
+    grouped: (
+      <>
+        <path {...common} d="M5 19V10" />
+        <path {...common} d="M11 19V6" />
+        <path {...common} d="M17 19V13" />
+        <path {...common} d="M21 19V8" />
+      </>
+    ),
+    trend: (
+      <>
+        <path {...common} d="M4 16l5-5 4 3 7-8" />
+        <path {...common} d="M20 9V6h-3" />
+      </>
+    ),
+    smallMultiples: (
+      <>
+        <rect {...common} x="4" y="4" width="6" height="6" rx="1.5" />
+        <rect {...common} x="14" y="4" width="6" height="6" rx="1.5" />
+        <rect {...common} x="4" y="14" width="6" height="6" rx="1.5" />
+        <rect {...common} x="14" y="14" width="6" height="6" rx="1.5" />
+      </>
+    ),
+    table: (
+      <>
+        <rect {...common} x="3.5" y="5" width="17" height="14" rx="2" />
+        <path {...common} d="M3.5 10h17" />
+        <path {...common} d="M9 5v14" />
+        <path {...common} d="M15 5v14" />
+      </>
+    ),
+    edit: (
+      <>
+        <path {...common} d="M4 20h4l9.5-9.5-4-4L4 16v4Z" />
+        <path {...common} d="m12.5 6.5 4 4" />
+      </>
+    ),
+    close: (
+      <>
+        <path {...common} d="M6 6l12 12" />
+        <path {...common} d="M18 6 6 18" />
+      </>
+    ),
+    build: (
+      <>
+        <rect {...common} x="4" y="5" width="16" height="14" rx="3" />
+        <path {...common} d="M8 12h8" />
+        <path {...common} d="M12 8v8" />
+      </>
+    ),
+    compare: (
+      <>
+        <path {...common} d="M6 7h12" />
+        <path {...common} d="M6 12h9" />
+        <path {...common} d="M6 17h6" />
+        <circle {...common} cx="18" cy="12" r="2.5" />
+      </>
+    ),
+    filters: (
+      <>
+        <path {...common} d="M4 6h16" />
+        <path {...common} d="M7 12h10" />
+        <path {...common} d="M10 18h4" />
+      </>
+    ),
+    save: (
+      <>
+        <path {...common} d="M6 4h10l4 4v12H6z" />
+        <path {...common} d="M9 4v5h6V4" />
+        <path {...common} d="M9 20v-6h6v6" />
+      </>
+    ),
+    fullscreen: (
+      <>
+        <path {...common} d="M8 4H4v4" />
+        <path {...common} d="M16 4h4v4" />
+        <path {...common} d="M20 16v4h-4" />
+        <path {...common} d="M4 16v4h4" />
+      </>
+    ),
+    share: (
+      <>
+        <circle {...common} cx="6" cy="12" r="2" />
+        <circle {...common} cx="18" cy="6" r="2" />
+        <circle {...common} cx="18" cy="18" r="2" />
+        <path {...common} d="M8 11l8-4" />
+        <path {...common} d="M8 13l8 4" />
+      </>
+    ),
+    image: (
+      <>
+        <rect {...common} x="4" y="5" width="16" height="14" rx="2" />
+        <circle {...common} cx="9" cy="10" r="1.5" />
+        <path {...common} d="M20 15l-4-4-5 5-2-2-5 5" />
+      </>
+    ),
+    download: (
+      <>
+        <path {...common} d="M12 4v11" />
+        <path {...common} d="M8.5 11.5 12 15l3.5-3.5" />
+        <path {...common} d="M5 19h14" />
+      </>
+    ),
+  }[kind];
+
+  if (!wrappers) return null;
+  return <svg viewBox="0 0 24 24" className="h-4.5 w-4.5">{wrappers}</svg>;
+}
+
+function PillTab({ label, active, icon, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-semibold transition"
+      style={{
+        background: active ? "#e8f0ff" : "rgba(255,255,255,0.92)",
+        border: `1px solid ${active ? "rgba(37,99,235,0.28)" : "rgba(148,163,184,0.18)"}`,
+        color: active ? "#1d4ed8" : "#475569",
+      }}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function SummaryRow({ title, summary, onEdit }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/90 px-3 py-2.5">
+      <div className="min-w-0">
+        <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{title}</div>
+        <div className="mt-0.5 truncate text-sm font-semibold text-slate-700">{summary}</div>
+      </div>
+      <button
+        type="button"
+        onClick={onEdit}
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:text-slate-900"
+        title={`Edit ${title}`}
+      >
+        {compareIcon("edit", false, "#475569")}
+      </button>
+    </div>
+  );
+}
+
+function SearchField({ value, onChange, placeholder = "Search" }) {
+  return (
+    <div className="relative">
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition focus:border-sky-300"
+      />
+    </div>
+  );
+}
+
+function SimpleChip({ children, tone = "#2563eb", removable = false, onRemove, onClick }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold",
+        onClick ? "cursor-pointer transition" : "",
+      )}
+      onClick={onClick}
+      style={{
+        background: `${tone}12`,
+        borderColor: `${tone}22`,
+        color: tone,
+      }}
+    >
+      <span className="truncate">{children}</span>
+      {removable ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove?.();
+          }}
+          className="grid h-4 w-4 place-items-center rounded-full bg-white/80 text-[10px] leading-none"
+          style={{ color: tone }}
+        >
+          ×
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
+function EmptyStateCard({ onBuild }) {
+  return (
+    <div
+      className="rounded-[32px] border bg-white px-6 py-12 text-center shadow-sm"
+      style={{ borderColor: "rgba(59,130,246,0.15)" }}
+    >
+      <div className="mx-auto grid h-16 w-16 place-items-center rounded-[22px] border border-sky-100 bg-sky-50 text-sky-600">
+        {compareIcon("compare", false, "#2563eb")}
+      </div>
+      <div className="mt-5 text-lg font-semibold text-slate-900">Select filters to start comparing</div>
+      <div className="mt-2 text-sm text-slate-500">Build a comparison only when you need it. The page stays calm until valid inputs are selected.</div>
+      <button
+        type="button"
+        onClick={onBuild}
+        className="mt-6 inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold text-white shadow-sm"
+        style={{ background: "#1d4ed8" }}
+      >
+        {compareIcon("build", true, "#ffffff")}
+        <span>Build Comparison</span>
+      </button>
+    </div>
+  );
+}
+
+function CompareTooltip({ active, payload, label, mode, metricLookup, scaleMode }) {
+  if (!active || !payload?.length) return null;
+  if (mode === "grouped") {
+    const row = payload[0]?.payload;
+    const metric = metricLookup[row?.metricId];
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-xl">
+        <div className="font-semibold text-slate-900">{label}</div>
+        <div className="mt-1 text-slate-500">{metric?.submoduleLabel ?? metric?.module ?? "Compare item"}</div>
+        <div className="mt-2 space-y-1.5">
+          {payload.map((entry) => {
+            const iid = String(entry.dataKey).replace("display_", "");
+            return (
+              <div key={iid} className="flex items-center justify-between gap-4">
+                <span style={{ color: entry.color }}>{IITs.find((item) => item.id === iid)?.name ?? iid}</span>
+                <span className="font-semibold text-slate-800">
+                  {fmtDisplay(metric?.kpi, entry.value, scaleMode)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+  if (mode === "trend") {
+    const row = payload[0]?.payload;
+    const metric = metricLookup[row?.metricId];
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-xl">
+        <div className="font-semibold text-slate-900">{label}</div>
+        <div className="mt-2 space-y-1.5">
+          {payload.map((entry) => {
+            const iid = String(entry.dataKey).replace("display_", "");
+            const raw = row?.[`raw_${iid}`];
+            return (
+              <div key={iid} className="flex items-center justify-between gap-4">
+                <span style={{ color: entry.color }}>{IITs.find((item) => item.id === iid)?.name ?? iid}</span>
+                <span className="font-semibold text-slate-800">
+                  {fmtDisplay(metric?.kpi, entry.value, scaleMode)}
+                  {scaleMode === "indexed" && raw != null ? ` • ${fmtRaw(metric?.kpi, raw)}` : ""}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
+function SmallMultipleCard({ series, accent, scaleMode }) {
+  const { item, rows } = series;
+  return (
+    <div className="rounded-[24px] border border-slate-200 bg-white p-3">
+      <div className="mb-3">
+        <div className="text-sm font-semibold text-slate-900">{item.label}</div>
+        <div className="mt-1 text-xs text-slate-500">{item.submoduleLabel}</div>
+      </div>
+      <div style={{ height: 220 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={rows} margin={{ top: 6, right: 12, left: 0, bottom: 10 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+            <XAxis dataKey="shortName" tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} width={70} />
+            <Tooltip
+              formatter={(value) => fmtDisplay(item.kpi, value, scaleMode)}
+              labelFormatter={(label) => IITs.find((iit) => iit.id === label)?.name ?? label}
+            />
+            <Bar dataKey="display" fill={accent} radius={[10, 10, 0, 0]} maxBarSize={26}>
+              {rows.map((row) => (
+                <Cell key={`${item.id}-${row.instituteId}`} fill={row.color} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function BuilderSectionHeader({ step, title, helper }) {
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Step {step}</div>
+      <div className="mt-1 text-lg font-semibold text-slate-900">{title}</div>
+      {helper ? <div className="mt-1 text-sm text-slate-500">{helper}</div> : null}
+    </div>
+  );
+}
+
+function CheckboxRow({ checked, disabled = false, title, subtitle, onChange, badge }) {
+  return (
+    <label
+      className={cn(
+        "flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-3 transition",
+        disabled ? "cursor-not-allowed opacity-60" : "hover:border-sky-200 hover:bg-sky-50/50",
+      )}
+      style={{
+        borderColor: checked ? "rgba(37,99,235,0.28)" : "rgba(148,163,184,0.22)",
+        background: checked ? "rgba(37,99,235,0.06)" : "white",
+      }}
+    >
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={onChange} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-sky-600" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-sm font-semibold text-slate-800">{title}</div>
+          {badge ? (
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-amber-700">
+              {badge}
+            </span>
+          ) : null}
+        </div>
+        {subtitle ? <div className="mt-1 text-xs text-slate-500">{subtitle}</div> : null}
+      </div>
+    </label>
+  );
+}
+
+function BuilderFooter({ onBack, onClear, onApply, applyDisabled, applyLabel = "Apply Compare", showApply = true, continueLabel = "Continue" }) {
+  return (
+    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
+      <div className="flex items-center gap-2">
+        {onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+          >
+            Back
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={onClear}
+          className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600"
+        >
+          Clear all
+        </button>
+      </div>
+      {showApply ? (
+        <button
+          type="button"
+          disabled={applyDisabled}
+          onClick={onApply}
+          className={cn(
+            "rounded-2xl px-4 py-2.5 text-sm font-bold text-white shadow-sm transition",
+            applyDisabled ? "cursor-not-allowed opacity-50" : "",
+          )}
+          style={{ background: "#1d4ed8" }}
+        >
+          {applyLabel}
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled={applyDisabled}
+          onClick={onApply}
+          className={cn(
+            "rounded-2xl px-4 py-2.5 text-sm font-bold text-white shadow-sm transition",
+            applyDisabled ? "cursor-not-allowed opacity-50" : "",
+          )}
+          style={{ background: "#1d4ed8" }}
+        >
+          {continueLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function createDefaultDraft() {
+  return {
+    modules: [],
+    submodules: [],
+    items: [],
+    iits: [...LEGACY_IITS],
+    yearFrom: YEARS[0],
+    yearTo: YEARS[YEARS.length - 1],
+    focusYear: YEARS[YEARS.length - 1],
+    view: "grouped",
+    scale: "raw",
+  };
+}
+
+function deriveModeValidity(items, iits, yearFrom, yearTo) {
+  const years = YEARS.filter((year) => year >= yearFrom && year <= yearTo);
+  const selected = items.filter(Boolean);
+  const chartable = selected.filter((item) => item.comparable);
+  const formatSet = new Set(chartable.map((item) => item.kpi?.format).filter(Boolean));
+  const tableOnlyItems = selected.filter((item) => !item.comparable);
+
+  return {
+    grouped: {
+      valid: chartable.length >= 1 && iits.length >= 2 && (chartable.length <= 1 || formatSet.size === 1),
+      reason: chartable.length < 1
+        ? "Select at least one chartable compare item."
+        : iits.length < 2
+          ? "Grouped compare needs at least two IITs."
+          : formatSet.size > 1
+            ? "Grouped compare allows multiple metrics only when units or formats match."
+            : "",
+    },
+    trend: {
+      valid: chartable.length === 1 && years.length >= 2 && iits.length >= 1,
+      reason: chartable.length !== 1
+        ? "Trend needs exactly one chartable compare item."
+        : years.length < 2
+          ? "Trend needs at least two time points."
+          : "",
+    },
+    smallMultiples: {
+      valid: chartable.length >= 1 && iits.length >= 1,
+      reason: chartable.length < 1 ? "Select at least one chartable compare item." : "",
+    },
+    table: {
+      valid: selected.length >= 1 && iits.length >= 1,
+      reason: selected.length < 1 ? "Select at least one compare item." : "",
+    },
+    chartableCount: chartable.length,
+    tableOnlyCount: tableOnlyItems.length,
+    years,
+    formatSetSize: formatSet.size,
+  };
+}
+
+export default function ComparePage({
+  facts,
+  config,
+  accent,
+  role,
+  onConfigChange,
+}) {
+  const hierarchy = COMPARE_HIERARCHY;
+  const moduleMap = useMemo(() => Object.fromEntries(hierarchy.map((module) => [module.id, module])), [hierarchy]);
+  const submoduleMap = useMemo(
+    () => Object.fromEntries(hierarchy.flatMap((module) => module.submodules.map((submodule) => [submodule.id, submodule]))),
+    [hierarchy],
+  );
+  const worksheetMap = useMemo(
+    () => Object.fromEntries(
+      hierarchy.flatMap((module) =>
+        module.submodules.flatMap((submodule) =>
+          submodule.worksheets.map((worksheet) => [
+            worksheet.kpiId,
+            {
+              ...worksheet,
+              moduleLabel: module.id,
+            },
+          ]),
+        ),
+      ),
+    ),
+    [hierarchy],
+  );
+
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [activeStep, setActiveStep] = useState(1);
+  const [draft, setDraft] = useState(() => createDefaultDraft());
+  const [applied, setApplied] = useState(null);
+  const [search, setSearch] = useState({ modules: "", submodules: "", items: "", iits: "" });
+  const [notice, setNotice] = useState("");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const chartRef = useRef(null);
+  const fullscreenRef = useRef(null);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), 1800);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    if (isFullscreen) {
+      document.body.style.overflow = "hidden";
+      document.documentElement.style.overflow = "hidden";
+    }
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [isFullscreen]);
+
+  const selectedModules = useMemo(() => draft.modules.map((id) => moduleMap[id]).filter(Boolean), [draft.modules, moduleMap]);
+  const availableSubmodules = useMemo(() => selectedModules.flatMap((module) => module.submodules), [selectedModules]);
+  const selectedSubmodules = useMemo(() => draft.submodules.map((id) => submoduleMap[id]).filter(Boolean), [draft.submodules, submoduleMap]);
+  const availableItems = useMemo(() => selectedSubmodules.flatMap((submodule) => submodule.worksheets), [selectedSubmodules]);
+  const selectedItems = useMemo(() => draft.items.map((id) => worksheetMap[id]).filter(Boolean), [draft.items, worksheetMap]);
+
+  const modeValidity = useMemo(
+    () => deriveModeValidity(selectedItems, draft.iits, draft.yearFrom, draft.yearTo),
+    [draft.iits, draft.yearFrom, draft.yearTo, selectedItems],
+  );
+
+  useEffect(() => {
+    if (draft.focusYear < draft.yearFrom || draft.focusYear > draft.yearTo) {
+      setDraft((prev) => ({ ...prev, focusYear: prev.yearTo }));
+    }
+  }, [draft.focusYear, draft.yearFrom, draft.yearTo]);
+
+  useEffect(() => {
+    if (!modeValidity[draft.view]?.valid) {
+      const fallback = VIEW_OPTIONS.find((option) => modeValidity[option.id]?.valid)?.id ?? "table";
+      setDraft((prev) => ({ ...prev, view: fallback, scale: fallback === "table" ? "raw" : prev.scale }));
+    }
+  }, [draft.view, modeValidity]);
+
+  if (role !== "ministry") {
+    return (
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700 shadow-sm">
+        Compare is available for Ministry access in this build.
+      </div>
+    );
+  }
+
+  const appliedItems = (applied?.items ?? []).map((id) => worksheetMap[id]).filter(Boolean);
+  const appliedYears = YEARS.filter((year) => year >= (applied?.yearFrom ?? YEARS[0]) && year <= (applied?.yearTo ?? YEARS[YEARS.length - 1]));
+  const appliedIITs = applied?.iits ?? [];
+  const appliedModeValidity = deriveModeValidity(appliedItems, appliedIITs, applied?.yearFrom ?? YEARS[0], applied?.yearTo ?? YEARS[YEARS.length - 1]);
+  const uiAccent = accent || "#1d4ed8";
+
+  const appliedMetricLookup = useMemo(
+    () =>
+      Object.fromEntries(
+        appliedItems.map((item) => [
+          item.kpiId,
+          {
+            ...item,
+            kpi: item.kpi ?? KPI_BY_ID[item.kpiId],
+          },
+        ]),
+      ),
+    [appliedItems],
+  );
+
+  const chartableAppliedItems = appliedItems.filter((item) => item.comparable);
+  const groupedIITs = (appliedIITs ?? []).slice(0, 7);
+
+  const groupedRows = useMemo(() => {
+    if (!applied) return [];
+    return chartableAppliedItems.map((item) => {
+      const rawValues = groupedIITs.map((iid) => valueForKpi(facts, item.kpi, iid, applied.focusYear));
+      const displayValues = applied.scale === "indexed"
+        ? normalizeToLeader(rawValues)
+        : rawValues.map((value) => (item.kpi?.format === "pct" && value != null ? Number(value) * 100 : value));
+      const row = {
+        metricId: item.kpiId,
+        label: item.label,
+        shortLabel: truncate(item.label, 22),
+      };
+      groupedIITs.forEach((iid, index) => {
+        row[`display_${iid}`] = displayValues[index];
+        row[`raw_${iid}`] = rawValues[index];
+      });
+      return row;
+    });
+  }, [applied, chartableAppliedItems, facts, groupedIITs]);
+
+  const primaryAppliedItem = chartableAppliedItems[0];
+
+  const trendRows = useMemo(() => {
+    if (!applied || !primaryAppliedItem) return [];
+    const seriesByInstitute = Object.fromEntries(
+      appliedIITs.map((iid) => {
+        const values = appliedYears.map((year) => valueForKpi(facts, primaryAppliedItem.kpi, iid, year));
+        return [iid, values];
+      }),
+    );
+    const indexed = Object.fromEntries(
+      Object.entries(seriesByInstitute).map(([iid, values]) => [iid, normalizeToBase(values)]),
+    );
+    return appliedYears.map((year, yearIndex) => {
+      const row = { year, label: String(year), metricId: primaryAppliedItem.kpiId };
+      appliedIITs.forEach((iid) => {
+        const raw = seriesByInstitute[iid]?.[yearIndex] ?? null;
+        row[`raw_${iid}`] = raw;
+        row[`display_${iid}`] = applied?.scale === "indexed"
+          ? indexed[iid]?.[yearIndex] ?? null
+          : (primaryAppliedItem.kpi?.format === "pct" && raw != null ? Number(raw) * 100 : raw);
+      });
+      return row;
+    });
+  }, [applied, appliedIITs, appliedYears, facts, primaryAppliedItem]);
+
+  const smallMultipleSeries = useMemo(() => {
+    if (!applied) return [];
+    return chartableAppliedItems.map((item) => {
+      const rawValues = appliedIITs.map((iid) => valueForKpi(facts, item.kpi, iid, applied.focusYear));
+      const displayValues = applied.scale === "indexed"
+        ? normalizeToLeader(rawValues)
+        : rawValues.map((value) => (item.kpi?.format === "pct" && value != null ? Number(value) * 100 : value));
+      return {
+        item,
+        rows: appliedIITs.map((iid, index) => ({
+          instituteId: iid,
+          shortName: iid,
+          instituteName: IITs.find((entry) => entry.id === iid)?.name ?? iid,
+          rawValue: rawValues[index],
+          display: displayValues[index],
+          color: PALETTE[index % PALETTE.length],
+        })),
+      };
+    });
+  }, [applied, appliedIITs, chartableAppliedItems, facts]);
+
+  const tableRows = useMemo(() => {
+    if (!applied) return [];
+    return appliedIITs.flatMap((iid) => {
+      const institute = IITs.find((entry) => entry.id === iid)?.name ?? iid;
+      return appliedItems.map((item) => {
+        const latest = valueForKpi(facts, item.kpi, iid, applied.focusYear);
+        const prevYear = appliedYears[Math.max(0, appliedYears.indexOf(applied.focusYear) - 1)] ?? applied.focusYear;
+        const prev = valueForKpi(facts, item.kpi, iid, prevYear);
+        return {
+          Institute: institute,
+          InstituteCode: iid,
+          Module: item.moduleLabel,
+          Submodule: item.submoduleLabel,
+          CompareItem: item.label,
+          Value: latest,
+          YoY: latest != null && prev != null && prev !== 0 && prevYear !== applied.focusYear ? (latest - prev) / prev : null,
+          Range: appliedYears.map((year) => `${year}: ${fmtRaw(item.kpi, valueForKpi(facts, item.kpi, iid, year))}`).join(" • "),
+          _item: item,
+        };
+      });
+    });
+  }, [applied, appliedIITs, appliedItems, appliedYears, facts]);
+
+  const canApply = Boolean(
+    draft.modules.length &&
+      draft.submodules.length &&
+      draft.items.length &&
+      draft.iits.length &&
+      draft.yearFrom <= draft.yearTo &&
+      modeValidity[draft.view]?.valid,
+  );
+
+  function openBuilder(step = 1) {
+    setBuilderOpen(true);
+    setActiveStep(step);
+  }
+
+  function closeBuilder() {
+    setBuilderOpen(false);
+  }
+
+  function clearDraft() {
+    setDraft(createDefaultDraft());
+    setSearch({ modules: "", submodules: "", items: "", iits: "" });
+    setActiveStep(1);
+  }
+
+  function applyCompare() {
+    const payload = {
+      ...draft,
+      modules: [...draft.modules],
+      submodules: [...draft.submodules],
+      items: [...draft.items],
+      iits: [...draft.iits],
+    };
+    setApplied(payload);
+    setBuilderOpen(false);
+    onConfigChange?.((prev) => ({
+      ...prev,
+      CompareModule: payload.modules[0] ?? prev.CompareModule,
+      CompareMetricIds: payload.items,
+      MetricId: payload.items[0] ?? prev.MetricId,
+      CompareView: payload.view,
+      CompareScale: payload.scale,
+      ActiveYear: payload.focusYear,
+      InstituteId: payload.iits,
+      YearRange: { from: payload.yearFrom, to: payload.yearTo },
+      __compareApplied: true,
+    }));
+  }
+
+  function removeFromApplied(kind, id) {
+    if (!applied) return;
+    const next = { ...applied };
+    if (kind === "module") {
+      next.modules = next.modules.filter((item) => item !== id);
+      const allowedSubmodules = next.modules.flatMap((moduleId) => moduleMap[moduleId]?.submodules.map((submodule) => submodule.id) ?? []);
+      next.submodules = next.submodules.filter((item) => allowedSubmodules.includes(item));
+      const allowedItems = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.worksheets.map((worksheet) => worksheet.kpiId) ?? []);
+      next.items = next.items.filter((item) => allowedItems.includes(item));
+    }
+    if (kind === "submodule") {
+      next.submodules = next.submodules.filter((item) => item !== id);
+      const allowedItems = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.worksheets.map((worksheet) => worksheet.kpiId) ?? []);
+      next.items = next.items.filter((item) => allowedItems.includes(item));
+    }
+    if (kind === "item") next.items = next.items.filter((item) => item !== id);
+    if (kind === "iit") next.iits = next.iits.filter((item) => item !== id);
+    if (kind === "mode") next.view = VIEW_OPTIONS.find((option) => option.id !== next.view && deriveModeValidity(next.items.map((item) => worksheetMap[item]).filter(Boolean), next.iits, next.yearFrom, next.yearTo)[option.id]?.valid)?.id ?? next.view;
+    if (kind === "scale") next.scale = "raw";
+    if (!next.modules.length || !next.submodules.length || !next.items.length || !next.iits.length) {
+      setApplied(null);
+      setDraft(next);
+      return;
+    }
+    setApplied(next);
+    setDraft(next);
+  }
+
+  async function handleShare() {
+    if (!applied) return;
+    const summary = [
+      "IIT MIS Compare",
+      `Modules: ${(applied.modules ?? []).join(", ")}`,
+      `Sub-modules: ${(applied.submodules ?? []).map((id) => submoduleMap[id]?.label ?? id).join(", ")}`,
+      `Items: ${(applied.items ?? []).map((id) => worksheetMap[id]?.label ?? id).join(", ")}`,
+      `IITs: ${(applied.iits ?? []).join(", ")}`,
+      `Years: ${applied.yearFrom}-${applied.yearTo}`,
+      `Focus year: ${applied.focusYear}`,
+      `Mode: ${applied.view}`,
+      `Scale: ${applied.scale}`,
+    ].join("\n");
+    const ok = await copyToClipboard(summary);
+    setNotice(ok ? "Copied comparison summary." : "Copy failed.");
+  }
+
+  async function handleDownloadPng() {
+    const target = isFullscreen ? fullscreenRef.current : chartRef.current;
+    await downloadElementImage(target, `iitmis_compare_${applied?.view ?? "compare"}.png`, "png");
+    setNotice("PNG downloaded.");
+  }
+
+  async function handleDownloadSvg() {
+    const target = isFullscreen ? fullscreenRef.current : chartRef.current;
+    await downloadElementSvg(target, `iitmis_compare_${applied?.view ?? "compare"}.svg`, { preserveLayout: true });
+    setNotice("SVG downloaded.");
+  }
+
+  async function handleDownloadPdf() {
+    const target = isFullscreen ? fullscreenRef.current : chartRef.current;
+    await downloadElementPdf(target, `IIT MIS Compare ${applied?.focusYear ?? ""}`);
+    setNotice("PDF downloaded.");
+  }
+
+  function handleDownloadCsv() {
+    const columns = [
+      { key: "Institute", label: "Institute" },
+      { key: "Module", label: "Module" },
+      { key: "Submodule", label: "Sub-module" },
+      { key: "CompareItem", label: "Compare item" },
+      { key: "Value", label: `Value (${applied?.focusYear ?? ""})` },
+      { key: "YoY", label: "YoY" },
+      { key: "Range", label: `${applied?.yearFrom ?? YEARS[0]}-${applied?.yearTo ?? YEARS[YEARS.length - 1]}` },
+    ];
+    downloadText(
+      "iitmis_compare.csv",
+      toCsv(
+        tableRows.map((row) => ({
+          ...row,
+          Value: fmtRaw(row._item?.kpi, row.Value),
+          YoY: formatPct(row.YoY),
+        })),
+        columns,
+      ),
+      "text/csv;charset=utf-8",
+    );
+    setNotice("CSV downloaded.");
+  }
+
+  const filteredModules = hierarchy.filter((module) => module.id.toLowerCase().includes(search.modules.toLowerCase()));
+  const filteredSubmodules = selectedModules.map((module) => ({
+    ...module,
+    submodules: module.submodules.filter((submodule) => submodule.label.toLowerCase().includes(search.submodules.toLowerCase())),
+  }));
+  const filteredItems = selectedSubmodules.map((submodule) => ({
+    ...submodule,
+    worksheets: submodule.worksheets.filter((item) => item.label.toLowerCase().includes(search.items.toLowerCase())),
+  }));
+  const filteredIITs = IITs.filter((item) => `${item.id} ${item.name}`.toLowerCase().includes(search.iits.toLowerCase()));
+
+  function renderBuilderContent() {
+    const moduleSummary = summarizeList(selectedModules.map((module) => module.id));
+    const submoduleSummary = summarizeList(selectedSubmodules.map((submodule) => submodule.label));
+    const itemSummary = summarizeList(selectedItems.map((item) => item.label));
+    const iitSummary = summarizeList(draft.iits);
+    const yearSummary = `${draft.yearFrom}–${draft.yearTo} | Focus: ${draft.focusYear}`;
+
+    return (
+      <div className="space-y-3">
+        {activeStep > 1 ? <SummaryRow title="Modules" summary={moduleSummary} onEdit={() => setActiveStep(1)} /> : null}
+        {activeStep > 2 ? <SummaryRow title="Sub-modules" summary={submoduleSummary} onEdit={() => setActiveStep(2)} /> : null}
+        {activeStep > 3 ? <SummaryRow title="Compare items" summary={itemSummary} onEdit={() => setActiveStep(3)} /> : null}
+        {activeStep > 4 ? <SummaryRow title="IITs · Years · Mode" summary={`${iitSummary} | ${yearSummary} | ${draft.view}`} onEdit={() => setActiveStep(4)} /> : null}
+
+        {activeStep === 1 ? (
+          <div className="rounded-[28px] border border-slate-200 bg-white p-4">
+            <BuilderSectionHeader
+              step={1}
+              title="Choose module"
+              helper="Use the same broad modules already used in the dashboard. This step supports multi-select."
+            />
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setDraft((prev) => ({ ...prev, modules: hierarchy.map((module) => module.id) }))}
+                className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                onClick={() => setDraft((prev) => ({ ...prev, modules: [], submodules: [], items: [] }))}
+                className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600"
+              >
+                Clear all
+              </button>
+            </div>
+            <div className="mt-4">
+              <SearchField value={search.modules} onChange={(value) => setSearch((prev) => ({ ...prev, modules: value }))} placeholder="Search modules" />
+            </div>
+            <div className="mt-4 grid gap-3">
+              {filteredModules.map((module) => (
+                <CheckboxRow
+                  key={module.id}
+                  checked={draft.modules.includes(module.id)}
+                  title={module.id}
+                  subtitle={`${module.submodules.length} sub-modules`}
+                  onChange={() =>
+                    setDraft((prev) => {
+                      const selected = prev.modules.includes(module.id);
+                      const nextModules = selected ? prev.modules.filter((item) => item !== module.id) : [...prev.modules, module.id];
+                      const allowedSubmodules = nextModules.flatMap((id) => moduleMap[id]?.submodules.map((submodule) => submodule.id) ?? []);
+                      const nextSubmodules = prev.submodules.filter((item) => allowedSubmodules.includes(item));
+                      const allowedItems = nextSubmodules.flatMap((id) => submoduleMap[id]?.worksheets.map((worksheet) => worksheet.kpiId) ?? []);
+                      return {
+                        ...prev,
+                        modules: nextModules,
+                        submodules: nextSubmodules,
+                        items: prev.items.filter((item) => allowedItems.includes(item)),
+                      };
+                    })
+                  }
+                />
+              ))}
+            </div>
+            <BuilderFooter
+              onClear={clearDraft}
+              onApply={() => setActiveStep(2)}
+              applyDisabled={!draft.modules.length}
+              showApply={false}
+              continueLabel="Continue"
+            />
+          </div>
+        ) : null}
+
+        {activeStep === 2 ? (
+          <div className="rounded-[28px] border border-slate-200 bg-white p-4">
+            <BuilderSectionHeader
+              step={2}
+              title="Choose sub-modules"
+              helper="Only sub-modules belonging to the selected modules appear here."
+            />
+            <div className="mt-4">
+              <SearchField value={search.submodules} onChange={(value) => setSearch((prev) => ({ ...prev, submodules: value }))} placeholder="Search sub-modules" />
+            </div>
+            <div className="mt-4 space-y-4">
+              {filteredSubmodules.map((module) => (
+                <div key={module.id} className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold text-slate-800">{module.id}</div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            submodules: Array.from(new Set([...prev.submodules, ...module.submodules.map((submodule) => submodule.id)])),
+                          }))
+                        }
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700"
+                      >
+                        Select all
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid gap-3">
+                    {module.submodules.map((submodule) => (
+                      <CheckboxRow
+                        key={submodule.id}
+                        checked={draft.submodules.includes(submodule.id)}
+                        title={submodule.label}
+                        subtitle={`${submodule.worksheets.length} compare items in the current module flow`}
+                        onChange={() =>
+                          setDraft((prev) => {
+                            const nextSubmodules = prev.submodules.includes(submodule.id)
+                              ? prev.submodules.filter((item) => item !== submodule.id)
+                              : [...prev.submodules, submodule.id];
+                            const allowedItems = nextSubmodules.flatMap((item) => submoduleMap[item]?.worksheets.map((worksheet) => worksheet.kpiId) ?? []);
+                            return {
+                              ...prev,
+                              submodules: nextSubmodules,
+                              items: prev.items.filter((item) => allowedItems.includes(item)),
+                            };
+                          })
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <BuilderFooter
+              onBack={() => setActiveStep(1)}
+              onClear={clearDraft}
+              onApply={() => setActiveStep(3)}
+              applyDisabled={!draft.submodules.length}
+              showApply={false}
+              continueLabel="Continue"
+            />
+          </div>
+        ) : null}
+
+        {activeStep === 3 ? (
+          <div className="rounded-[28px] border border-slate-200 bg-white p-4">
+            <BuilderSectionHeader
+              step={3}
+              title="Choose worksheet / compare item"
+              helper="Only compare items that already exist inside the selected module paths are shown."
+            />
+            <div className="mt-4">
+              <SearchField value={search.items} onChange={(value) => setSearch((prev) => ({ ...prev, items: value }))} placeholder="Search compare items" />
+            </div>
+            <div className="mt-4 space-y-4">
+              {filteredItems.map((submodule) => (
+                <div key={submodule.id} className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-800">{submodule.label}</div>
+                      <div className="text-xs text-slate-500">{submodule.worksheets.length} items from the existing worksheet map</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          items: Array.from(new Set([...prev.items, ...submodule.worksheets.map((item) => item.kpiId)])),
+                        }))
+                      }
+                      className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700"
+                    >
+                      Select all
+                    </button>
+                  </div>
+                  <div className="grid gap-3">
+                    {submodule.worksheets.map((item) => (
+                      <CheckboxRow
+                        key={item.kpiId}
+                        checked={draft.items.includes(item.kpiId)}
+                        title={item.label}
+                        subtitle={item.helper}
+                        badge={item.comparable ? "" : "Table only"}
+                        onChange={() =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            items: prev.items.includes(item.kpiId)
+                              ? prev.items.filter((value) => value !== item.kpiId)
+                              : [...prev.items, item.kpiId],
+                          }))
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <BuilderFooter
+              onBack={() => setActiveStep(2)}
+              onClear={clearDraft}
+              onApply={() => setActiveStep(4)}
+              applyDisabled={!draft.items.length}
+              showApply={false}
+              continueLabel="Continue"
+            />
+          </div>
+        ) : null}
+
+        {activeStep === 4 ? (
+          <div className="rounded-[28px] border border-slate-200 bg-white p-4">
+            <BuilderSectionHeader
+              step={4}
+              title="Choose IITs, years, mode, and scale"
+              helper="This final step stays compact so the compare flow does not feel bulky."
+            />
+            <div className="mt-4 grid gap-5 xl:grid-cols-[1.2fr_1fr]">
+              <div className="space-y-5">
+                <div className="rounded-[24px] border border-slate-200 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold text-slate-800">IIT selection</div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDraft((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))}
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
+                      >
+                        Select all
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDraft((prev) => ({ ...prev, iits: [] }))}
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+                      >
+                        Clear all
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <SearchField value={search.iits} onChange={(value) => setSearch((prev) => ({ ...prev, iits: value }))} placeholder="Search IITs" />
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {draft.iits.map((iid) => (
+                      <SimpleChip key={iid} removable onRemove={() => setDraft((prev) => ({ ...prev, iits: prev.iits.filter((item) => item !== iid) }))}>
+                        {iid}
+                      </SimpleChip>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid max-h-64 gap-2 overflow-auto pr-1">
+                    {filteredIITs.map((iit) => (
+                      <CheckboxRow
+                        key={iit.id}
+                        checked={draft.iits.includes(iit.id)}
+                        title={`${iit.id} · ${iit.name}`}
+                        subtitle={iit.state}
+                        onChange={() =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            iits: prev.iits.includes(iit.id)
+                              ? prev.iits.filter((item) => item !== iit.id)
+                              : [...prev.iits, iit.id],
+                          }))
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-slate-200 p-3">
+                  <div className="text-sm font-semibold text-slate-800">Year selection</div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <label className="space-y-1">
+                      <span className="text-xs font-semibold text-slate-500">From year</span>
+                      <select
+                        value={draft.yearFrom}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          setDraft((prev) => ({
+                            ...prev,
+                            yearFrom: Math.min(value, prev.yearTo),
+                            focusYear: Math.max(Math.min(prev.focusYear, prev.yearTo), Math.min(value, prev.yearTo)),
+                          }));
+                        }}
+                        className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700"
+                      >
+                        {YEARS.map((year) => <option key={year} value={year}>{year}</option>)}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs font-semibold text-slate-500">To year</span>
+                      <select
+                        value={draft.yearTo}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          setDraft((prev) => ({
+                            ...prev,
+                            yearTo: Math.max(value, prev.yearFrom),
+                            focusYear: Math.min(Math.max(prev.focusYear, prev.yearFrom), Math.max(value, prev.yearFrom)),
+                          }));
+                        }}
+                        className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700"
+                      >
+                        {YEARS.map((year) => <option key={year} value={year}>{year}</option>)}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs font-semibold text-slate-500">Focus year</span>
+                      <select
+                        value={draft.focusYear}
+                        onChange={(event) => setDraft((prev) => ({ ...prev, focusYear: Number(event.target.value) }))}
+                        className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700"
+                      >
+                        {YEARS.filter((year) => year >= draft.yearFrom && year <= draft.yearTo).map((year) => (
+                          <option key={year} value={year}>{year}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {YEARS.filter((year) => year >= draft.yearFrom && year <= draft.yearTo).map((year) => (
+                      <SimpleChip key={year} tone={year === draft.focusYear ? "#1d4ed8" : "#64748b"} onClick={() => setDraft((prev) => ({ ...prev, focusYear: year }))}>
+                        {year}
+                      </SimpleChip>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-5">
+                <div className="rounded-[24px] border border-slate-200 p-3">
+                  <div className="text-sm font-semibold text-slate-800">Compare mode</div>
+                  <div className="mt-3 grid gap-3">
+                    {VIEW_OPTIONS.map((option) => {
+                      const state = modeValidity[option.id];
+                      const active = draft.view === option.id;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          disabled={!state.valid}
+                          onClick={() => setDraft((prev) => ({ ...prev, view: option.id }))}
+                          className={cn(
+                            "rounded-[22px] border px-3 py-3 text-left transition",
+                            !state.valid ? "cursor-not-allowed opacity-60" : "",
+                          )}
+                          style={{
+                            borderColor: active ? "rgba(37,99,235,0.28)" : "rgba(148,163,184,0.22)",
+                            background: active ? "rgba(37,99,235,0.06)" : "white",
+                          }}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl" style={{ background: active ? "#1d4ed8" : "#eef5ff" }}>
+                              {compareIcon(option.id, active, active ? "#ffffff" : "#2563eb")}
+                            </div>
+                            <div>
+                              <div className="text-sm font-semibold text-slate-800">{option.label}</div>
+                              <div className="mt-1 text-xs text-slate-500">{option.help}</div>
+                              {!state.valid ? <div className="mt-2 text-xs font-semibold text-amber-700">{state.reason}</div> : null}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-slate-200 p-3">
+                  <div className="text-sm font-semibold text-slate-800">Scale</div>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    {SCALE_OPTIONS.map((option) => {
+                      const disabled = option.id === "indexed" && (!modeValidity[draft.view]?.valid || draft.view === "table" || modeValidity.chartableCount < 1);
+                      const active = draft.scale === option.id;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => setDraft((prev) => ({ ...prev, scale: option.id }))}
+                          className={cn(
+                            "rounded-2xl border px-3 py-3 text-sm font-semibold transition",
+                            disabled ? "cursor-not-allowed opacity-50" : "",
+                          )}
+                          style={{
+                            borderColor: active ? "rgba(37,99,235,0.28)" : "rgba(148,163,184,0.22)",
+                            background: active ? "rgba(37,99,235,0.06)" : "white",
+                            color: active ? "#1d4ed8" : "#475569",
+                          }}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {modeValidity.tableOnlyCount > 0 ? (
+                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      Some selected items are table-first. Shared charts may be restricted until only compatible metrics remain.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <BuilderFooter
+              onBack={() => setActiveStep(3)}
+              onClear={clearDraft}
+              onApply={applyCompare}
+              applyDisabled={!canApply}
+              applyLabel="Apply Compare"
+            />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderSummaryStrip() {
+    if (!applied) return null;
+    const moduleLabels = applied.modules.map((id) => moduleMap[id]?.id ?? id);
+    const submoduleLabels = applied.submodules.map((id) => submoduleMap[id]?.label ?? id);
+    const itemLabels = applied.items.map((id) => worksheetMap[id]?.label ?? id);
+    return (
+      <div className="rounded-[28px] border bg-white px-4 py-3 shadow-sm" style={{ borderColor: "rgba(59,130,246,0.15)" }}>
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {moduleLabels.map((label, index) => (
+            <SimpleChip key={`${label}-${index}`} removable onRemove={() => removeFromApplied("module", applied.modules[index])}>{`Module · ${label}`}</SimpleChip>
+          ))}
+          {submoduleLabels.map((label, index) => (
+            <SimpleChip key={`${label}-${index}`} tone="#7c3aed" removable onRemove={() => removeFromApplied("submodule", applied.submodules[index])}>{`Sub-module · ${label}`}</SimpleChip>
+          ))}
+          {itemLabels.map((label, index) => (
+            <SimpleChip key={`${label}-${index}`} tone="#0f766e" removable onRemove={() => removeFromApplied("item", applied.items[index])}>{label}</SimpleChip>
+          ))}
+          {applied.iits.map((iid) => (
+            <SimpleChip key={iid} tone="#ea580c" removable onRemove={() => removeFromApplied("iit", iid)}>{iid}</SimpleChip>
+          ))}
+          <SimpleChip tone="#475569">{`Years · ${applied.yearFrom}–${applied.yearTo}`}</SimpleChip>
+          <SimpleChip tone="#1d4ed8">{`Focus · ${applied.focusYear}`}</SimpleChip>
+          <SimpleChip tone="#db2777" removable onRemove={() => openBuilder(4)}>{`Mode · ${VIEW_OPTIONS.find((option) => option.id === applied.view)?.label ?? applied.view}`}</SimpleChip>
+          <SimpleChip tone="#0891b2" removable onRemove={() => openBuilder(4)}>{`Scale · ${applied.scale === "indexed" ? "Indexed 100" : "Raw"}`}</SimpleChip>
+        </div>
+      </div>
+    );
+  }
+
+  function renderChartCard(targetRef, fullscreen = false) {
+    if (!applied) return null;
+    const viewLabel = VIEW_OPTIONS.find((option) => option.id === applied.view)?.label ?? applied.view;
+    const subtitle = `${summarizeList(appliedItems.map((item) => item.label), 2)} · ${summarizeList(appliedIITs, 4)} · ${applied.yearFrom}–${applied.yearTo}`;
+
+    return (
+      <div
+        ref={targetRef}
+        className={cn("rounded-[32px] border bg-white shadow-sm", fullscreen ? "h-full" : "")}
+        style={{ borderColor: "rgba(59,130,246,0.15)" }}
+      >
+        <div className={cn("relative", fullscreen ? "h-full p-5" : "p-4")}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-[1.05rem] font-extrabold leading-tight text-slate-900">Compare</div>
+              <div className="mt-1 text-sm text-slate-500">{subtitle}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {VIEW_OPTIONS.map((option) => {
+                  const active = applied.view === option.id;
+                  const state = appliedModeValidity[option.id];
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      disabled={!state.valid}
+                      onClick={() => setApplied((prev) => ({ ...prev, view: option.id, scale: option.id === "table" ? "raw" : prev.scale }))}
+                      className={cn("inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold transition", !state.valid ? "cursor-not-allowed opacity-50" : "")}
+                      style={{
+                        background: active ? "#e8f0ff" : "#ffffff",
+                        border: `1px solid ${active ? "rgba(37,99,235,0.28)" : "rgba(148,163,184,0.18)"}`,
+                        color: active ? "#1d4ed8" : "#475569",
+                      }}
+                    >
+                      {compareIcon(option.id, false, active ? "#1d4ed8" : "#475569")}
+                      <span>{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {SCALE_OPTIONS.map((option) => {
+                const disabled = option.id === "indexed" && (applied.view === "table" || !appliedModeValidity[applied.view]?.valid);
+                const active = applied.scale === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setApplied((prev) => ({ ...prev, scale: option.id }))}
+                    className={cn("rounded-full px-3 py-1.5 text-xs font-bold transition", disabled ? "cursor-not-allowed opacity-50" : "")}
+                    style={{
+                      background: active ? "#e8f0ff" : "white",
+                      border: `1px solid ${active ? "rgba(37,99,235,0.28)" : "rgba(148,163,184,0.18)"}`,
+                      color: active ? "#1d4ed8" : "#475569",
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => setIsFullscreen((value) => !value)}
+                className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700"
+                title={isFullscreen ? "Exit fullscreen" : "Open fullscreen"}
+              >
+                {compareIcon("fullscreen", false, "#475569")}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              {appliedYears.map((year) => (
+                <SimpleChip key={year} tone={year === applied.focusYear ? "#1d4ed8" : "#64748b"} onClick={() => setApplied((prev) => ({ ...prev, focusYear: year }))}>
+                  {year}
+                </SimpleChip>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={handleShare} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+                {compareIcon("share", false, "#475569")}
+                <span>Share summary</span>
+              </button>
+              <button type="button" onClick={applied.view === "table" ? handleDownloadCsv : handleDownloadSvg} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+                {compareIcon("download", false, "#475569")}
+                <span>{applied.view === "table" ? "CSV" : "SVG"}</span>
+              </button>
+              <button type="button" onClick={handleDownloadPng} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+                {compareIcon("image", false, "#475569")}
+                <span>PNG</span>
+              </button>
+            </div>
+          </div>
+
+          {groupedIITs.length < appliedIITs.length && applied.view === "grouped" ? (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Grouped bars are capped at 7 IITs for readability. The first 7 selected IITs are shown.
+            </div>
+          ) : null}
+
+          <div className="mt-4 rounded-[28px] border border-slate-200 bg-white p-4">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">{viewLabel}</div>
+                <div className="text-xs text-slate-500">{subtitle}</div>
+              </div>
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+              >
+                PDF
+              </button>
+            </div>
+
+            {applied.view !== "table" && !appliedModeValidity[applied.view]?.valid ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {appliedModeValidity[applied.view]?.reason}
+              </div>
+            ) : null}
+
+            {applied.view === "grouped" && appliedModeValidity.grouped.valid ? (
+              <div style={{ height: fullscreen ? 620 : 520 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={groupedRows} margin={{ top: 12, right: 18, left: 8, bottom: 24 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                    <XAxis dataKey="shortLabel" tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} interval={0} />
+                    <YAxis tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} width={78} />
+                    <Tooltip content={<CompareTooltip metricLookup={appliedMetricLookup} scaleMode={applied.scale} mode="grouped" />} />
+                    {groupedIITs.map((iid, index) => (
+                      <Bar key={iid} dataKey={`display_${iid}`} fill={PALETTE[index % PALETTE.length]} radius={[10, 10, 0, 0]} maxBarSize={Math.max(18, 42 - groupedRows.length)}>
+                        {groupedRows.map((row) => <Cell key={`${iid}-${row.metricId}`} />)}
+                      </Bar>
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : null}
+
+            {applied.view === "trend" && appliedModeValidity.trend.valid ? (
+              <div style={{ height: fullscreen ? 620 : 520 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trendRows} margin={{ top: 14, right: 20, left: 8, bottom: 18 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                    <XAxis dataKey="label" tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} width={78} />
+                    <Tooltip content={<CompareTooltip metricLookup={appliedMetricLookup} scaleMode={applied.scale} mode="trend" />} />
+                    <ReferenceLine x={String(applied.focusYear)} stroke={uiAccent} strokeDasharray="4 4" />
+                    {appliedIITs.map((iid, index) => (
+                      <Line key={iid} type="monotone" dataKey={`display_${iid}`} stroke={PALETTE[index % PALETTE.length]} strokeWidth={2.6} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : null}
+
+            {applied.view === "smallMultiples" && appliedModeValidity.smallMultiples.valid ? (
+              <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+                {smallMultipleSeries.map((series) => (
+                  <SmallMultipleCard key={series.item.kpiId} series={series} accent={uiAccent} scaleMode={applied.scale} />
+                ))}
+              </div>
+            ) : null}
+
+            {applied.view === "table" && appliedModeValidity.table.valid ? (
+              <div className="overflow-auto rounded-[24px] border border-slate-200">
+                <table className="w-full border-collapse text-sm">
+                  <thead className="sticky top-0 bg-[#eef5ff]">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Institute</th>
+                      <th className="px-3 py-2 text-left">Module</th>
+                      <th className="px-3 py-2 text-left">Sub-module</th>
+                      <th className="px-3 py-2 text-left">Compare item</th>
+                      <th className="px-3 py-2 text-left">Value</th>
+                      <th className="px-3 py-2 text-left">YoY</th>
+                      <th className="px-3 py-2 text-left">Range</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableRows.map((row, index) => (
+                      <tr key={`${row.Institute}-${row.CompareItem}-${index}`} className="odd:bg-[#f8fbff] even:bg-white">
+                        <td className="border-t border-slate-200 px-3 py-2">{row.Institute}</td>
+                        <td className="border-t border-slate-200 px-3 py-2">{row.Module}</td>
+                        <td className="border-t border-slate-200 px-3 py-2">{row.Submodule}</td>
+                        <td className="border-t border-slate-200 px-3 py-2">{row.CompareItem}</td>
+                        <td className="border-t border-slate-200 px-3 py-2">{fmtRaw(row._item?.kpi, row.Value)}</td>
+                        <td className="border-t border-slate-200 px-3 py-2">{formatPct(row.YoY)}</td>
+                        <td className="border-t border-slate-200 px-3 py-2">{row.Range}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[1.6rem] font-extrabold tracking-tight text-slate-900">Compare</div>
+          <div className="mt-1 text-sm text-slate-500">Progressive compare-builder aligned with the module-page visual language.</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <PillTab label="Compare View" icon={compareIcon("compare", false, "#475569")} active={Boolean(applied)} onClick={() => openBuilder(1)} />
+          <PillTab label="Filters" icon={compareIcon("filters", false, "#475569")} active={builderOpen && activeStep < 4} onClick={() => openBuilder(1)} />
+          <PillTab label="Compare Mode" icon={compareIcon("grouped", false, "#475569")} active={builderOpen && activeStep === 4} onClick={() => openBuilder(4)} />
+          <PillTab label="Saved Sets" icon={compareIcon("save", false, "#475569")} active={false} onClick={() => openBuilder(1)} />
+        </div>
+      </div>
+
+      {notice ? (
+        <div className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700">
+          {notice}
+        </div>
+      ) : null}
+
+      {!applied ? <EmptyStateCard onBuild={() => openBuilder(1)} /> : null}
+
+      {applied ? renderSummaryStrip() : null}
+      {applied ? renderChartCard(chartRef, false) : null}
+
+      {builderOpen ? (
+        <div className="fixed inset-0 z-[260] bg-slate-950/28 p-4 backdrop-blur-sm">
+          <div className="mx-auto flex h-full max-w-5xl items-start justify-center overflow-auto">
+            <div className="my-6 w-full rounded-[36px] border border-white/50 bg-white p-5 shadow-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xl font-semibold text-slate-900">Build Comparison</div>
+                  <div className="mt-1 text-sm text-slate-500">Step {activeStep} of 4</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeBuilder}
+                  className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600"
+                >
+                  {compareIcon("close", false, "#475569")}
+                </button>
+              </div>
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-sky-600 transition-all" style={{ width: `${(activeStep / 4) * 100}%` }} />
+              </div>
+              <div className="mt-5">{renderBuilderContent()}</div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isFullscreen && applied ? (
+        <div className="fixed inset-0 z-[270] bg-slate-950/35 p-4 backdrop-blur-sm">
+          <div className="flex h-full flex-col rounded-[36px] border border-white/30 bg-white p-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold text-slate-900">Compare · Fullscreen</div>
+                <div className="text-xs text-slate-500">The close button is kept separate from view controls for all charts.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFullscreen(false)}
+                className="grid h-11 w-11 place-items-center rounded-xl text-white"
+                style={{ background: uiAccent }}
+              >
+                {compareIcon("close", true, "#ffffff")}
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">{renderChartCard(fullscreenRef, true)}</div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
