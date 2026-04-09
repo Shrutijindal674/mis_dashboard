@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # IITMIS Dashboard (Local Host)
 
 This is a Vite + React + Tailwind project containing the single-file dashboard (src/App.jsx).
@@ -26,3 +27,6 @@ Then open the URL printed in the terminal (usually http://localhost:5173).
 npm run build
 npm run preview
 ```
+=======
+# mis_dashboard
+>>>>>>> 00f00a0d2d3f81749b75c7f12ef39687e2eb2488
