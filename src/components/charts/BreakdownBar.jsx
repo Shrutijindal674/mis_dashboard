@@ -55,6 +55,7 @@ export default function BreakdownBar({
 }) {
   const isPct = format === "pct";
   const horizontal = data.length > 7;
+  const yAxisLabel = isPct ? `${yLabel} (%)` : yLabel;
 
   return (
     <div className="flex flex-col" style={{ height }}>
@@ -65,8 +66,8 @@ export default function BreakdownBar({
             layout={horizontal ? "vertical" : "horizontal"}
             margin={
               horizontal
-                ? { top: 24, right: 28, left: 62, bottom: 18 }
-                : { top: 24, right: 24, left: 18, bottom: 58 }
+                ? { top: 24, right: 28, left: 88, bottom: 18 }
+                : { top: 24, right: 24, left: 44, bottom: 58 }
             }
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" />
@@ -96,6 +97,7 @@ export default function BreakdownBar({
                     value={xLabel}
                     angle={-90}
                     position="insideLeft"
+                    offset={-18}
                     style={{ fill: "#0f172a", fontSize: 13, fontWeight: 800 }}
                   />
                 </YAxis>
@@ -118,15 +120,17 @@ export default function BreakdownBar({
                   />
                 </XAxis>
                 <YAxis
+                  width={84}
                   tick={{ fontSize: 12, fontWeight: 600, fill: "#334155" }}
                   tickFormatter={(v) =>
                     isPct ? `${Math.round(v * 100)}%` : formatCompact(v)
                   }
                 >
                   <Label
-                    value={isPct ? `${yLabel} (%)` : yLabel}
+                    value={yAxisLabel}
                     angle={-90}
                     position="insideLeft"
+                    offset={-20}
                     style={{ fill: "#0f172a", fontSize: 13, fontWeight: 800 }}
                   />
                 </YAxis>

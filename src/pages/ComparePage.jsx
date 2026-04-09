@@ -270,7 +270,7 @@ function ToolbarSelect({ label, value, options, onChange, minWidth = 110 }) {
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-sky-300"
+        className="h-12 rounded-[18px] border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-700 outline-none transition focus:border-sky-300"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>{option.label}</option>
@@ -1747,7 +1747,7 @@ export default function ComparePage({
             <button
               type="button"
               onClick={() => openBuilder(1)}
-              className="inline-flex h-11 items-center gap-2 rounded-2xl px-4 text-sm font-bold text-white shadow-sm"
+              className="inline-flex h-12 items-center gap-3 rounded-[18px] px-6 text-sm font-extrabold text-white shadow-sm"
               style={{ background: '#1d4ed8' }}
             >
               {compareIcon('build', true, '#ffffff')}
@@ -1761,7 +1761,7 @@ export default function ComparePage({
                   value={toolbarSearch}
                   onChange={(event) => setToolbarSearch(event.target.value)}
                   placeholder="Search hierarchy, worksheets, or IITs"
-                  className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition focus:border-sky-300"
+                  className="h-12 rounded-[18px] border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition focus:border-sky-300"
                 />
               </label>
             </div>
@@ -1797,17 +1797,17 @@ export default function ComparePage({
             <button
               type="button"
               onClick={() => setOpenPopover((value) => (value === 'filters' ? null : 'filters'))}
-              className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700"
+              className="inline-flex h-12 items-center gap-3 rounded-[18px] border border-slate-200 bg-white px-5 text-sm font-extrabold text-slate-700"
             >
               {compareIcon('filters', false, '#475569')}
               <span>Filters</span>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">{activeFilterCount}</span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-extrabold text-slate-600">{activeFilterCount}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setOpenPopover((value) => (value === 'mode' ? null : 'mode'))}
-              className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700"
+              className="inline-flex h-12 items-center gap-3 rounded-[18px] border border-slate-200 bg-white px-5 text-sm font-extrabold text-slate-700"
             >
               {compareIcon(draft.view, false, '#475569')}
               <span>Compare Mode</span>
@@ -1817,7 +1817,7 @@ export default function ComparePage({
               type="button"
               disabled={!canApply}
               onClick={applyCompare}
-              className={cn('inline-flex h-11 items-center gap-2 rounded-2xl px-4 text-sm font-bold text-white shadow-sm transition', !canApply ? 'cursor-not-allowed opacity-50' : '')}
+              className={cn('inline-flex h-12 items-center gap-3 rounded-[18px] px-6 text-sm font-extrabold text-white shadow-sm transition', !canApply ? 'cursor-not-allowed opacity-50' : '')}
               style={{ background: '#1d4ed8' }}
             >
               {compareIcon('compare', true, '#ffffff')}

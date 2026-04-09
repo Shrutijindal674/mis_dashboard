@@ -53,6 +53,14 @@ import misLandingLogo from "../../public/mis-landing-logo.png";
 import ComparePage from "./ComparePage";
 import ReportsHubPage, { buildTemplateForFact } from "./ReportsPage";
 
+const IIT_HOME_LOGOS = {
+  IITB: "/iitb-logo.png",
+  IITD: "/iitd-logo.png",
+  IITK: "/iitk-logo-home.png",
+  IITKGP: "/iitkgp-logo.png",
+  IITM: "/iitm-logo.png",
+};
+
 function iconSvg(kind, active = false, tone = null) {
   const stroke = active ? "white" : tone || "#64748b";
   const common = {
@@ -597,6 +605,7 @@ export default function Dashboard({
   const currentInstitute = useMemo(() => {
     return IITs.find((item) => item.id === activeInstituteId) ?? IITs[0];
   }, [activeInstituteId]);
+  const currentInstituteLogo = IIT_HOME_LOGOS[activeInstituteId] ?? null;
 
   const activeSectionTheme =
     THEME_COLORS[MODULES.includes(section) ? section : module] ??
@@ -1995,14 +2004,15 @@ export default function Dashboard({
 
           {section === "Home" ? (
             <div className="space-y-4">
-              <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-                <div
-                  className="rounded-[32px] p-6 shadow-sm"
-                  style={{
-                    background: "rgba(255,255,255,0.94)",
-                    border: "1px solid rgba(59,130,246,0.15)",
-                  }}
-                >
+              <div
+                className="rounded-[32px] p-6 shadow-sm"
+                style={{
+                  background: "rgba(255,255,255,0.94)",
+                  border: "1px solid rgba(59,130,246,0.15)",
+                }}
+              >
+                <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+                  <div>
                   <div className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "#64748b" }}>
                     Institute snapshot · AY {yearRange.from}–{yearRange.to}
                   </div>
@@ -2069,75 +2079,100 @@ export default function Dashboard({
                       </button>
                     ))}
                   </div>
-                </div>
-
-                <div
-                  className="rounded-[32px] p-5 shadow-sm"
-                  style={{
-                    background: "rgba(255,255,255,0.94)",
-                    border: "1px solid rgba(59,130,246,0.15)",
-                  }}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="text-[2rem] font-black leading-tight" style={{ color: "#0f2a5e" }}>
-                      Performance and research
-                    </div>
-                    <div className="pt-1 text-[11px] font-bold uppercase tracking-[0.16em]" style={{ color: accent }}>
-                      Official highlights
-                    </div>
                   </div>
 
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                    {homeReportCards.map((card) => (
+                  <div
+                    className="flex h-full flex-col rounded-[28px] p-5"
+                    style={{
+                      background: "rgba(238,245,255,0.52)",
+                      border: "1px solid rgba(59,130,246,0.12)",
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="text-[2rem] font-black leading-tight" style={{ color: "#0f2a5e" }}>
+                        Performance and research
+                      </div>
+                      <div className="pt-1 text-[11px] font-bold uppercase tracking-[0.16em]" style={{ color: accent }}>
+                        Official highlights
+                      </div>
+                    </div>
+
+                    <div
+                      className="mt-5 flex min-h-[220px] items-center justify-center rounded-[24px] bg-white p-6"
+                      style={{ border: "1px solid rgba(59,130,246,0.12)" }}
+                    >
+                      {currentInstituteLogo ? (
+                        <img
+                          src={currentInstituteLogo}
+                          alt={`${currentInstitute.name} logo`}
+                          className="max-h-[240px] w-auto object-contain"
+                        />
+                      ) : (
+                        <div
+                          className="flex h-40 w-40 items-center justify-center rounded-full border text-center text-lg font-extrabold uppercase tracking-[0.18em]"
+                          style={{
+                            borderColor: "rgba(59,130,246,0.18)",
+                            color: "#0f2a5e",
+                            background: "rgba(248,250,252,0.82)",
+                          }}
+                        >
+                          {currentInstitute.id}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                      {homeReportCards.map((card) => (
+                        <button
+                          key={card.id}
+                          type="button"
+                          onClick={() => openReportsForKpis([card.kpiId], card.kpiId)}
+                          className="rounded-[22px] p-4 text-left transition hover:-translate-y-0.5"
+                          style={{
+                            background: "rgba(238,245,255,0.72)",
+                            border: "1px solid rgba(59,130,246,0.12)",
+                          }}
+                        >
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "#64748b" }}>
+                            {card.eyebrow}
+                          </div>
+                          <div className="mt-3 text-3xl font-extrabold leading-none" style={{ color: "#0f172a" }}>
+                            {card.value}
+                          </div>
+                          <div className="mt-2 text-sm font-semibold" style={{ color: "#475569" }}>
+                            {card.note}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="mt-5 flex flex-wrap gap-3">
                       <button
-                        key={card.id}
                         type="button"
-                        onClick={() => openReportsForKpis([card.kpiId], card.kpiId)}
-                        className="rounded-[22px] p-4 text-left transition hover:-translate-y-0.5"
+                        onClick={() =>
+                          openReportsForKpis(
+                            homeReportCards.map((item) => item.kpiId),
+                            homeReportCards[0]?.kpiId,
+                          )
+                        }
+                        className="rounded-2xl px-4 py-2.5 text-sm font-bold text-white"
+                        style={{ background: accent }}
+                      >
+                        Explore institute reports
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSection("Compare")}
+                        className="rounded-2xl px-4 py-2.5 text-sm font-bold"
                         style={{
-                          background: "rgba(238,245,255,0.72)",
-                          border: "1px solid rgba(59,130,246,0.12)",
+                          color: "#1252a0",
+                          border: "1px solid rgba(59,130,246,0.18)",
+                          background: "#ffffff",
                         }}
                       >
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "#64748b" }}>
-                          {card.eyebrow}
-                        </div>
-                        <div className="mt-3 text-3xl font-extrabold leading-none" style={{ color: "#0f172a" }}>
-                          {card.value}
-                        </div>
-                        <div className="mt-2 text-sm font-semibold" style={{ color: "#475569" }}>
-                          {card.note}
-                        </div>
+                        Compare IITs
                       </button>
-                    ))}
-                  </div>
-
-                  <div className="mt-5 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openReportsForKpis(
-                          homeReportCards.map((item) => item.kpiId),
-                          homeReportCards[0]?.kpiId,
-                        )
-                      }
-                      className="rounded-2xl px-4 py-2.5 text-sm font-bold text-white"
-                      style={{ background: accent }}
-                    >
-                      Explore institute reports
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSection("Compare")}
-                      className="rounded-2xl px-4 py-2.5 text-sm font-bold"
-                      style={{
-                        color: "#1252a0",
-                        border: "1px solid rgba(59,130,246,0.18)",
-                        background: "#ffffff",
-                      }}
-                    >
-                      Compare IITs
-                    </button>
+                    </div>
                   </div>
                 </div>
               </div>

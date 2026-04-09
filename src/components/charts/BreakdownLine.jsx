@@ -43,11 +43,12 @@ function TooltipCard({ active, payload, label, isPct, yLabel }) {
 
 export default function BreakdownLine({ data, format, accent, yLabel = "Value" }) {
   const isPct = format === "pct";
+  const axisLabel = isPct ? `${yLabel} (%)` : yLabel;
 
   return (
     <div className="h-[420px]">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 24, right: 24, left: 18, bottom: 40 }}>
+        <LineChart data={data} margin={{ top: 24, right: 24, left: 44, bottom: 40 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" />
           <XAxis dataKey="name" tick={{ fontSize: 12, fontWeight: 600, fill: "#334155" }}>
             <Label
@@ -58,13 +59,15 @@ export default function BreakdownLine({ data, format, accent, yLabel = "Value" }
             />
           </XAxis>
           <YAxis
+            width={84}
             tick={{ fontSize: 12, fontWeight: 600, fill: "#334155" }}
             tickFormatter={(v) => (isPct ? `${Math.round(v * 100)}%` : formatCompact(v))}
           >
             <Label
-              value={isPct ? `${yLabel} (%)` : yLabel}
+              value={axisLabel}
               angle={-90}
               position="insideLeft"
+              offset={-20}
               style={{ fill: "#0f172a", fontSize: 13, fontWeight: 800 }}
             />
           </YAxis>

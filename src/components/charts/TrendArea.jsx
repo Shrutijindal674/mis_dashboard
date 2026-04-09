@@ -21,13 +21,13 @@ export default function TrendArea({ seriesA, seriesB, labelA, labelB, accent }) 
   return (
     <div className="h-[360px]">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 28 }}>
+        <AreaChart data={data} margin={{ top: 10, right: 20, left: 40, bottom: 28 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="Month" tick={{ fontSize: 12 }}>
             <Label value="Month" position="insideBottom" offset={-8} style={{ fill: "#475569", fontSize: 12 }} />
           </XAxis>
-          <YAxis tick={{ fontSize: 12 }} tickFormatter={formatCompact}>
-            <Label value="Value" angle={-90} position="insideLeft" style={{ fill: "#475569", fontSize: 12 }} />
+          <YAxis width={78} tick={{ fontSize: 12 }} tickFormatter={formatCompact}>
+            <Label value="Value" angle={-90} position="insideLeft" offset={-18} style={{ fill: "#475569", fontSize: 12 }} />
           </YAxis>
           <Tooltip formatter={(v) => formatCompact(Number(v))} />
           <Legend />

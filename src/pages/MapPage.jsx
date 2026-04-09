@@ -235,7 +235,7 @@ function IndiaMap({ selectedId, onSelect, isInitialLoad }) {
       style={{
         height: 580,
         borderRadius: "24px",
-        background: "linear-gradient(135deg,#dbeafe 0%,#eff6ff 40%,#e0f2fe 100%)",
+        background: "#ffffff",
         border: "1.5px solid rgba(59,130,246,0.2)",
         boxShadow: "0 25px 60px rgba(25,117,190,0.1), 0 8px 24px rgba(0,0,0,0.06)",
       }}
@@ -258,7 +258,7 @@ function IndiaMap({ selectedId, onSelect, isInitialLoad }) {
       {loading && (
         <div
           className="absolute inset-0 z-[9999] flex flex-col items-center justify-center gap-4"
-          style={{ background: "linear-gradient(135deg,#dbeafe,#eff6ff)" }}
+          style={{ background: "#ffffff" }}
         >
           <div
             style={{
@@ -315,35 +315,6 @@ function IndiaMap({ selectedId, onSelect, isInitialLoad }) {
         ))}
       </div>
 
-      {/* IIT count badge */}
-      <div
-        style={{
-          position: "absolute", right: 14, top: 14, zIndex: 1000,
-          background: "rgba(255,255,255,0.92)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-          borderRadius: 14,
-          border: "1px solid rgba(59,130,246,0.15)",
-          padding: "8px 14px",
-          boxShadow: "0 8px 24px rgba(25,117,190,0.1)",
-          display: "flex", alignItems: "center", gap: 8,
-        }}
-      >
-        <div style={{
-          width: 28, height: 28, borderRadius: "50%",
-          background: "linear-gradient(135deg,#3b9de0,#1975be)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 12, fontWeight: 900, color: "white",
-          boxShadow: "0 2px 8px rgba(25,117,190,0.35)",
-        }}>
-          {IITs.length}
-        </div>
-        <div>
-          <div style={{ fontSize: 9, fontWeight: 700, color: "#1975be", letterSpacing: "0.8px", textTransform: "uppercase" }}>IITs</div>
-          <div style={{ fontSize: 10, fontWeight: 600, color: "#1e3a5f" }}>on map</div>
-        </div>
-      </div>
-
       <MapContainer
         center={[22, 82.5]}
         zoom={5}
@@ -351,7 +322,7 @@ function IndiaMap({ selectedId, onSelect, isInitialLoad }) {
         maxZoom={10}
         style={{
           height: "100%", width: "100%",
-          background: "linear-gradient(160deg,#dbeafe 0%,#eff6ff 60%,#e0f2fe 100%)",
+          background: "#ffffff",
           borderRadius: "24px",
         }}
         scrollWheelZoom
@@ -426,9 +397,6 @@ export default function MapPage({ selectedInstituteId, onPick, onBack }) {
           </button>
 
           <div className="flex items-center gap-3">
-            <div className="rounded-full px-4 py-2 text-sm" style={{ background: "rgba(255,255,255,0.85)", color: "#334155", border: "1px solid rgba(15,42,94,0.08)" }}>
-              {sel.id}
-            </div>
             <button
               onClick={() => onPick(selected)}
               type="button"
@@ -459,11 +427,6 @@ export default function MapPage({ selectedInstituteId, onPick, onBack }) {
             </p>
           </div>
 
-          <div className="min-w-[280px] rounded-2xl px-4 py-3" style={{ background: "white", border: "1px solid rgba(15,42,94,0.08)" }}>
-            <div className="text-xs uppercase tracking-[0.16em]" style={{ color: "#2563eb" }}>Institute</div>
-            <div className="mt-1 text-base" style={{ color: "#0f172a", fontWeight: 500 }}>{sel.name}</div>
-            <div className="text-sm" style={{ color: "#64748b" }}>{sel.state}</div>
-          </div>
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
