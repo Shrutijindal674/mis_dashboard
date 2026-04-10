@@ -40,6 +40,12 @@ const SCALE_OPTIONS = [
   { id: "raw", label: "Raw" },
   { id: "indexed", label: "Indexed 100" },
 ];
+const GROUPED_WINDOW_OPTIONS = [
+  { value: "4", label: "4" },
+  { value: "6", label: "6" },
+  { value: "8", label: "8" },
+  { value: "all", label: "All" },
+];
 
 function cn(...parts) {
   return parts.filter(Boolean).join(" ");
@@ -86,6 +92,52 @@ function normalizeToBase(values) {
 function truncate(text, max = 40) {
   if (!text) return "";
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function splitLabelAcrossTwoLines(text) {
+  const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return [""];
+
+  const words = normalized.split(" ");
+  if (words.length === 1) {
+    if (words[0].length <= 18) return [words[0]];
+    const midpoint = Math.ceil(words[0].length / 2);
+    return [words[0].slice(0, midpoint), words[0].slice(midpoint)].filter(Boolean);
+  }
+
+  let bestPair = [normalized];
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (let index = 1; index < words.length; index += 1) {
+    const firstLine = words.slice(0, index).join(" ");
+    const secondLine = words.slice(index).join(" ");
+    const longestLine = Math.max(firstLine.length, secondLine.length);
+    const imbalance = Math.abs(firstLine.length - secondLine.length);
+    const score = longestLine * 2 + imbalance;
+
+    if (score < bestScore) {
+      bestPair = [firstLine, secondLine];
+      bestScore = score;
+    }
+  }
+
+  return bestPair;
+}
+
+function WrappedWorksheetTick({ x = 0, y = 0, payload }) {
+  const lines = splitLabelAcrossTwoLines(payload?.value);
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text textAnchor="middle" fill="#475569" fontSize="13" fontWeight="600">
+        {lines.map((line, index) => (
+          <tspan key={`${payload?.value ?? "label"}-${index}`} x="0" dy={index === 0 ? 18 : 15}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </g>
+  );
 }
 
 function summarizeList(values, max = 3) {
@@ -167,6 +219,16 @@ function compareIcon(kind, active = false, tone = "#2563eb") {
         <path {...common} d="M4 6h16" />
         <path {...common} d="M7 12h10" />
         <path {...common} d="M10 18h4" />
+      </>
+    ),
+    iit: (
+      <>
+        <path {...common} d="M4 10 12 5l8 5" />
+        <path {...common} d="M6.5 10v8" />
+        <path {...common} d="M10 10v8" />
+        <path {...common} d="M14 10v8" />
+        <path {...common} d="M17.5 10v8" />
+        <path {...common} d="M4 18h16" />
       </>
     ),
     save: (
@@ -266,17 +328,52 @@ function SearchField({ value, onChange, placeholder = "Search" }) {
 function ToolbarSelect({ label, value, options, onChange, minWidth = 110 }) {
   return (
     <label className="flex shrink-0 flex-col gap-1" style={{ minWidth }}>
-      <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{label}</span>
+      <span className="px-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-12 rounded-[18px] border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-700 outline-none transition focus:border-sky-300"
+        className="h-12 rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] px-4 text-sm font-extrabold text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] outline-none transition focus:border-sky-300 focus:shadow-[0_0_0_4px_rgba(191,219,254,0.4)]"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>{option.label}</option>
         ))}
       </select>
     </label>
+  );
+}
+
+function CompareViewToolbar({ value, onChange, disabledMap = {} }) {
+  return (
+    <div
+      className="flex items-center overflow-hidden rounded-xl shadow-lg"
+      style={{
+        background: "rgba(255,255,255,0.98)",
+        border: "1px solid rgba(59,130,246,0.16)",
+      }}
+    >
+      {VIEW_OPTIONS.map((option, index) => {
+        const active = option.id === value;
+        const disabled = Boolean(disabledMap[option.id]);
+        return (
+          <button
+            key={option.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(option.id)}
+            className={cn("grid h-10 w-10 place-items-center text-base transition", disabled ? "cursor-not-allowed opacity-45" : "")}
+            style={{
+              borderLeft: index !== 0 ? "1px solid rgba(59,130,246,0.1)" : undefined,
+              background: active ? "#1975be" : "transparent",
+              color: active ? "#fff" : "#1252a0",
+            }}
+            title={option.label}
+            aria-label={option.label}
+          >
+            {compareIcon(option.id, active, active ? "#ffffff" : "#1252a0")}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -309,7 +406,7 @@ function TreeNodeRow({
 }) {
   return (
     <div
-      className="group flex items-start gap-2 rounded-2xl px-2 py-2 transition hover:bg-slate-50"
+      className="group flex items-start gap-2 rounded-[18px] border border-transparent px-2.5 py-2.5 transition hover:border-sky-100 hover:bg-sky-50/70"
       style={{ paddingLeft: `${8 + level * 18}px` }}
     >
       <button
@@ -356,13 +453,13 @@ function SimpleChip({ children, tone = "#2563eb", removable = false, onRemove, o
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold",
-        onClick ? "cursor-pointer transition" : "",
+        "inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+        onClick ? "cursor-pointer transition hover:-translate-y-0.5" : "",
       )}
       onClick={onClick}
       style={{
-        background: `${tone}12`,
-        borderColor: `${tone}22`,
+        background: `${tone}10`,
+        borderColor: `${tone}26`,
         color: tone,
       }}
     >
@@ -689,6 +786,8 @@ export default function ComparePage({
   const [sortBy, setSortBy] = useState("selected");
   const [expandedModules, setExpandedModules] = useState({});
   const [expandedSubmodules, setExpandedSubmodules] = useState({});
+  const [groupedWindowSize, setGroupedWindowSize] = useState("4");
+  const [groupedPage, setGroupedPage] = useState(0);
   const chartRef = useRef(null);
   const fullscreenRef = useRef(null);
 
@@ -800,7 +899,6 @@ export default function ComparePage({
       const row = {
         metricId: item.kpiId,
         label: item.label,
-        shortLabel: truncate(item.label, 22),
       };
       groupedIITs.forEach((iid, index) => {
         row[`display_${iid}`] = displayValues[index];
@@ -809,6 +907,38 @@ export default function ComparePage({
       return row;
     });
   }, [applied, chartableAppliedItems, facts, groupedIITs]);
+
+  const groupedWindowOptions = useMemo(() => {
+    const count = groupedRows.length;
+    const filtered = GROUPED_WINDOW_OPTIONS.filter((option) => option.value === "all" || Number(option.value) <= count);
+    return filtered.length ? filtered : [{ value: "all", label: "All" }];
+  }, [groupedRows.length]);
+
+  const groupedRowsPerPage = groupedWindowSize === "all"
+    ? Math.max(1, groupedRows.length)
+    : Number(groupedWindowSize);
+  const groupedPageCount = groupedWindowSize === "all"
+    ? 1
+    : Math.max(1, Math.ceil(groupedRows.length / groupedRowsPerPage));
+  const visibleGroupedRows = useMemo(() => {
+    if (groupedWindowSize === "all") return groupedRows;
+    const start = groupedPage * groupedRowsPerPage;
+    return groupedRows.slice(start, start + groupedRowsPerPage);
+  }, [groupedPage, groupedRows, groupedRowsPerPage, groupedWindowSize]);
+  const groupedVisibleStart = groupedRows.length ? groupedPage * groupedRowsPerPage + 1 : 0;
+  const groupedVisibleEnd = groupedWindowSize === "all"
+    ? groupedRows.length
+    : Math.min(groupedRows.length, groupedVisibleStart + visibleGroupedRows.length - 1);
+
+  useEffect(() => {
+    setGroupedPage((prev) => Math.min(prev, groupedPageCount - 1));
+  }, [groupedPageCount]);
+
+  useEffect(() => {
+    if (groupedWindowOptions.some((option) => option.value === groupedWindowSize)) return;
+    setGroupedWindowSize(groupedWindowOptions[0]?.value ?? "all");
+    setGroupedPage(0);
+  }, [groupedWindowOptions, groupedWindowSize]);
 
   const primaryAppliedItem = chartableAppliedItems[0];
 
@@ -929,31 +1059,35 @@ export default function ComparePage({
   }
 
   function removeFromApplied(kind, id) {
-    if (!applied) return;
-    const next = { ...applied };
-    if (kind === "module") {
-      next.modules = next.modules.filter((item) => item !== id);
-      const allowedSubmodules = next.modules.flatMap((moduleId) => moduleMap[moduleId]?.submodules.map((submodule) => submodule.id) ?? []);
-      next.submodules = next.submodules.filter((item) => allowedSubmodules.includes(item));
-      const allowedItems = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.worksheets.map((worksheet) => worksheet.kpiId) ?? []);
-      next.items = next.items.filter((item) => allowedItems.includes(item));
-    }
-    if (kind === "submodule") {
-      next.submodules = next.submodules.filter((item) => item !== id);
-      const allowedItems = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.worksheets.map((worksheet) => worksheet.kpiId) ?? []);
-      next.items = next.items.filter((item) => allowedItems.includes(item));
-    }
-    if (kind === "item") next.items = next.items.filter((item) => item !== id);
-    if (kind === "iit") next.iits = next.iits.filter((item) => item !== id);
-    if (kind === "mode") next.view = VIEW_OPTIONS.find((option) => option.id !== next.view && deriveModeValidity(next.items.map((item) => worksheetMap[item]).filter(Boolean), next.iits, next.yearFrom, next.yearTo)[option.id]?.valid)?.id ?? next.view;
-    if (kind === "scale") next.scale = "raw";
-    if (!next.modules.length || !next.submodules.length || !next.items.length || !next.iits.length) {
-      setApplied(null);
-      setDraft(next);
-      return;
-    }
-    setApplied(next);
-    setDraft(next);
+    updateSelectionSummarySource((prev) => {
+      const next = { ...prev };
+      if (kind === "module") {
+        next.modules = next.modules.filter((item) => item !== id);
+        const allowedSubmodules = next.modules.flatMap((moduleId) => moduleMap[moduleId]?.submodules.map((submodule) => submodule.id) ?? []);
+        next.submodules = next.submodules.filter((item) => allowedSubmodules.includes(item));
+        const allowedItems = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.worksheets.map((worksheet) => worksheet.kpiId) ?? []);
+        next.items = next.items.filter((item) => allowedItems.includes(item));
+      }
+      if (kind === "submodule") {
+        next.submodules = next.submodules.filter((item) => item !== id);
+        const keepModule = next.submodules.some((submoduleId) => submoduleMap[submoduleId]?.moduleId === submoduleMap[id]?.moduleId);
+        if (!keepModule) next.modules = next.modules.filter((moduleId) => moduleId !== submoduleMap[id]?.moduleId);
+        const allowedItems = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.worksheets.map((worksheet) => worksheet.kpiId) ?? []);
+        next.items = next.items.filter((item) => allowedItems.includes(item));
+      }
+      if (kind === "item") {
+        next.items = next.items.filter((item) => item !== id);
+        const item = worksheetMap[id];
+        const keepSubmodule = next.items.some((itemId) => worksheetMap[itemId]?.submoduleId === item?.submoduleId);
+        if (!keepSubmodule) next.submodules = next.submodules.filter((submoduleId) => submoduleId !== item?.submoduleId);
+        const keepModule = next.submodules.some((submoduleId) => submoduleMap[submoduleId]?.moduleId === item?.moduleId);
+        if (!keepModule) next.modules = next.modules.filter((moduleId) => moduleId !== item?.moduleId);
+      }
+      if (kind === "iit") next.iits = next.iits.filter((item) => item !== id);
+      if (kind === "mode") next.view = VIEW_OPTIONS.find((option) => option.id !== next.view && deriveModeValidity(next.items.map((item) => worksheetMap[item]).filter(Boolean), next.iits, next.yearFrom, next.yearTo)[option.id]?.valid)?.id ?? next.view;
+      if (kind === "scale") next.scale = "raw";
+      return next;
+    });
   }
 
   async function handleShare() {
@@ -1060,6 +1194,25 @@ export default function ComparePage({
       YearRange: { from: payload.yearFrom, to: payload.yearTo },
       __compareApplied: true,
     }));
+  }
+
+  function commitAppliedSelection(next) {
+    if (!next) return;
+    if (!next.modules.length || !next.submodules.length || !next.items.length || !next.iits.length) {
+      setApplied(null);
+      setDraft(next);
+      return;
+    }
+    setApplied(next);
+    setDraft(next);
+  }
+
+  function updateSelectionSummarySource(updater) {
+    if (applied) {
+      commitAppliedSelection(updater(applied));
+      return;
+    }
+    setDraft(updater);
   }
 
   function sortEntities(list, getLabel, getPriority = () => 0) {
@@ -1256,26 +1409,79 @@ export default function ComparePage({
     draft.items.length > 0,
     draft.iits.length > 0,
     Boolean(toolbarSearch),
-    sortBy !== "selected",
     draft.yearFrom !== YEARS[0] || draft.yearTo !== YEARS[YEARS.length - 1],
   ].filter(Boolean).length;
 
   function renderSelectionLine() {
     const source = applied ?? draft;
-    const moduleLabels = source.modules.map((id) => moduleMap[id]?.id ?? id);
-    const submoduleLabels = source.submodules.map((id) => submoduleMap[id]?.label ?? id);
-    const itemLabels = source.items.map((id) => worksheetMap[id]?.label ?? id);
+    const sourceItems = source.items.map((id) => worksheetMap[id]).filter(Boolean);
+    const sourceModeValidity = deriveModeValidity(sourceItems, source.iits, source.yearFrom, source.yearTo);
+    const defaultSourceView = sourceModeValidity.grouped.valid
+      ? "grouped"
+      : VIEW_OPTIONS.find((option) => sourceModeValidity[option.id]?.valid)?.id ?? source.view;
     const pills = [];
     if (toolbarSearch) pills.push({ key: 'keyword', label: `Keyword: ${toolbarSearch}`, tone: '#334155', clear: () => setToolbarSearch(''), open: () => setOpenPopover('filters') });
-    if (moduleLabels.length) pills.push({ key: 'modules', label: `Modules · ${summarizeList(moduleLabels, 2)}`, tone: '#475569', clear: () => setDraft((prev) => ({ ...prev, modules: [], submodules: [], items: [] })), open: () => setOpenPopover('filters') });
-    if (submoduleLabels.length) pills.push({ key: 'submodules', label: `Sub-modules · ${summarizeList(submoduleLabels, 2)}`, tone: '#7c3aed', clear: () => setDraft((prev) => ({ ...prev, submodules: [], items: [] })), open: () => setOpenPopover('filters') });
-    if (itemLabels.length) pills.push({ key: 'items', label: `Items · ${summarizeList(itemLabels, 2)}`, tone: '#0f766e', clear: () => setDraft((prev) => ({ ...prev, items: [] })), open: () => setOpenPopover('filters') });
-    if (source.iits.length) pills.push({ key: 'iits', label: `IITs · ${summarizeList(source.iits, 3)}`, tone: '#ea580c', clear: () => setDraft((prev) => ({ ...prev, iits: [] })), open: () => setOpenPopover('filters') });
-    pills.push({ key: 'years', label: `Years · ${source.yearFrom}–${source.yearTo}`, tone: '#1d4ed8', open: () => {} });
-    pills.push({ key: 'mode', label: `Mode · ${VIEW_OPTIONS.find((option) => option.id === source.view)?.label ?? source.view}`, tone: '#db2777', clear: applied ? () => openBuilder(4) : undefined, open: () => setOpenPopover('mode') });
-    pills.push({ key: 'scale', label: `Scale · ${source.scale === 'indexed' ? 'Indexed 100' : 'Raw'}`, tone: '#0891b2', clear: source.scale === 'indexed' ? () => setDraft((prev) => ({ ...prev, scale: 'raw' })) : undefined, open: () => setOpenPopover('mode') });
-    if (sortBy !== 'selected') pills.push({ key: 'sort', label: `Sort · ${sortBy === 'aToZ' ? 'A–Z' : 'Z–A'}`, tone: '#64748b', clear: () => setSortBy('selected'), open: () => {} });
-
+    source.modules.forEach((id) => {
+      pills.push({
+        key: `module-${id}`,
+        label: `Module · ${moduleMap[id]?.id ?? id}`,
+        tone: '#475569',
+        clear: () => removeFromApplied('module', id),
+        open: () => setOpenPopover('filters'),
+      });
+    });
+    source.submodules.forEach((id) => {
+      pills.push({
+        key: `submodule-${id}`,
+        label: `Sub-module · ${submoduleMap[id]?.label ?? id}`,
+        tone: '#7c3aed',
+        clear: () => removeFromApplied('submodule', id),
+        open: () => setOpenPopover('filters'),
+      });
+    });
+    source.items.forEach((id) => {
+      pills.push({
+        key: `item-${id}`,
+        label: `Item · ${worksheetMap[id]?.label ?? id}`,
+        tone: '#0f766e',
+        clear: () => removeFromApplied('item', id),
+        open: () => setOpenPopover('filters'),
+      });
+    });
+    source.iits.forEach((id) => {
+      pills.push({
+        key: `iit-${id}`,
+        label: `IIT · ${id}`,
+        tone: '#ea580c',
+        clear: () => removeFromApplied('iit', id),
+        open: () => setOpenPopover('filters'),
+      });
+    });
+    pills.push({
+      key: 'years',
+      label: `Years · ${source.yearFrom}–${source.yearTo}`,
+      tone: '#1d4ed8',
+      clear: source.yearFrom !== YEARS[0] || source.yearTo !== YEARS[YEARS.length - 1]
+        ? () => updateSelectionSummarySource((prev) => ({ ...prev, yearFrom: YEARS[0], yearTo: YEARS[YEARS.length - 1], focusYear: YEARS[YEARS.length - 1] }))
+        : undefined,
+      open: () => {},
+    });
+    pills.push({
+      key: 'mode',
+      label: `Mode · ${VIEW_OPTIONS.find((option) => option.id === source.view)?.label ?? source.view}`,
+      tone: '#db2777',
+      clear: source.view !== defaultSourceView
+        ? () => updateSelectionSummarySource((prev) => ({ ...prev, view: defaultSourceView, scale: defaultSourceView === 'table' ? 'raw' : prev.scale }))
+        : undefined,
+      open: () => setOpenPopover('mode'),
+    });
+    pills.push({
+      key: 'scale',
+      label: `Scale · ${source.scale === 'indexed' ? 'Indexed 100' : 'Raw'}`,
+      tone: '#0891b2',
+      clear: source.scale !== 'raw' ? () => updateSelectionSummarySource((prev) => ({ ...prev, scale: 'raw' })) : undefined,
+      open: () => setOpenPopover('mode'),
+    });
     if (!pills.length) return null;
     return (
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
@@ -1288,19 +1494,78 @@ export default function ComparePage({
     );
   }
 
+  function renderIitSelectionPanel() {
+    return (
+      <div className="rounded-[24px] border border-slate-200 bg-white p-3 shadow-[0_10px_30px_rgba(148,163,184,0.08)]">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">IIT selection</div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setDraft((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))}
+              className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-700"
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              onClick={() => setDraft((prev) => ({ ...prev, iits: [] }))}
+              className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-600"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+        {draft.iits.length ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {draft.iits.slice(0, 8).map((iid) => (
+              <SimpleChip key={iid} tone="#ea580c" removable onRemove={() => setDraft((prev) => ({ ...prev, iits: prev.iits.filter((item) => item !== iid) }))}>
+                {iid}
+              </SimpleChip>
+            ))}
+            {draft.iits.length > 8 ? <SimpleChip tone="#64748b">+{draft.iits.length - 8} more</SimpleChip> : null}
+          </div>
+        ) : null}
+        <div className="mt-3 grid max-h-44 gap-2 overflow-auto pr-1">
+          {filteredIITs.map((iit) => (
+            <label key={iit.id} className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50/35 px-3 py-2 transition hover:border-sky-100 hover:bg-sky-50/65">
+              <input
+                type="checkbox"
+                checked={draft.iits.includes(iit.id)}
+                onChange={() => setDraft((prev) => ({
+                  ...prev,
+                  iits: prev.iits.includes(iit.id)
+                    ? prev.iits.filter((item) => item !== iit.id)
+                    : [...prev.iits, iit.id],
+                }))}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-sky-600"
+              />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-slate-800">{iit.id} · {iit.name}</div>
+                <div className="mt-0.5 text-xs text-slate-500">{iit.state}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   function renderFilterPopover() {
     if (openPopover !== 'filters') return null;
     return (
-      <div data-compare-popover className="absolute left-0 top-full z-40 mt-2 w-full max-w-[480px] rounded-[28px] border border-slate-200 bg-white p-4 shadow-2xl">
+      <div data-compare-popover className="absolute left-0 top-full z-40 mt-4 w-full max-w-[500px]">
+        <div className="ml-10 h-4 w-4 rotate-45 border-l border-t border-sky-100 bg-white shadow-[-6px_-6px_18px_rgba(125,211,252,0.08)]" />
+        <div className="rounded-[30px] border border-sky-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-4 shadow-[0_28px_60px_rgba(14,116,144,0.16)]">
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-slate-900">Filters</div>
-            <div className="mt-0.5 text-xs text-slate-500">Multiple selection stays compact and left-aligned.</div>
+            <div className="mt-0.5 text-xs text-slate-500">Multiple selection stays compact, clean, and easy to scan.</div>
           </div>
           <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-600">{activeFilterCount} active</span>
         </div>
 
-        <div className="mt-4 rounded-[24px] border border-slate-200 p-3">
+        <div className="mt-4 rounded-[24px] border border-slate-200 bg-white p-3 shadow-[0_10px_30px_rgba(148,163,184,0.08)]">
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Hierarchy</div>
             <div className="flex items-center gap-2">
@@ -1330,7 +1595,7 @@ export default function ComparePage({
               const moduleState = getModuleSelectionState(module);
               const moduleExpanded = expandedModules[module.id] ?? true;
               return (
-                <div key={module.id} className="rounded-[22px] border border-slate-100 bg-slate-50/40 py-1">
+                <div key={module.id} className="rounded-[22px] border border-slate-100 bg-slate-50/55 py-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
                   <TreeNodeRow
                     level={0}
                     label={module.id}
@@ -1378,7 +1643,11 @@ export default function ComparePage({
           </div>
         </div>
 
-        <div className="mt-3 rounded-[24px] border border-slate-200 p-3">
+        <div className="mt-3">
+          {renderIitSelectionPanel()}
+        </div>
+        {false ? (
+        <div className="mt-3 rounded-[24px] border border-slate-200 bg-white p-3 shadow-[0_10px_30px_rgba(148,163,184,0.08)]">
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">IIT selection</div>
             <div className="flex items-center gap-2">
@@ -1410,7 +1679,7 @@ export default function ComparePage({
           ) : null}
           <div className="mt-3 grid max-h-44 gap-2 overflow-auto pr-1">
             {filteredIITs.map((iit) => (
-              <label key={iit.id} className="flex items-start gap-3 rounded-2xl border border-slate-100 px-3 py-2 transition hover:bg-slate-50">
+              <label key={iit.id} className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50/35 px-3 py-2 transition hover:border-sky-100 hover:bg-sky-50/65">
                 <input
                   type="checkbox"
                   checked={draft.iits.includes(iit.id)}
@@ -1429,6 +1698,29 @@ export default function ComparePage({
               </label>
             ))}
           </div>
+        </div>
+        ) : null}
+
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <button type="button" onClick={() => setOpenPopover(null)} className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
+          <button type="button" onClick={() => setOpenPopover(null)} className="rounded-2xl px-4 py-2.5 text-sm font-bold text-white shadow-[0_14px_30px_rgba(37,99,235,0.2)]" style={{ background: 'linear-gradient(135deg, #3856a8 0%, #516fbe 100%)' }}>Save</button>
+        </div>
+      </div>
+      </div>
+    );
+  }
+
+  function renderIitPopover() {
+    if (openPopover !== 'iits') return null;
+    return (
+      <div data-compare-popover className="absolute left-0 top-full z-40 mt-2 w-full max-w-[420px] rounded-[28px] border border-slate-200 bg-white p-4 shadow-2xl">
+        <div>
+          <div className="text-sm font-semibold text-slate-900">Select IITs</div>
+          <div className="mt-0.5 text-xs text-slate-500">Choose the IITs directly from the toolbar without opening the larger filter panel.</div>
+        </div>
+
+        <div className="mt-4">
+          {renderIitSelectionPanel()}
         </div>
 
         <div className="mt-4 flex items-center justify-between gap-3">
@@ -1541,32 +1833,18 @@ export default function ComparePage({
             <div className="min-w-0 flex-1">
               <div className="text-[1.05rem] font-extrabold leading-tight text-slate-900">Compare</div>
               <div className="mt-1 text-sm text-slate-500">{subtitle}</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {VIEW_OPTIONS.map((option) => {
-                  const active = applied.view === option.id;
-                  const state = appliedModeValidity[option.id];
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      disabled={!state.valid}
-                      onClick={() => setApplied((prev) => ({ ...prev, view: option.id, scale: option.id === "table" ? "raw" : prev.scale }))}
-                      className={cn("inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold transition", !state.valid ? "cursor-not-allowed opacity-50" : "")}
-                      style={{
-                        background: active ? "#e8f0ff" : "#ffffff",
-                        border: `1px solid ${active ? "rgba(37,99,235,0.28)" : "rgba(148,163,184,0.18)"}`,
-                        color: active ? "#1d4ed8" : "#475569",
-                      }}
-                    >
-                      {compareIcon(option.id, false, active ? "#1d4ed8" : "#475569")}
-                      <span>{option.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <CompareViewToolbar
+                value={applied.view}
+                disabledMap={Object.fromEntries(VIEW_OPTIONS.map((option) => [option.id, !appliedModeValidity[option.id]?.valid]))}
+                onChange={(nextView) => {
+                  const nextState = appliedModeValidity[nextView];
+                  if (!nextState?.valid) return;
+                  commitAppliedSelection({ ...applied, view: nextView, scale: nextView === "table" ? "raw" : applied.scale });
+                }}
+              />
               {SCALE_OPTIONS.map((option) => {
                 const disabled = option.id === "indexed" && (applied.view === "table" || !appliedModeValidity[applied.view]?.valid);
                 const active = applied.scale === option.id;
@@ -1575,7 +1853,7 @@ export default function ComparePage({
                     key={option.id}
                     type="button"
                     disabled={disabled}
-                    onClick={() => setApplied((prev) => ({ ...prev, scale: option.id }))}
+                    onClick={() => commitAppliedSelection({ ...applied, scale: option.id })}
                     className={cn("rounded-full px-3 py-1.5 text-xs font-bold transition", disabled ? "cursor-not-allowed opacity-50" : "")}
                     style={{
                       background: active ? "#e8f0ff" : "white",
@@ -1601,7 +1879,7 @@ export default function ComparePage({
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap gap-2">
               {appliedYears.map((year) => (
-                <SimpleChip key={year} tone={year === applied.focusYear ? "#1d4ed8" : "#64748b"} onClick={() => setApplied((prev) => ({ ...prev, focusYear: year }))}>
+                <SimpleChip key={year} tone={year === applied.focusYear ? "#1d4ed8" : "#64748b"} onClick={() => commitAppliedSelection({ ...applied, focusYear: year })}>
                   {year}
                 </SimpleChip>
               ))}
@@ -1629,18 +1907,55 @@ export default function ComparePage({
           ) : null}
 
           <div className="mt-4 rounded-[28px] border border-slate-200 bg-white p-4">
-            <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-slate-900">{viewLabel}</div>
                 <div className="text-xs text-slate-500">{subtitle}</div>
               </div>
-              <button
-                type="button"
-                onClick={handleDownloadPdf}
-                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
-              >
-                PDF
-              </button>
+              <div className="flex flex-wrap items-end justify-end gap-3">
+                {applied.view === "grouped" ? (
+                  <>
+                    <ToolbarSelect
+                      label="Items shown"
+                      value={groupedWindowSize}
+                      onChange={(value) => {
+                        setGroupedWindowSize(value);
+                        setGroupedPage(0);
+                      }}
+                      minWidth={108}
+                      options={groupedWindowOptions}
+                    />
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-600">
+                        {groupedRows.length ? `${groupedVisibleStart}-${groupedVisibleEnd} of ${groupedRows.length}` : "0 items"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setGroupedPage((prev) => Math.max(0, prev - 1))}
+                        disabled={groupedPage === 0 || groupedWindowSize === "all"}
+                        className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Prev
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGroupedPage((prev) => Math.min(groupedPageCount - 1, prev + 1))}
+                        disabled={groupedPage >= groupedPageCount - 1 || groupedWindowSize === "all"}
+                        className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={handleDownloadPdf}
+                  className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                >
+                  PDF
+                </button>
+              </div>
             </div>
 
             {applied.view !== "table" && !appliedModeValidity[applied.view]?.valid ? (
@@ -1652,14 +1967,21 @@ export default function ComparePage({
             {applied.view === "grouped" && appliedModeValidity.grouped.valid ? (
               <div style={{ height: fullscreen ? 620 : 520 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={groupedRows} margin={{ top: 12, right: 18, left: 8, bottom: 24 }}>
+                  <BarChart data={visibleGroupedRows} margin={{ top: 12, right: 18, left: 8, bottom: 52 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                    <XAxis dataKey="shortLabel" tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} interval={0} />
+                    <XAxis
+                      dataKey="label"
+                      tick={(props) => <WrappedWorksheetTick {...props} />}
+                      axisLine={false}
+                      tickLine={false}
+                      interval={0}
+                      height={68}
+                    />
                     <YAxis tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} width={78} />
                     <Tooltip content={<CompareTooltip metricLookup={appliedMetricLookup} scaleMode={applied.scale} mode="grouped" />} />
                     {groupedIITs.map((iid, index) => (
-                      <Bar key={iid} dataKey={`display_${iid}`} fill={PALETTE[index % PALETTE.length]} radius={[10, 10, 0, 0]} maxBarSize={Math.max(18, 42 - groupedRows.length)}>
-                        {groupedRows.map((row) => <Cell key={`${iid}-${row.metricId}`} />)}
+                      <Bar key={iid} dataKey={`display_${iid}`} fill={PALETTE[index % PALETTE.length]} radius={[10, 10, 0, 0]} maxBarSize={Math.max(18, 42 - visibleGroupedRows.length)}>
+                        {visibleGroupedRows.map((row) => <Cell key={`${iid}-${row.metricId}`} />)}
                       </Bar>
                     ))}
                   </BarChart>
@@ -1732,7 +2054,7 @@ export default function ComparePage({
     <div className="space-y-4">
       <div>
         <div className="text-[1.6rem] font-extrabold tracking-tight text-slate-900">Compare</div>
-        <div className="mt-1 text-sm text-slate-500">Lean compare controls with left-aligned multi-select filters and a compact selected-state line.</div>
+        <div className="mt-1 text-sm text-slate-500">A cleaner compare builder with compact filters, softer cards, and a neater hierarchy selection flow.</div>
       </div>
 
       {notice ? (
@@ -1742,13 +2064,19 @@ export default function ComparePage({
       ) : null}
 
       <div className="relative" data-compare-toolbar>
-        <div className="rounded-[30px] border bg-white px-4 py-4 shadow-sm" style={{ borderColor: 'rgba(59,130,246,0.15)' }}>
+        <div
+          className="rounded-[32px] border px-4 py-4 shadow-[0_20px_60px_rgba(37,99,235,0.08)]"
+          style={{
+            borderColor: 'rgba(59,130,246,0.15)',
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.98) 100%)',
+          }}
+        >
           <div className="flex flex-wrap items-end gap-3">
             <button
               type="button"
               onClick={() => openBuilder(1)}
-              className="inline-flex h-12 items-center gap-3 rounded-[18px] px-6 text-sm font-extrabold text-white shadow-sm"
-              style={{ background: '#1d4ed8' }}
+              className="inline-flex h-12 items-center gap-3 rounded-[18px] px-6 text-sm font-extrabold text-white shadow-[0_14px_30px_rgba(37,99,235,0.26)] transition hover:-translate-y-0.5"
+              style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%)' }}
             >
               {compareIcon('build', true, '#ffffff')}
               <span>Build Compare</span>
@@ -1761,22 +2089,20 @@ export default function ComparePage({
                   value={toolbarSearch}
                   onChange={(event) => setToolbarSearch(event.target.value)}
                   placeholder="Search hierarchy, worksheets, or IITs"
-                  className="h-12 rounded-[18px] border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition focus:border-sky-300"
+                  className="h-12 rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] px-4 text-sm text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] outline-none transition focus:border-sky-300 focus:shadow-[0_0_0_4px_rgba(191,219,254,0.4)]"
                 />
               </label>
             </div>
 
-            <ToolbarSelect
-              label="Sort by"
-              value={sortBy}
-              onChange={setSortBy}
-              options={[
-                { value: 'selected', label: 'Selected first' },
-                { value: 'aToZ', label: 'A–Z' },
-                { value: 'zToA', label: 'Z–A' },
-              ]}
-              minWidth={136}
-            />
+            <button
+              type="button"
+              onClick={() => setOpenPopover((value) => (value === 'iits' ? null : 'iits'))}
+              className="inline-flex h-12 items-center gap-3 rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] px-5 text-sm font-extrabold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50/60"
+            >
+              {compareIcon('iit', false, '#475569')}
+              <span>Select IITs</span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-extrabold text-slate-600">{draft.iits.length}</span>
+            </button>
 
             <ToolbarSelect
               label="From"
@@ -1797,7 +2123,7 @@ export default function ComparePage({
             <button
               type="button"
               onClick={() => setOpenPopover((value) => (value === 'filters' ? null : 'filters'))}
-              className="inline-flex h-12 items-center gap-3 rounded-[18px] border border-slate-200 bg-white px-5 text-sm font-extrabold text-slate-700"
+              className="inline-flex h-12 items-center gap-3 rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] px-5 text-sm font-extrabold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50/60"
             >
               {compareIcon('filters', false, '#475569')}
               <span>Filters</span>
@@ -1806,19 +2132,10 @@ export default function ComparePage({
 
             <button
               type="button"
-              onClick={() => setOpenPopover((value) => (value === 'mode' ? null : 'mode'))}
-              className="inline-flex h-12 items-center gap-3 rounded-[18px] border border-slate-200 bg-white px-5 text-sm font-extrabold text-slate-700"
-            >
-              {compareIcon(draft.view, false, '#475569')}
-              <span>Compare Mode</span>
-            </button>
-
-            <button
-              type="button"
               disabled={!canApply}
               onClick={applyCompare}
-              className={cn('inline-flex h-12 items-center gap-3 rounded-[18px] px-6 text-sm font-extrabold text-white shadow-sm transition', !canApply ? 'cursor-not-allowed opacity-50' : '')}
-              style={{ background: '#1d4ed8' }}
+              className={cn('inline-flex h-12 items-center gap-3 rounded-[18px] px-6 text-sm font-extrabold text-white shadow-[0_14px_30px_rgba(59,130,246,0.18)] transition', !canApply ? 'cursor-not-allowed opacity-50' : 'hover:-translate-y-0.5')}
+              style={{ background: 'linear-gradient(135deg, #7c97e8 0%, #6c88df 100%)' }}
             >
               {compareIcon('compare', true, '#ffffff')}
               <span>Apply Compare</span>
@@ -1829,6 +2146,7 @@ export default function ComparePage({
         </div>
 
         {renderFilterPopover()}
+        {renderIitPopover()}
         {renderModePopover()}
       </div>
 

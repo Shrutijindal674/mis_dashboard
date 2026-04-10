@@ -1039,44 +1039,50 @@ export default function Dashboard({
     () => [
       {
         id: "nirf-overall",
-        eyebrow: "NIRF overall",
+        label: "NIRF overall",
         value: homeSnapshot.nirfOverallRank != null ? `#${homeSnapshot.nirfOverallRank}` : "—",
         note: "Rankings report",
+        color: "#2563eb",
         kpiId: "kpi_rankings_only",
       },
       {
         id: "nirf-engineering",
-        eyebrow: "Engineering",
+        label: "Engineering",
         value: homeSnapshot.nirfEngineeringRank != null ? `#${homeSnapshot.nirfEngineeringRank}` : "—",
         note: "Rankings report",
+        color: "#7c3aed",
         kpiId: "kpi_rankings_only",
       },
       {
         id: "publications",
-        eyebrow: "Publications",
+        label: "Publications",
         value: formatCompact(homeSnapshot.publications),
         note: `${yearRange.to}`,
+        color: "#0f766e",
         kpiId: "kpi_publications",
       },
       {
         id: "research-funding",
-        eyebrow: "Research funding",
+        label: "Research funding",
         value: homeSnapshot.researchFundingCr ? `₹${formatCompact(homeSnapshot.researchFundingCr)} Cr` : "—",
         note: `${yearRange.to}`,
+        color: "#ea580c",
         kpiId: "kpi_research_budget",
       },
       {
         id: "patents",
-        eyebrow: "Patents",
+        label: "Patents",
         value: formatCompact(homeSnapshot.patents),
         note: `${yearRange.to}`,
+        color: "#dc2626",
         kpiId: "kpi_research_patents",
       },
       {
         id: "collaborations",
-        eyebrow: "Collaborations",
+        label: "Collaborations",
         value: formatCompact(homeSnapshot.collaborations),
         note: `${yearRange.to}`,
+        color: "#ca8a04",
         kpiId: "kpi_collaborations",
       },
     ],
@@ -2079,33 +2085,82 @@ export default function Dashboard({
                       </button>
                     ))}
                   </div>
+
+                  <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {homeReportCards.map((card) => (
+                      <button
+                        key={card.id}
+                        type="button"
+                        onClick={() => openReportsForKpis([card.kpiId], card.kpiId)}
+                        className="rounded-[24px] px-4 py-4 text-left transition hover:-translate-y-0.5"
+                        style={{
+                          background: "rgba(248,250,252,0.82)",
+                          border: "1px solid rgba(59,130,246,0.12)",
+                        }}
+                      >
+                        <div className="flex items-start gap-3">
+                          <span className="mt-1 h-14 w-1.5 rounded-full" style={{ background: card.color }} />
+                          <span className="block min-w-0">
+                            <span className="block text-3xl font-extrabold leading-none" style={{ color: "#0f172a" }}>
+                              {card.value}
+                            </span>
+                            <span className="mt-2 block text-[1.02rem] font-semibold leading-tight" style={{ color: "#0f2a5e" }}>
+                              {card.label}
+                            </span>
+                            <span className="mt-1 block text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: "#64748b" }}>
+                              {card.note}
+                            </span>
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openReportsForKpis(
+                          homeReportCards.map((item) => item.kpiId),
+                          homeReportCards[0]?.kpiId,
+                        )
+                      }
+                      className="rounded-2xl px-4 py-2.5 text-sm font-bold text-white"
+                      style={{ background: accent }}
+                    >
+                      Explore institute reports
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSection("Compare")}
+                      className="rounded-2xl px-4 py-2.5 text-sm font-bold"
+                      style={{
+                        color: "#1252a0",
+                        border: "1px solid rgba(59,130,246,0.18)",
+                        background: "#ffffff",
+                      }}
+                    >
+                      Compare IITs
+                    </button>
+                  </div>
                   </div>
 
                   <div
-                    className="flex h-full flex-col rounded-[28px] p-5"
+                    className="flex h-full items-center justify-center rounded-[28px] p-5"
                     style={{
                       background: "rgba(238,245,255,0.52)",
                       border: "1px solid rgba(59,130,246,0.12)",
                     }}
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="text-[2rem] font-black leading-tight" style={{ color: "#0f2a5e" }}>
-                        Performance and research
-                      </div>
-                      <div className="pt-1 text-[11px] font-bold uppercase tracking-[0.16em]" style={{ color: accent }}>
-                        Official highlights
-                      </div>
-                    </div>
-
                     <div
-                      className="mt-5 flex min-h-[220px] items-center justify-center rounded-[24px] bg-white p-6"
+                      className="flex min-h-[320px] w-full items-center justify-center rounded-[24px] bg-white p-6"
                       style={{ border: "1px solid rgba(59,130,246,0.12)" }}
                     >
                       {currentInstituteLogo ? (
                         <img
                           src={currentInstituteLogo}
                           alt={`${currentInstitute.name} logo`}
-                          className="max-h-[240px] w-auto object-contain"
+                          className="max-h-[280px] w-auto object-contain"
                         />
                       ) : (
                         <div
@@ -2119,59 +2174,6 @@ export default function Dashboard({
                           {currentInstitute.id}
                         </div>
                       )}
-                    </div>
-
-                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                      {homeReportCards.map((card) => (
-                        <button
-                          key={card.id}
-                          type="button"
-                          onClick={() => openReportsForKpis([card.kpiId], card.kpiId)}
-                          className="rounded-[22px] p-4 text-left transition hover:-translate-y-0.5"
-                          style={{
-                            background: "rgba(238,245,255,0.72)",
-                            border: "1px solid rgba(59,130,246,0.12)",
-                          }}
-                        >
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "#64748b" }}>
-                            {card.eyebrow}
-                          </div>
-                          <div className="mt-3 text-3xl font-extrabold leading-none" style={{ color: "#0f172a" }}>
-                            {card.value}
-                          </div>
-                          <div className="mt-2 text-sm font-semibold" style={{ color: "#475569" }}>
-                            {card.note}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="mt-5 flex flex-wrap gap-3">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          openReportsForKpis(
-                            homeReportCards.map((item) => item.kpiId),
-                            homeReportCards[0]?.kpiId,
-                          )
-                        }
-                        className="rounded-2xl px-4 py-2.5 text-sm font-bold text-white"
-                        style={{ background: accent }}
-                      >
-                        Explore institute reports
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSection("Compare")}
-                        className="rounded-2xl px-4 py-2.5 text-sm font-bold"
-                        style={{
-                          color: "#1252a0",
-                          border: "1px solid rgba(59,130,246,0.18)",
-                          background: "#ffffff",
-                        }}
-                      >
-                        Compare IITs
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -2411,7 +2413,7 @@ export default function Dashboard({
                       data-export-hide="true"
                       onClick={handleFullscreen}
                       title={isFullscreen ? "Close fullscreen" : "Open fullscreen"}
-                      className="grid h-10 w-10 place-items-center rounded-xl bg-white shadow-sm"
+                      className="-translate-y-1 grid h-10 w-10 place-items-center rounded-xl bg-white shadow-sm"
                       style={{
                         border: "1px solid rgba(59,130,246,0.18)",
                         color: "#1252a0",
@@ -2433,7 +2435,10 @@ export default function Dashboard({
                   key={`${kpiView}-${isFullscreen ? "fs" : "std"}-${chartRenderNonce}-${selectedKpi.id}-${drillPath.join("-")}`}
                   ref={chartOnlyRef}
                   className={`dashboard-chart-body min-w-0 ${isFullscreen ? (kpiView === "table" ? "flex flex-1 min-h-0 items-center justify-center overflow-hidden pt-24 pb-14" : "flex flex-1 min-h-0 items-start justify-center pt-24 pb-14" ) : "flex min-h-[460px] items-center justify-center pt-24 pb-10"}`}
-                  style={visualChartBodyStyle}
+                  style={{
+                    ...visualChartBodyStyle,
+                    ...(isFullscreen ? {} : { transform: "translateY(12px)" }),
+                  }}
                 >
                   <div className={`${chartPanelWidthClass} mx-auto`}>
                     {kpiView === "bar" ? (
@@ -2493,7 +2498,7 @@ export default function Dashboard({
                 </div>
 
                 <div
-                  className={`dashboard-chart-footer absolute bottom-3 left-1/2 -translate-x-1/2 text-center text-[10px] font-medium ${isFullscreen ? "inset-x-0" : "w-full max-w-[72%]"}`}
+                  className={`dashboard-chart-footer absolute left-1/2 -translate-x-1/2 text-center text-[10px] font-medium ${isFullscreen ? "bottom-3 inset-x-0" : "bottom-1 w-full max-w-[72%]"}`}
                   style={{ color: "#64748b" }}
                 >
                   Last updated: {lastUpdatedLabel} · Last downloaded: {lastDownloadedLabel}
@@ -2556,7 +2561,7 @@ export default function Dashboard({
       </div>
 
       <div
-        className="flex items-center justify-center gap-3 px-4 pb-2 pt-0.5 text-[13px]"
+        className="flex items-center justify-center gap-3 px-4 pb-3 pt-1.5 text-[13px]"
         style={{ color: "#64748b" }}
       >
         <img

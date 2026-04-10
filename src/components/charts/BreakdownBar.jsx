@@ -12,6 +12,75 @@ import {
 } from "recharts";
 import { formatCompact, formatPct } from "../../utils/helpers";
 
+function splitLabelAcrossTwoLines(text) {
+  const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return [""];
+
+  const words = normalized.split(" ");
+  if (words.length === 1) {
+    if (words[0].length <= 18) return [words[0]];
+    const midpoint = Math.ceil(words[0].length / 2);
+    return [words[0].slice(0, midpoint), words[0].slice(midpoint)].filter(Boolean);
+  }
+
+  let bestPair = [normalized];
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (let index = 1; index < words.length; index += 1) {
+    const firstLine = words.slice(0, index).join(" ");
+    const secondLine = words.slice(index).join(" ");
+    const longestLine = Math.max(firstLine.length, secondLine.length);
+    const imbalance = Math.abs(firstLine.length - secondLine.length);
+    const score = longestLine * 2 + imbalance;
+
+    if (score < bestScore) {
+      bestPair = [firstLine, secondLine];
+      bestScore = score;
+    }
+  }
+
+  return bestPair;
+}
+
+function WrappedXAxisTick({ x = 0, y = 0, payload }) {
+  const lines = splitLabelAcrossTwoLines(payload?.value);
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text textAnchor="middle" fill="#334155" fontSize="11" fontWeight="600">
+        {lines.map((line, index) => (
+          <tspan key={`${payload?.value ?? "label"}-${index}`} x="0" dy={index === 0 ? 16 : 13}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </g>
+  );
+}
+
+function WrappedYAxisTick({ x = 0, y = 0, payload }) {
+  const lines = splitLabelAcrossTwoLines(payload?.value);
+  const yOffsets = lines.length > 1 ? [-3, 10] : [4];
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      {lines.map((line, index) => (
+        <text
+          key={`${payload?.value ?? "label"}-${index}`}
+          x={-10}
+          y={yOffsets[index] ?? 4}
+          textAnchor="end"
+          fill="#334155"
+          fontSize="11"
+          fontWeight="600"
+        >
+          {line}
+        </text>
+      ))}
+    </g>
+  );
+}
+
 function DetailsTooltip({ active, payload, label, isPct, xLabel, yLabel }) {
   if (!active || !payload?.length) return null;
   const point = payload[0]?.payload ?? {};
@@ -66,8 +135,8 @@ export default function BreakdownBar({
             layout={horizontal ? "vertical" : "horizontal"}
             margin={
               horizontal
-                ? { top: 24, right: 28, left: 88, bottom: 18 }
-                : { top: 24, right: 24, left: 44, bottom: 58 }
+                ? { top: 24, right: 28, left: 112, bottom: 18 }
+                : { top: 24, right: 24, left: 44, bottom: 72 }
             }
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" />
@@ -90,8 +159,8 @@ export default function BreakdownBar({
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={160}
-                  tick={{ fontSize: 12, fontWeight: 600, fill: "#334155" }}
+                  width={188}
+                  tick={(props) => <WrappedYAxisTick {...props} />}
                 >
                   <Label
                     value={xLabel}
@@ -106,11 +175,9 @@ export default function BreakdownBar({
               <>
                 <XAxis
                   dataKey="name"
-                  tick={{ fontSize: 12, fontWeight: 600, fill: "#334155" }}
+                  tick={(props) => <WrappedXAxisTick {...props} />}
                   interval={0}
-                  angle={-12}
-                  textAnchor="end"
-                  height={72}
+                  height={78}
                 >
                   <Label
                     value={xLabel}
