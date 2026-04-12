@@ -81,6 +81,25 @@ function WrappedYAxisTick({ x = 0, y = 0, payload }) {
   );
 }
 
+function WrappedAxisLabel({ viewBox, value }) {
+  if (!viewBox) return null;
+  const lines = splitLabelAcrossTwoLines(value);
+  const x = (viewBox.x ?? 0) + 18;
+  const y = (viewBox.y ?? 0) + (viewBox.height ?? 0) / 2;
+
+  return (
+    <g transform={`translate(${x},${y}) rotate(-90)`}>
+      <text textAnchor="middle" fill="#0f172a" fontSize="13" fontWeight="800">
+        {lines.map((line, index) => (
+          <tspan key={`${value ?? "axis"}-${index}`} x="0" dy={index === 0 ? 0 : 14}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </g>
+  );
+}
+
 function DetailsTooltip({ active, payload, label, isPct, xLabel, yLabel }) {
   if (!active || !payload?.length) return null;
   const point = payload[0]?.payload ?? {};
@@ -193,13 +212,7 @@ export default function BreakdownBar({
                     isPct ? `${Math.round(v * 100)}%` : formatCompact(v)
                   }
                 >
-                  <Label
-                    value={yAxisLabel}
-                    angle={-90}
-                    position="insideLeft"
-                    offset={-20}
-                    style={{ fill: "#0f172a", fontSize: 13, fontWeight: 800 }}
-                  />
+                  <Label content={<WrappedAxisLabel value={yAxisLabel} />} />
                 </YAxis>
               </>
             )}

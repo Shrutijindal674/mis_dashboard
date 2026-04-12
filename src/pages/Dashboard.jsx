@@ -61,6 +61,12 @@ const IIT_HOME_LOGOS = {
   IITM: "/iitm-logo.png",
 };
 
+const LEGACY_COMPARE_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
+
+function dedupeList(values) {
+  return Array.from(new Set((values ?? []).filter(Boolean)));
+}
+
 function iconSvg(kind, active = false, tone = null) {
   const stroke = active ? "white" : tone || "#64748b";
   const common = {
@@ -587,6 +593,12 @@ export default function Dashboard({
   const [subsectionViews, setSubsectionViews] = useState(DEFAULT_SUBSECTION_VIEWS);
 
   const profileRef = useRef(null);
+  const headerSearchRef = useRef(null);
+  const navigationRestoringRef = useRef(false);
+  const navigationReadyRef = useRef(false);
+  const navigationKeyRef = useRef("");
+  const [headerSearch, setHeaderSearch] = useState("");
+  const [headerSearchOpen, setHeaderSearchOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [chartRenderNonce, setChartRenderNonce] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(() =>
@@ -632,8 +644,12 @@ export default function Dashboard({
 
   useEffect(() => {
     function onDocClick(event) {
-      if (profileRef.current && !profileRef.current.contains(event.target))
+      if (profileRef.current && !profileRef.current.contains(event.target)) {
         setProfileOpen(false);
+      }
+      if (headerSearchRef.current && !headerSearchRef.current.contains(event.target)) {
+        setHeaderSearchOpen(false);
+      }
     }
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
@@ -670,15 +686,21 @@ export default function Dashboard({
   const [compareCfg, setCompareCfg] = useState({
     MetricId: initialChild.kpiId,
     CompareModule: CHILD_BY_ID[initialChild.id]?.domainId || module,
-    CompareMetricIds: [initialChild.kpiId],
+    CompareSubmoduleId: initialChild.id,
+    CompareMetricIds: dedupeList([
+      initialChild.kpiId,
+      ...(SUBSECTION_VIEW_OPTIONS[initialChild.id] ?? []).slice(1, 3).map((item) => item.kpiId),
+    ]),
     CompareView: "grouped",
     CompareScale: "raw",
-    ActiveYear: 2025,
-    InstituteId: ["IITD", "IITK"],
-    YearRange: { from: 2022, to: 2025 },
+    ActiveYear: YEARS[YEARS.length - 1],
+    InstituteId: [...LEGACY_COMPARE_IITS],
+    YearRange: { from: YEARS[0], to: YEARS[YEARS.length - 1] },
     Normalization: "absolute",
     Sort: "latest",
     ChartCap: 8,
+    CompareAutoApply: true,
+    CompareRequestKey: 1,
   });
 
   const [reportsCfg, setReportsCfg] = useState({
@@ -691,6 +713,66 @@ export default function Dashboard({
   const activeDomain = MODULES.includes(section) ? section : module;
   const activeDomainDef = DOMAIN_BY_ID[activeDomain] ?? DOMAIN_DEFS[0];
   const subsectionCards = activeDomainDef.children;
+
+  const headerSearchResults = useMemo(() => {
+    const query = headerSearch.trim().toLowerCase();
+    if (!query) return [];
+
+    const results = [];
+    for (const domain of DOMAIN_DEFS) {
+      if (`${domain.id}`.toLowerCase().includes(query)) {
+        results.push({
+          key: `module-${domain.id}`,
+          type: "module",
+          label: domain.id,
+          subtitle: `${domain.children.length} sub-modules`,
+          domainId: domain.id,
+        });
+      }
+
+      for (const subsection of domain.children) {
+        const subsectionText = `${domain.id} ${subsection.label}`.toLowerCase();
+        if (subsectionText.includes(query)) {
+          results.push({
+            key: `submodule-${subsection.id}`,
+            type: "submodule",
+            label: subsection.label,
+            subtitle: domain.id,
+            domainId: domain.id,
+            subsectionId: subsection.id,
+          });
+        }
+
+        for (const worksheet of SUBSECTION_VIEW_OPTIONS[subsection.id] ?? []) {
+          const worksheetText = `${domain.id} ${subsection.label} ${worksheet.label} ${worksheet.helper ?? ""}`.toLowerCase();
+          if (worksheetText.includes(query)) {
+            results.push({
+              key: `worksheet-${worksheet.id}-${subsection.id}`,
+              type: "worksheet",
+              label: worksheet.label,
+              subtitle: `${domain.id} › ${subsection.label}`,
+              domainId: domain.id,
+              subsectionId: subsection.id,
+              viewId: worksheet.id,
+            });
+          }
+        }
+      }
+    }
+
+    return results.slice(0, 8);
+  }, [headerSearch]);
+
+  function handleHeaderSearchSelect(result) {
+    if (!result) return;
+    if (result.type === "module") {
+      openDomain(result.domainId);
+    } else {
+      openSubsection(result.domainId, result.subsectionId, result.viewId ?? null);
+    }
+    setHeaderSearch(result.label);
+    setHeaderSearchOpen(false);
+  }
 
   useEffect(() => {
     const child = CHILD_BY_ID[selectedSubsectionId];
@@ -720,6 +802,42 @@ export default function Dashboard({
   const currentIgViewId = subsectionViews[selectedSubsectionId] ?? currentIgViewOptions[0]?.id;
   const currentIgViewMeta = currentIgViewOptions.find((item) => item.id === currentIgViewId) ?? null;
   const currentViewLabel = currentIgViewMeta?.label ?? currentSubsection?.label ?? selectedKpi?.label;
+
+  const compareSeedMetricIds = useMemo(() => {
+    const worksheetOptions = (currentIgViewOptions.length
+      ? currentIgViewOptions
+      : [{ id: selectedSubsectionId, label: currentSubsection.label, kpiId: selectedKpiId }])
+      .map((item) => item.kpiId)
+      .filter(Boolean);
+
+    return dedupeList([selectedKpiId, ...worksheetOptions]).slice(0, 3);
+  }, [currentIgViewOptions, currentSubsection.label, selectedKpiId, selectedSubsectionId]);
+
+  const compareSeedInstituteIds = useMemo(() => {
+    return dedupeList([
+      ...LEGACY_COMPARE_IITS,
+      ...(activeInstituteId && !LEGACY_COMPARE_IITS.includes(activeInstituteId) ? [activeInstituteId] : []),
+    ]);
+  }, [activeInstituteId]);
+
+  function buildCompareDefaults({ autoApply = true } = {}) {
+    return {
+      MetricId: selectedKpiId,
+      CompareModule: activeDomain,
+      CompareSubmoduleId: selectedSubsectionId,
+      CompareMetricIds: [...compareSeedMetricIds],
+      CompareView: "grouped",
+      CompareScale: "raw",
+      ActiveYear: YEARS[YEARS.length - 1],
+      InstituteId: [...compareSeedInstituteIds],
+      YearRange: { from: YEARS[0], to: YEARS[YEARS.length - 1] },
+      Normalization: "absolute",
+      Sort: "latest",
+      ChartCap: 8,
+      CompareAutoApply: autoApply,
+      CompareRequestKey: Date.now(),
+    };
+  }
 
   useEffect(() => {
     setRecent((prev) => {
@@ -1406,19 +1524,7 @@ export default function Dashboard({
       action: () => {
         setSpeedDialOpen(false);
         if (isFullscreen) setIsFullscreen(false);
-        setCompareCfg((prev) => ({
-          ...prev,
-          MetricId: selectedKpiId,
-          InstituteId:
-            role === "ministry"
-              ? Array.from(
-                  new Set([
-                    activeInstituteId || IITs[0].id,
-                    ...(prev.InstituteId || [IITs[1]?.id || IITs[0].id]),
-                  ]),
-                ).slice(0, 4)
-              : [activeInstituteId || IITs[0].id],
-        }));
+        setCompareCfg(buildCompareDefaults({ autoApply: true }));
         setSection("Compare");
       },
     },
@@ -1454,6 +1560,7 @@ export default function Dashboard({
 
   const visualToolbarItems = [
     { id: "bar", label: "Bar", icon: "📊" },
+    { id: "trend", label: "Time series", icon: "↗" },
     { id: "donut", label: "Donut", icon: "◔" },
     { id: "table", label: "Table", icon: "▦" },
   ];
@@ -1476,12 +1583,12 @@ export default function Dashboard({
   const chartCanvasHeight = isFullscreen
     ? kpiView === "table"
       ? Math.max(320, Math.min(430, viewportHeight - 360))
-      : kpiView === "bar"
+      : kpiView === "bar" || kpiView === "trend"
         ? fullscreenBarHeight
         : fullscreenDonutHeight
     : kpiView === "table"
       ? 420
-      : kpiView === "bar"
+      : kpiView === "bar" || kpiView === "trend"
         ? 380
         : 420;
   const chartPanelWidthClass = isFullscreen
@@ -1614,101 +1721,190 @@ export default function Dashboard({
             </div>
           </div>
 
-          <div ref={profileRef} className="relative z-[130] shrink-0">
-            <div className="flex items-center gap-2">
-              <div className="hidden text-right leading-tight sm:block">
-                <div className="text-xs font-semibold" style={{ color: "#0f2a5e" }}>
-                  {role === "ministry" ? "Ministry" : currentInstitute.name}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setProfileOpen((value) => !value)}
-                className="grid h-9 w-9 place-items-center rounded-2xl bg-white"
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== "undefined" && window.history.length > 1) {
+                  window.history.back();
+                  return;
+                }
+                if (section !== "Home") setSection("Home");
+              }}
+              className="grid h-9 w-9 place-items-center rounded-2xl bg-white shadow-sm"
+              style={{ border: "1px solid rgba(59,130,246,0.15)", color: "#1252a0" }}
+              title="Go back"
+              aria-label="Go back"
+            >
+              <svg viewBox="0 0 24 24" className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+
+            <div ref={headerSearchRef} className="relative hidden lg:block">
+              <div
+                className="flex h-10 w-[320px] items-center gap-2 rounded-[18px] bg-white px-3 shadow-sm"
                 style={{ border: "1px solid rgba(59,130,246,0.15)" }}
               >
-                <span
-                  className="grid h-7 w-7 place-items-center rounded-xl"
-                  style={{ background: `${accent}14`, color: accent }}
+                <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="#64748b" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+                <input
+                  value={headerSearch}
+                  onFocus={() => setHeaderSearchOpen(Boolean(headerSearchResults.length))}
+                  onChange={(event) => {
+                    setHeaderSearch(event.target.value);
+                    setHeaderSearchOpen(true);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && headerSearchResults[0]) {
+                      handleHeaderSearchSelect(headerSearchResults[0]);
+                    }
+                  }}
+                  placeholder="Search module, sub-module, or worksheet"
+                  className="h-full min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none"
+                />
+                {headerSearch ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHeaderSearch("");
+                      setHeaderSearchOpen(false);
+                    }}
+                    className="grid h-6 w-6 place-items-center rounded-full bg-slate-100 text-slate-500"
+                    aria-label="Clear search"
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </div>
+
+              {headerSearchOpen ? (
+                <div
+                  className="absolute right-0 top-full z-[160] mt-2 w-[360px] overflow-hidden rounded-[22px] bg-white shadow-xl"
+                  style={{ border: "1px solid rgba(59,130,246,0.14)" }}
                 >
-                  {iconSvg("profile")}
-                </span>
-              </button>
+                  {headerSearchResults.length ? (
+                    <div className="max-h-[320px] overflow-auto py-2">
+                      {headerSearchResults.map((result) => (
+                        <button
+                          key={result.key}
+                          type="button"
+                          onClick={() => handleHeaderSearchSelect(result)}
+                          className="flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-slate-50"
+                        >
+                          <span className="mt-1 h-2.5 w-2.5 rounded-full" style={{ background: accent }} />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-semibold text-slate-800">{result.label}</span>
+                            <span className="mt-0.5 block text-xs text-slate-500">{result.subtitle}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : headerSearch.trim() ? (
+                    <div className="px-4 py-4 text-sm text-slate-500">No matching module, sub-module, or worksheet found.</div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
-            {profileOpen ? (
-              <div
-                className="absolute right-0 top-full z-[140] mt-1.5 w-56 overflow-hidden rounded-[18px] bg-white shadow-xl"
-                style={{ border: "1px solid rgba(59,130,246,0.15)" }}
-              >
-                <div className="px-3 py-3">
-                  <div
-                    className="mb-2 text-[10px] uppercase tracking-[0.14em]"
-                    style={{ color: "#64748b" }}
-                  >
-                    Theme
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      { id: "soft", label: "Soft blue" },
-                      { id: "light", label: "Light" },
-                      { id: "slate", label: "Slate" },
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setAppearance(item.id)}
-                        className="rounded-full px-2.5 py-1.5 text-[11px]"
-                        style={{
-                          background:
-                            appearance === item.id ? `${accent}14` : "white",
-                          color: appearance === item.id ? accent : "#475569",
-                          border: `1px solid ${appearance === item.id ? accent : "rgba(148,163,184,0.22)"}`,
-                        }}
-                      >
-                        {appearance === item.id ? "✓ " : ""}
-                        {item.label}
-                      </button>
-                    ))}
+            <div ref={profileRef} className="relative z-[130] shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="hidden text-right leading-tight sm:block">
+                  <div className="text-xs font-semibold" style={{ color: "#0f2a5e" }}>
+                    {role === "ministry" ? "Ministry" : currentInstitute.name}
                   </div>
                 </div>
                 <button
                   type="button"
-                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-slate-50"
-                  onClick={() => {
-                    setHistoryOpen(true);
-                    setProfileOpen(false);
-                  }}
+                  onClick={() => setProfileOpen((value) => !value)}
+                  className="grid h-9 w-9 place-items-center rounded-2xl bg-white"
+                  style={{ border: "1px solid rgba(59,130,246,0.15)" }}
                 >
                   <span
-                    className="grid h-8 w-8 place-items-center rounded-xl"
-                    style={{
-                      background: "rgba(25,117,190,0.08)",
-                      color: "#1252a0",
-                    }}
+                    className="grid h-7 w-7 place-items-center rounded-xl"
+                    style={{ background: `${accent}14`, color: accent }}
                   >
-                    {iconSvg("history")}
+                    {iconSvg("profile")}
                   </span>
-                  <span>Login history</span>
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50"
-                  onClick={onLogout}
-                >
-                  <span
-                    className="grid h-8 w-8 place-items-center rounded-xl"
-                    style={{
-                      background: "rgba(239,68,68,0.08)",
-                      color: "#dc2626",
-                    }}
-                  >
-                    {iconSvg("logout")}
-                  </span>
-                  <span>Logout</span>
                 </button>
               </div>
-            ) : null}
+
+              {profileOpen ? (
+                <div
+                  className="absolute right-0 top-full z-[140] mt-1.5 w-56 overflow-hidden rounded-[18px] bg-white shadow-xl"
+                  style={{ border: "1px solid rgba(59,130,246,0.15)" }}
+                >
+                  <div className="px-3 py-3">
+                    <div
+                      className="mb-2 text-[10px] uppercase tracking-[0.14em]"
+                      style={{ color: "#64748b" }}
+                    >
+                      Theme
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { id: "soft", label: "Soft blue" },
+                        { id: "light", label: "Light" },
+                        { id: "slate", label: "Slate" },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setAppearance(item.id)}
+                          className="rounded-full px-2.5 py-1.5 text-[11px]"
+                          style={{
+                            background:
+                              appearance === item.id ? `${accent}14` : "white",
+                            color: appearance === item.id ? accent : "#475569",
+                            border: `1px solid ${appearance === item.id ? accent : "rgba(148,163,184,0.22)"}`,
+                          }}
+                        >
+                          {appearance === item.id ? "✓ " : ""}
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-slate-50"
+                    onClick={() => {
+                      setHistoryOpen(true);
+                      setProfileOpen(false);
+                    }}
+                  >
+                    <span
+                      className="grid h-8 w-8 place-items-center rounded-xl"
+                      style={{
+                        background: "rgba(25,117,190,0.08)",
+                        color: "#1252a0",
+                      }}
+                    >
+                      {iconSvg("history")}
+                    </span>
+                    <span>Login history</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50"
+                    onClick={onLogout}
+                  >
+                    <span
+                      className="grid h-8 w-8 place-items-center rounded-xl"
+                      style={{
+                        background: "rgba(239,68,68,0.08)",
+                        color: "#dc2626",
+                      }}
+                    >
+                      {iconSvg("logout")}
+                    </span>
+                    <span>Logout</span>
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
@@ -1913,7 +2109,12 @@ export default function Dashboard({
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setSection(item.id)}
+                    onClick={() => {
+                      if (item.id === "Compare") {
+                        setCompareCfg(buildCompareDefaults({ autoApply: true }));
+                      }
+                      setSection(item.id);
+                    }}
                     className={`flex w-full items-center gap-3 rounded-[22px] px-3 py-2.5 text-left transition ${sidebarCollapsed ? "justify-center" : ""}`}
                     style={
                       active
@@ -2395,7 +2596,7 @@ export default function Dashboard({
                     </div>
                   </div>
 
-                  <div className="absolute right-0 top-0 flex shrink-0 items-center gap-2" data-export-hide="true">
+                  <div className="absolute right-14 top-0 flex shrink-0 items-center" data-export-hide="true">
                     <VisualToolbar
                       items={visualToolbarItems}
                       value={kpiView}
@@ -2408,27 +2609,27 @@ export default function Dashboard({
                         setChartRenderNonce((value) => value + 1);
                       }}
                     />
-                    <button
-                      type="button"
-                      data-export-hide="true"
-                      onClick={handleFullscreen}
-                      title={isFullscreen ? "Close fullscreen" : "Open fullscreen"}
-                      className="-translate-y-1 grid h-10 w-10 place-items-center rounded-xl bg-white shadow-sm"
-                      style={{
-                        border: "1px solid rgba(59,130,246,0.18)",
-                        color: "#1252a0",
-                      }}
-                    >
-                      {isFullscreen ? (
-                        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                          <path d="M6 6l12 12" />
-                          <path d="M18 6L6 18" />
-                        </svg>
-                      ) : (
-                        iconSvg("fullscreen", false, "#1252a0")
-                      )}
-                    </button>
                   </div>
+                  <button
+                    type="button"
+                    data-export-hide="true"
+                    onClick={handleFullscreen}
+                    title={isFullscreen ? "Close fullscreen" : "Open fullscreen"}
+                    className="absolute right-0 top-0 grid h-10 w-10 place-items-center rounded-xl bg-white shadow-sm"
+                    style={{
+                      border: "1px solid rgba(59,130,246,0.18)",
+                      color: isFullscreen ? "#dc2626" : "#1252a0",
+                    }}
+                  >
+                    {isFullscreen ? (
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M6 6l12 12" />
+                        <path d="M18 6L6 18" />
+                      </svg>
+                    ) : (
+                      iconSvg("fullscreen", false, "#1252a0")
+                    )}
+                  </button>
                 </div>
 
                 <div
@@ -2455,6 +2656,18 @@ export default function Dashboard({
                         yLabel={currentValueLabel}
                         height={chartCanvasHeight}
                         interactive={selectedKpi.drillable}
+                      />
+                    ) : kpiView === "trend" ? (
+                      <BreakdownLine
+                        data={trendSeries}
+                        format={
+                          valueMode === "percent" && selectedKpi.format !== "pct"
+                            ? "pct"
+                            : selectedKpi.format
+                        }
+                        accent={accent}
+                        yLabel={currentValueLabel}
+                        height={chartCanvasHeight}
                       />
                     ) : kpiView === "donut" ? (
                       <BreakdownDonut

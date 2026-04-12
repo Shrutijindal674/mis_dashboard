@@ -10,6 +10,56 @@ import {
 } from "recharts";
 import { formatCompact, formatPct } from "../../utils/helpers";
 
+
+function splitLabelAcrossTwoLines(text) {
+  const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return [""];
+
+  const words = normalized.split(" ");
+  if (words.length === 1) {
+    if (words[0].length <= 18) return [words[0]];
+    const midpoint = Math.ceil(words[0].length / 2);
+    return [words[0].slice(0, midpoint), words[0].slice(midpoint)].filter(Boolean);
+  }
+
+  let bestPair = [normalized];
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (let index = 1; index < words.length; index += 1) {
+    const firstLine = words.slice(0, index).join(" ");
+    const secondLine = words.slice(index).join(" ");
+    const longestLine = Math.max(firstLine.length, secondLine.length);
+    const imbalance = Math.abs(firstLine.length - secondLine.length);
+    const score = longestLine * 2 + imbalance;
+
+    if (score < bestScore) {
+      bestPair = [firstLine, secondLine];
+      bestScore = score;
+    }
+  }
+
+  return bestPair;
+}
+
+function WrappedAxisLabel({ viewBox, value }) {
+  if (!viewBox) return null;
+  const lines = splitLabelAcrossTwoLines(value);
+  const x = (viewBox.x ?? 0) + 18;
+  const y = (viewBox.y ?? 0) + (viewBox.height ?? 0) / 2;
+
+  return (
+    <g transform={`translate(${x},${y}) rotate(-90)`}>
+      <text textAnchor="middle" fill="#0f172a" fontSize="13" fontWeight="800">
+        {lines.map((line, index) => (
+          <tspan key={`${value ?? "axis"}-${index}`} x="0" dy={index === 0 ? 0 : 14}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </g>
+  );
+}
+
 function TooltipCard({ active, payload, label, isPct, yLabel }) {
   if (!active || !payload?.length) return null;
   const point = payload[0]?.payload ?? {};
@@ -41,12 +91,12 @@ function TooltipCard({ active, payload, label, isPct, yLabel }) {
   );
 }
 
-export default function BreakdownLine({ data, format, accent, yLabel = "Value" }) {
+export default function BreakdownLine({ data, format, accent, yLabel = "Value", height = 420 }) {
   const isPct = format === "pct";
   const axisLabel = isPct ? `${yLabel} (%)` : yLabel;
 
   return (
-    <div className="h-[420px]">
+    <div style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 24, right: 24, left: 44, bottom: 40 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" />
@@ -63,13 +113,7 @@ export default function BreakdownLine({ data, format, accent, yLabel = "Value" }
             tick={{ fontSize: 12, fontWeight: 600, fill: "#334155" }}
             tickFormatter={(v) => (isPct ? `${Math.round(v * 100)}%` : formatCompact(v))}
           >
-            <Label
-              value={axisLabel}
-              angle={-90}
-              position="insideLeft"
-              offset={-20}
-              style={{ fill: "#0f172a", fontSize: 13, fontWeight: 800 }}
-            />
+            <Label content={<WrappedAxisLabel value={axisLabel} />} />
           </YAxis>
           <Tooltip content={<TooltipCard isPct={isPct} yLabel={yLabel} />} />
           <Line

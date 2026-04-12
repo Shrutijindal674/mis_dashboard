@@ -27,7 +27,7 @@ import { IITs, THEME_COLORS, YEARS } from "../constants";
 import { COMPARE_HIERARCHY, KPI_BY_ID } from "../data/compareHierarchy";
 import { kpiValue } from "../data/kpiDefs";
 
-const LEGACY_IITS = ["IITB", "IITD", "IITK", "IITKGP", "IITM"];
+const LEGACY_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
 const PALETTE = ["#2563eb", "#f59e0b", "#14b8a6", "#8b5cf6", "#ec4899", "#64748b", "#0f766e"];
 const TOP_TABS = ["Compare View", "Filters", "Compare Mode", "Saved Sets"];
 const VIEW_OPTIONS = [
@@ -49,6 +49,10 @@ const GROUPED_WINDOW_OPTIONS = [
 
 function cn(...parts) {
   return parts.filter(Boolean).join(" ");
+}
+
+function dedupeList(values) {
+  return Array.from(new Set((values ?? []).filter(Boolean)));
 }
 
 function valueForKpi(facts, kpi, instituteId, year) {
@@ -449,9 +453,10 @@ function TreeNodeRow({
   );
 }
 
-function SimpleChip({ children, tone = "#2563eb", removable = false, onRemove, onClick }) {
+function SimpleChip({ children, tone = "#2563eb", removable = false, onRemove, onClick, title = "" }) {
   return (
     <span
+      title={title}
       className={cn(
         "inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
         onClick ? "cursor-pointer transition hover:-translate-y-0.5" : "",
@@ -691,6 +696,42 @@ function createDefaultDraft() {
   };
 }
 
+function createDraftFromConfig(config, moduleMap, submoduleMap, worksheetMap) {
+  const moduleIds = Object.keys(moduleMap);
+  const submoduleIds = Object.keys(submoduleMap);
+
+  let moduleId = config?.CompareModule && moduleMap[config.CompareModule] ? config.CompareModule : null;
+  let submoduleId = config?.CompareSubmoduleId && submoduleMap[config.CompareSubmoduleId] ? config.CompareSubmoduleId : null;
+  let items = dedupeList([...(config?.CompareMetricIds ?? []), config?.MetricId]).filter((itemId) => worksheetMap[itemId]);
+
+  if (!submoduleId && items[0]) submoduleId = worksheetMap[items[0]]?.submoduleId ?? null;
+  if (!moduleId && submoduleId) moduleId = submoduleMap[submoduleId]?.moduleId ?? null;
+  if (!moduleId && items[0]) moduleId = worksheetMap[items[0]]?.moduleId ?? null;
+  if (!moduleId) moduleId = moduleIds[0] ?? null;
+  if (!submoduleId) submoduleId = moduleMap[moduleId]?.submodules?.[0]?.id ?? submoduleIds[0] ?? null;
+  if (!items.length) {
+    items = (submoduleMap[submoduleId]?.worksheets ?? []).map((worksheet) => worksheet.kpiId).filter(Boolean).slice(0, 3);
+  }
+
+  const rangeFrom = Number(config?.YearRange?.from ?? YEARS[0]);
+  const rangeTo = Number(config?.YearRange?.to ?? YEARS[YEARS.length - 1]);
+  const yearFrom = Math.min(rangeFrom, rangeTo);
+  const yearTo = Math.max(rangeFrom, rangeTo);
+  const focusYear = Number(config?.ActiveYear ?? yearTo);
+
+  return {
+    modules: moduleId ? [moduleId] : [],
+    submodules: submoduleId ? [submoduleId] : [],
+    items,
+    iits: dedupeList(config?.InstituteId?.length ? config.InstituteId : LEGACY_IITS),
+    yearFrom,
+    yearTo,
+    focusYear: focusYear >= yearFrom && focusYear <= yearTo ? focusYear : yearTo,
+    view: VIEW_OPTIONS.some((option) => option.id === config?.CompareView) ? config.CompareView : "grouped",
+    scale: SCALE_OPTIONS.some((option) => option.id === config?.CompareScale) ? config.CompareScale : "raw",
+  };
+}
+
 function deriveModeValidity(items, iits, yearFrom, yearTo) {
   const years = YEARS.filter((year) => year >= yearFrom && year <= yearTo);
   const selected = items.filter(Boolean);
@@ -790,6 +831,7 @@ export default function ComparePage({
   const [groupedPage, setGroupedPage] = useState(0);
   const chartRef = useRef(null);
   const fullscreenRef = useRef(null);
+  const lastConfigRequestRef = useRef(null);
 
   useEffect(() => {
     if (!notice) return;
@@ -857,6 +899,25 @@ export default function ComparePage({
       setDraft((prev) => ({ ...prev, view: fallback, scale: fallback === "table" ? "raw" : prev.scale }));
     }
   }, [draft.view, modeValidity]);
+
+  useEffect(() => {
+    const requestKey = config?.CompareRequestKey ?? "__initial__";
+    if (lastConfigRequestRef.current === requestKey) return;
+
+    const nextDraft = createDraftFromConfig(config, moduleMap, submoduleMap, worksheetMap);
+    lastConfigRequestRef.current = requestKey;
+    setDraft(nextDraft);
+    setToolbarSearch(config?.CompareKeyword ?? "");
+    setSearch({ modules: "", submodules: "", items: "", iits: "" });
+    setSortBy("selected");
+    setGroupedPage(0);
+    setOpenPopover(null);
+    setBuilderOpen(false);
+
+    if (config?.CompareAutoApply || config?.__compareApplied || requestKey === "__initial__") {
+      setApplied(nextDraft);
+    }
+  }, [config, moduleMap, submoduleMap, worksheetMap]);
 
   if (role !== "ministry") {
     return (
@@ -1420,73 +1481,65 @@ export default function ComparePage({
       ? "grouped"
       : VIEW_OPTIONS.find((option) => sourceModeValidity[option.id]?.valid)?.id ?? source.view;
     const pills = [];
-    if (toolbarSearch) pills.push({ key: 'keyword', label: `Keyword: ${toolbarSearch}`, tone: '#334155', clear: () => setToolbarSearch(''), open: () => setOpenPopover('filters') });
-    source.modules.forEach((id) => {
+
+    sourceItems.forEach((item) => {
       pills.push({
-        key: `module-${id}`,
-        label: `Module · ${moduleMap[id]?.id ?? id}`,
-        tone: '#475569',
-        clear: () => removeFromApplied('module', id),
-        open: () => setOpenPopover('filters'),
-      });
-    });
-    source.submodules.forEach((id) => {
-      pills.push({
-        key: `submodule-${id}`,
-        label: `Sub-module · ${submoduleMap[id]?.label ?? id}`,
-        tone: '#7c3aed',
-        clear: () => removeFromApplied('submodule', id),
-        open: () => setOpenPopover('filters'),
-      });
-    });
-    source.items.forEach((id) => {
-      pills.push({
-        key: `item-${id}`,
-        label: `Item · ${worksheetMap[id]?.label ?? id}`,
+        key: `item-${item.kpiId}`,
+        label: item.label,
+        title: `${item.moduleLabel} › ${item.submoduleLabel} › ${item.label}`,
         tone: '#0f766e',
-        clear: () => removeFromApplied('item', id),
+        clear: () => removeFromApplied('item', item.kpiId),
         open: () => setOpenPopover('filters'),
       });
     });
+
     source.iits.forEach((id) => {
       pills.push({
         key: `iit-${id}`,
         label: `IIT · ${id}`,
+        title: `Included institute: ${id}`,
         tone: '#ea580c',
         clear: () => removeFromApplied('iit', id),
-        open: () => setOpenPopover('filters'),
+        open: () => setOpenPopover('iits'),
       });
     });
+
     pills.push({
       key: 'years',
       label: `Years · ${source.yearFrom}–${source.yearTo}`,
+      title: `Compare range: ${source.yearFrom} to ${source.yearTo}`,
       tone: '#1d4ed8',
       clear: source.yearFrom !== YEARS[0] || source.yearTo !== YEARS[YEARS.length - 1]
         ? () => updateSelectionSummarySource((prev) => ({ ...prev, yearFrom: YEARS[0], yearTo: YEARS[YEARS.length - 1], focusYear: YEARS[YEARS.length - 1] }))
         : undefined,
       open: () => {},
     });
+
     pills.push({
       key: 'mode',
       label: `Mode · ${VIEW_OPTIONS.find((option) => option.id === source.view)?.label ?? source.view}`,
+      title: `Compare mode: ${VIEW_OPTIONS.find((option) => option.id === source.view)?.label ?? source.view}`,
       tone: '#db2777',
       clear: source.view !== defaultSourceView
         ? () => updateSelectionSummarySource((prev) => ({ ...prev, view: defaultSourceView, scale: defaultSourceView === 'table' ? 'raw' : prev.scale }))
         : undefined,
       open: () => setOpenPopover('mode'),
     });
+
     pills.push({
       key: 'scale',
       label: `Scale · ${source.scale === 'indexed' ? 'Indexed 100' : 'Raw'}`,
+      title: `Scale: ${source.scale === 'indexed' ? 'Indexed 100' : 'Raw'}`,
       tone: '#0891b2',
       clear: source.scale !== 'raw' ? () => updateSelectionSummarySource((prev) => ({ ...prev, scale: 'raw' })) : undefined,
       open: () => setOpenPopover('mode'),
     });
+
     if (!pills.length) return null;
     return (
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
         {pills.map((pill) => (
-          <SimpleChip key={pill.key} tone={pill.tone} removable={Boolean(pill.clear)} onRemove={pill.clear} onClick={pill.open}>
+          <SimpleChip key={pill.key} tone={pill.tone} removable={Boolean(pill.clear)} onRemove={pill.clear} onClick={pill.open} title={pill.title}>
             {pill.label}
           </SimpleChip>
         ))}
@@ -1829,7 +1882,18 @@ export default function ComparePage({
         style={{ borderColor: "rgba(59,130,246,0.15)" }}
       >
         <div className={cn("relative", fullscreen ? "h-full p-5" : "p-4")}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
+          {!fullscreen ? (
+            <button
+              type="button"
+              onClick={() => setIsFullscreen((value) => !value)}
+              className="absolute right-0 top-0 grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700"
+              title={isFullscreen ? "Exit fullscreen" : "Open fullscreen"}
+            >
+              {compareIcon("fullscreen", false, "#475569")}
+            </button>
+          ) : null}
+
+          <div className="flex flex-wrap items-start justify-between gap-3 pr-14">
             <div className="min-w-0 flex-1">
               <div className="text-[1.05rem] font-extrabold leading-tight text-slate-900">Compare</div>
               <div className="mt-1 text-sm text-slate-500">{subtitle}</div>
@@ -1865,14 +1929,6 @@ export default function ComparePage({
                   </button>
                 );
               })}
-              <button
-                type="button"
-                onClick={() => setIsFullscreen((value) => !value)}
-                className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700"
-                title={isFullscreen ? "Exit fullscreen" : "Open fullscreen"}
-              >
-                {compareIcon("fullscreen", false, "#475569")}
-              </button>
             </div>
           </div>
 
@@ -2096,11 +2152,27 @@ export default function ComparePage({
 
             <button
               type="button"
+              onClick={() => setDraft((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))}
+              className="inline-flex h-12 items-center gap-2 rounded-[18px] border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50/60"
+            >
+              <span>Older IITs</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDraft((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))}
+              className="inline-flex h-12 items-center gap-2 rounded-[18px] border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50/60"
+            >
+              <span>All</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setOpenPopover((value) => (value === 'iits' ? null : 'iits'))}
               className="inline-flex h-12 items-center gap-3 rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] px-5 text-sm font-extrabold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50/60"
             >
               {compareIcon('iit', false, '#475569')}
-              <span>Select IITs</span>
+              <span>More</span>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-extrabold text-slate-600">{draft.iits.length}</span>
             </button>
 
@@ -2162,20 +2234,18 @@ export default function ComparePage({
 
       {isFullscreen && applied ? (
         <div className="fixed inset-0 z-[270] bg-slate-950/35 p-4 backdrop-blur-sm">
-          <div className="flex h-full flex-col rounded-[36px] border border-white/30 bg-white p-4 shadow-2xl">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <div className="text-lg font-semibold text-slate-900">Compare · Fullscreen</div>
-                <div className="text-xs text-slate-500">The close button is kept separate from view controls for all charts.</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsFullscreen(false)}
-                className="grid h-11 w-11 place-items-center rounded-xl text-white"
-                style={{ background: uiAccent }}
-              >
-                {compareIcon('close', true, '#ffffff')}
-              </button>
+          <div className="relative flex h-full flex-col rounded-[36px] border border-white/30 bg-white p-4 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(false)}
+              className="absolute right-4 top-4 z-10 grid h-11 w-11 place-items-center rounded-xl text-white"
+              style={{ background: uiAccent }}
+            >
+              {compareIcon('close', true, '#ffffff')}
+            </button>
+            <div className="mb-3 pr-16">
+              <div className="text-lg font-semibold text-slate-900">Compare · Fullscreen</div>
+              <div className="text-xs text-slate-500">The close button is kept separate from the visual-type controls.</div>
             </div>
             <div className="min-h-0 flex-1 overflow-auto">{renderChartCard(fullscreenRef, true)}</div>
           </div>
