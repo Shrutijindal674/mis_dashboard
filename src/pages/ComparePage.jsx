@@ -18,6 +18,7 @@ import {
   downloadElementImage,
   downloadElementPdf,
   downloadElementSvg,
+  downloadTableSvg,
   downloadText,
   formatCompact,
   formatPct,
@@ -26,6 +27,8 @@ import {
 import { IITs, THEME_COLORS, YEARS } from "../constants";
 import { COMPARE_HIERARCHY, KPI_BY_ID } from "../data/compareHierarchy";
 import { kpiValue } from "../data/kpiDefs";
+import DataTable from "../components/ui/DataTable";
+import Drawer from "../components/ui/Drawer";
 
 const LEGACY_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
 const PALETTE = ["#2563eb", "#f59e0b", "#14b8a6", "#8b5cf6", "#ec4899", "#64748b", "#0f766e"];
@@ -40,13 +43,6 @@ const SCALE_OPTIONS = [
   { id: "raw", label: "Raw" },
   { id: "indexed", label: "Indexed 100" },
 ];
-const GROUPED_WINDOW_OPTIONS = [
-  { value: "4", label: "4" },
-  { value: "6", label: "6" },
-  { value: "8", label: "8" },
-  { value: "all", label: "All" },
-];
-
 function cn(...parts) {
   return parts.filter(Boolean).join(" ");
 }
@@ -148,6 +144,27 @@ function summarizeList(values, max = 3) {
   if (!values?.length) return "None selected";
   if (values.length <= max) return values.join(", ");
   return `${values.slice(0, max).join(", ")} +${values.length - max} more`;
+}
+
+function instituteNameById(iid) {
+  return IITs.find((item) => item.id === iid)?.name ?? iid;
+}
+
+function instituteShortLabel(iid) {
+  return IITs.find((item) => item.id === iid)?.name ?? iid;
+}
+
+function formatCompareTimestamp(value) {
+  if (!value) return "Not recorded yet";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not recorded yet";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function compareIcon(kind, active = false, tone = "#2563eb") {
@@ -273,10 +290,26 @@ function compareIcon(kind, active = false, tone = "#2563eb") {
         <path {...common} d="M5 19h14" />
       </>
     ),
+    details: (
+      <>
+        <rect {...common} x="4" y="5" width="16" height="14" rx="2" />
+        <path {...common} d="M8 9h8" />
+        <path {...common} d="M8 13h3" />
+        <path {...common} d="M13 13h3" />
+        <path {...common} d="M8 17h8" />
+      </>
+    ),
+    ai: (
+      <>
+        <path {...common} d="M12 3l1.6 3.8L17 8.4l-3.4 1.6L12 14l-1.6-4L7 8.4l3.4-1.6L12 3Z" />
+        <path {...common} d="M19 13l.9 2.1L22 16l-2.1.9L19 19l-.9-2.1L16 16l2.1-.9L19 13Z" />
+        <path {...common} d="M6 14l.7 1.7L8.4 16l-1.7.7L6 18.4l-.7-1.7L3.6 16l1.7-.7L6 14Z" />
+      </>
+    ),
   }[kind];
 
   if (!wrappers) return null;
-  return <svg viewBox="0 0 24 24" className="h-4.5 w-4.5">{wrappers}</svg>;
+  return <svg viewBox="0 0 24 24" className="h-5 w-5">{wrappers}</svg>;
 }
 
 function PillTab({ label, active, icon, onClick }) {
@@ -329,14 +362,26 @@ function SearchField({ value, onChange, placeholder = "Search" }) {
   );
 }
 
-function ToolbarSelect({ label, value, options, onChange, minWidth = 110 }) {
+function ToolbarSelect({
+  label,
+  value,
+  options,
+  onChange,
+  minWidth = 110,
+  className = "",
+  labelClassName = "",
+  selectClassName = "",
+}) {
   return (
-    <label className="flex shrink-0 flex-col gap-1" style={{ minWidth }}>
-      <span className="px-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">{label}</span>
+    <label className={cn("flex shrink-0 flex-col gap-1", className)} style={{ minWidth }}>
+      <span className={cn("px-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500", labelClassName)}>{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-12 rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] px-4 text-sm font-extrabold text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] outline-none transition focus:border-sky-300 focus:shadow-[0_0_0_4px_rgba(191,219,254,0.4)]"
+        className={cn(
+          "h-12 rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] px-4 text-sm font-extrabold text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] outline-none transition focus:border-sky-300 focus:shadow-[0_0_0_4px_rgba(191,219,254,0.4)]",
+          selectClassName,
+        )}
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>{option.label}</option>
@@ -349,10 +394,9 @@ function ToolbarSelect({ label, value, options, onChange, minWidth = 110 }) {
 function CompareViewToolbar({ value, onChange, disabledMap = {} }) {
   return (
     <div
-      className="flex items-center overflow-hidden rounded-xl shadow-lg"
+      className="inline-flex items-center overflow-hidden rounded-[18px] border bg-white shadow-[0_10px_28px_rgba(37,99,235,0.12)]"
       style={{
-        background: "rgba(255,255,255,0.98)",
-        border: "1px solid rgba(59,130,246,0.16)",
+        borderColor: "rgba(191,219,254,0.95)",
       }}
     >
       {VIEW_OPTIONS.map((option, index) => {
@@ -364,11 +408,14 @@ function CompareViewToolbar({ value, onChange, disabledMap = {} }) {
             type="button"
             disabled={disabled}
             onClick={() => onChange(option.id)}
-            className={cn("grid h-10 w-10 place-items-center text-base transition", disabled ? "cursor-not-allowed opacity-45" : "")}
+            className={cn(
+              "grid h-11 w-11 place-items-center text-base transition",
+              disabled ? "cursor-not-allowed opacity-45" : "hover:bg-sky-50/80",
+            )}
             style={{
-              borderLeft: index !== 0 ? "1px solid rgba(59,130,246,0.1)" : undefined,
-              background: active ? "#1975be" : "transparent",
-              color: active ? "#fff" : "#1252a0",
+              borderLeft: index !== 0 ? "1px solid rgba(191,219,254,0.95)" : undefined,
+              background: active ? "linear-gradient(180deg, #3b82f6 0%, #2563eb 100%)" : "transparent",
+              color: active ? "#fff" : "#2563eb",
             }}
             title={option.label}
             aria-label={option.label}
@@ -550,7 +597,7 @@ function CompareTooltip({ active, payload, label, mode, metricLookup, scaleMode 
                 <span style={{ color: entry.color }}>{IITs.find((item) => item.id === iid)?.name ?? iid}</span>
                 <span className="font-semibold text-slate-800">
                   {fmtDisplay(metric?.kpi, entry.value, scaleMode)}
-                  {scaleMode === "indexed" && raw != null ? ` • ${fmtRaw(metric?.kpi, raw)}` : ""}
+                  {scaleMode === "indexed" && raw != null ? ` - ${fmtRaw(metric?.kpi, raw)}` : ""}
                 </span>
               </div>
             );
@@ -822,13 +869,15 @@ export default function ComparePage({
   const [search, setSearch] = useState({ modules: "", submodules: "", items: "", iits: "" });
   const [notice, setNotice] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [speedDialOpen, setSpeedDialOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [openPopover, setOpenPopover] = useState(null);
+  const [lastDownloadedAt, setLastDownloadedAt] = useState(null);
   const [toolbarSearch, setToolbarSearch] = useState("");
   const [sortBy, setSortBy] = useState("selected");
   const [expandedModules, setExpandedModules] = useState({});
   const [expandedSubmodules, setExpandedSubmodules] = useState({});
-  const [groupedWindowSize, setGroupedWindowSize] = useState("4");
-  const [groupedPage, setGroupedPage] = useState(0);
   const chartRef = useRef(null);
   const fullscreenRef = useRef(null);
   const lastConfigRequestRef = useRef(null);
@@ -910,7 +959,6 @@ export default function ComparePage({
     setToolbarSearch(config?.CompareKeyword ?? "");
     setSearch({ modules: "", submodules: "", items: "", iits: "" });
     setSortBy("selected");
-    setGroupedPage(0);
     setOpenPopover(null);
     setBuilderOpen(false);
 
@@ -932,6 +980,8 @@ export default function ComparePage({
   const appliedIITs = applied?.iits ?? [];
   const appliedModeValidity = deriveModeValidity(appliedItems, appliedIITs, applied?.yearFrom ?? YEARS[0], applied?.yearTo ?? YEARS[YEARS.length - 1]);
   const uiAccent = accent || "#1d4ed8";
+  const lastUpdatedLabel = formatCompareTimestamp(facts?.meta?.generatedAt);
+  const lastDownloadedLabel = formatCompareTimestamp(lastDownloadedAt);
 
   const appliedMetricLookup = useMemo(
     () =>
@@ -968,38 +1018,6 @@ export default function ComparePage({
       return row;
     });
   }, [applied, chartableAppliedItems, facts, groupedIITs]);
-
-  const groupedWindowOptions = useMemo(() => {
-    const count = groupedRows.length;
-    const filtered = GROUPED_WINDOW_OPTIONS.filter((option) => option.value === "all" || Number(option.value) <= count);
-    return filtered.length ? filtered : [{ value: "all", label: "All" }];
-  }, [groupedRows.length]);
-
-  const groupedRowsPerPage = groupedWindowSize === "all"
-    ? Math.max(1, groupedRows.length)
-    : Number(groupedWindowSize);
-  const groupedPageCount = groupedWindowSize === "all"
-    ? 1
-    : Math.max(1, Math.ceil(groupedRows.length / groupedRowsPerPage));
-  const visibleGroupedRows = useMemo(() => {
-    if (groupedWindowSize === "all") return groupedRows;
-    const start = groupedPage * groupedRowsPerPage;
-    return groupedRows.slice(start, start + groupedRowsPerPage);
-  }, [groupedPage, groupedRows, groupedRowsPerPage, groupedWindowSize]);
-  const groupedVisibleStart = groupedRows.length ? groupedPage * groupedRowsPerPage + 1 : 0;
-  const groupedVisibleEnd = groupedWindowSize === "all"
-    ? groupedRows.length
-    : Math.min(groupedRows.length, groupedVisibleStart + visibleGroupedRows.length - 1);
-
-  useEffect(() => {
-    setGroupedPage((prev) => Math.min(prev, groupedPageCount - 1));
-  }, [groupedPageCount]);
-
-  useEffect(() => {
-    if (groupedWindowOptions.some((option) => option.value === groupedWindowSize)) return;
-    setGroupedWindowSize(groupedWindowOptions[0]?.value ?? "all");
-    setGroupedPage(0);
-  }, [groupedWindowOptions, groupedWindowSize]);
 
   const primaryAppliedItem = chartableAppliedItems[0];
 
@@ -1064,12 +1082,103 @@ export default function ComparePage({
           CompareItem: item.label,
           Value: latest,
           YoY: latest != null && prev != null && prev !== 0 && prevYear !== applied.focusYear ? (latest - prev) / prev : null,
-          Range: appliedYears.map((year) => `${year}: ${fmtRaw(item.kpi, valueForKpi(facts, item.kpi, iid, year))}`).join(" • "),
+          Range: appliedYears.map((year) => `${year}: ${fmtRaw(item.kpi, valueForKpi(facts, item.kpi, iid, year))}`).join(" - "),
           _item: item,
         };
       });
     });
   }, [applied, appliedIITs, appliedItems, appliedYears, facts]);
+
+  const compareDetailColumns = useMemo(
+    () => [
+      { key: "Institute", label: "Institute" },
+      { key: "Module", label: "Module" },
+      { key: "Submodule", label: "Sub-module" },
+      { key: "CompareItem", label: "Compare item" },
+      { key: "Value", label: `Value (${applied?.focusYear ?? ""})` },
+      { key: "YoY", label: "YoY" },
+      { key: "Range", label: `${applied?.yearFrom ?? YEARS[0]}-${applied?.yearTo ?? YEARS[YEARS.length - 1]}` },
+    ],
+    [applied],
+  );
+
+  const compareDetailRows = useMemo(
+    () =>
+      tableRows.map((row) => ({
+        ...row,
+        Value: fmtRaw(row._item?.kpi, row.Value),
+        YoY: formatPct(row.YoY),
+      })),
+    [tableRows],
+  );
+
+  const compareInterpretation = useMemo(() => {
+    if (!applied) return "Build a comparison to see an interpretation.";
+
+    const lines = [
+      `This comparison covers ${appliedItems.length} compare item(s) across ${appliedIITs.length} IIT(s) from ${applied.yearFrom} to ${applied.yearTo}.`,
+      `Current visual: ${VIEW_OPTIONS.find((option) => option.id === applied.view)?.label ?? applied.view}. Scale: ${applied.scale === "indexed" ? "Indexed 100" : "Raw"}. Focus year: ${applied.focusYear}.`,
+      `Selected IITs: ${summarizeList(appliedIITs.map((iid) => instituteShortLabel(iid)), 4)}.`,
+    ];
+
+    if (applied.view === "grouped" && groupedRows.length) {
+      let strongest = null;
+      groupedRows.forEach((row) => {
+        groupedIITs.forEach((iid) => {
+          const value = row[`raw_${iid}`];
+          if (value == null || !Number.isFinite(Number(value))) return;
+          if (!strongest || Number(value) > Number(strongest.value)) {
+            strongest = {
+              iid,
+              label: row.label,
+              value,
+              kpi: appliedMetricLookup[row.metricId]?.kpi,
+            };
+          }
+        });
+      });
+      if (strongest) {
+        lines.push(
+          `In the grouped view, the strongest visible point is ${strongest.label} for ${instituteShortLabel(strongest.iid)} at ${fmtRaw(strongest.kpi, strongest.value)} in ${applied.focusYear}.`,
+        );
+      }
+    }
+
+    if (applied.view === "trend" && primaryAppliedItem && trendRows.length) {
+      const lastRow = trendRows[trendRows.length - 1];
+      let leader = null;
+      appliedIITs.forEach((iid) => {
+        const value = lastRow?.[`raw_${iid}`];
+        if (value == null || !Number.isFinite(Number(value))) return;
+        if (!leader || Number(value) > Number(leader.value)) {
+          leader = { iid, value };
+        }
+      });
+      if (leader) {
+        lines.push(
+          `${primaryAppliedItem.label} ends highest with ${instituteShortLabel(leader.iid)} at ${fmtRaw(primaryAppliedItem.kpi, leader.value)} in ${trendRows[trendRows.length - 1]?.label}.`,
+        );
+      }
+    }
+
+    if (applied.view === "smallMultiples" && smallMultipleSeries.length) {
+      const firstSeries = smallMultipleSeries[0];
+      const leader = [...firstSeries.rows]
+        .filter((row) => row.rawValue != null && Number.isFinite(Number(row.rawValue)))
+        .sort((a, b) => Number(b.rawValue) - Number(a.rawValue))[0];
+      if (leader) {
+        lines.push(
+          `In small multiples, ${firstSeries.item.label} is currently led by ${leader.instituteName} at ${fmtRaw(firstSeries.item.kpi, leader.rawValue)}.`,
+        );
+      }
+    }
+
+    if (applied.view === "table") {
+      lines.push(`The tabular view currently expands to ${tableRows.length} institute-item row(s).`);
+    }
+
+    return lines.join("\n\n");
+  }, [applied, appliedItems, appliedIITs, appliedMetricLookup, groupedIITs, groupedRows, primaryAppliedItem, smallMultipleSeries, tableRows, trendRows]);
 
   const canApply = Boolean(
     draft.modules.length &&
@@ -1151,6 +1260,11 @@ export default function ComparePage({
     });
   }
 
+  function markDownloaded(message, timestamp = new Date().toISOString()) {
+    setLastDownloadedAt(timestamp);
+    setNotice(message);
+  }
+
   async function handleShare() {
     if (!applied) return;
     const summary = [
@@ -1164,6 +1278,15 @@ export default function ComparePage({
       `Mode: ${applied.view}`,
       `Scale: ${applied.scale}`,
     ].join("\n");
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "IIT MIS Compare", text: summary });
+        setNotice("Comparison summary shared.");
+        return;
+      } catch {
+        // fall through to clipboard
+      }
+    }
     const ok = await copyToClipboard(summary);
     setNotice(ok ? "Copied comparison summary." : "Copy failed.");
   }
@@ -1171,19 +1294,19 @@ export default function ComparePage({
   async function handleDownloadPng() {
     const target = isFullscreen ? fullscreenRef.current : chartRef.current;
     await downloadElementImage(target, `iitmis_compare_${applied?.view ?? "compare"}.png`, "png");
-    setNotice("PNG downloaded.");
+    markDownloaded("PNG downloaded.");
   }
 
   async function handleDownloadSvg() {
     const target = isFullscreen ? fullscreenRef.current : chartRef.current;
     await downloadElementSvg(target, `iitmis_compare_${applied?.view ?? "compare"}.svg`, { preserveLayout: true });
-    setNotice("SVG downloaded.");
+    markDownloaded("SVG downloaded.");
   }
 
   async function handleDownloadPdf() {
     const target = isFullscreen ? fullscreenRef.current : chartRef.current;
     await downloadElementPdf(target, `IIT MIS Compare ${applied?.focusYear ?? ""}`);
-    setNotice("PDF downloaded.");
+    markDownloaded("PDF downloaded.");
   }
 
   function handleDownloadCsv() {
@@ -1208,8 +1331,69 @@ export default function ComparePage({
       ),
       "text/csv;charset=utf-8",
     );
-    setNotice("CSV downloaded.");
+    markDownloaded("CSV downloaded.");
   }
+
+  function openDetailsDrawer() {
+    setSpeedDialOpen(false);
+    if (isFullscreen) {
+      setIsFullscreen(false);
+      window.setTimeout(() => setDetailsOpen(true), 120);
+      return;
+    }
+    setDetailsOpen(true);
+  }
+
+  function openAiDrawer() {
+    setSpeedDialOpen(false);
+    if (isFullscreen) {
+      setIsFullscreen(false);
+      window.setTimeout(() => setAiPanelOpen(true), 120);
+      return;
+    }
+    setAiPanelOpen(true);
+  }
+
+  function openWorksheetFilters() {
+    setSpeedDialOpen(false);
+    if (isFullscreen) {
+      setIsFullscreen(false);
+      window.setTimeout(() => {
+        setBuilderOpen(true);
+        setOpenPopover("filters");
+      }, 120);
+      return;
+    }
+    setBuilderOpen(true);
+    setOpenPopover("filters");
+  }
+
+  const speedDialItems = [
+    {
+      id: "share",
+      label: "Share / Embed",
+      icon: "share",
+      action: handleShare,
+    },
+    {
+      id: "download",
+      label: applied?.view === "table" ? "Download CSV" : "Download SVG",
+      icon: "download",
+      action: applied?.view === "table" ? handleDownloadCsv : handleDownloadSvg,
+    },
+    {
+      id: "raw-data",
+      label: "Details",
+      icon: "details",
+      action: openDetailsDrawer,
+    },
+    {
+      id: "ai",
+      label: "AI interpretation",
+      icon: "ai",
+      action: openAiDrawer,
+    },
+  ];
 
   function openBuilder(step = 1) {
     setBuilderOpen(true);
@@ -1473,76 +1657,45 @@ export default function ComparePage({
     draft.yearFrom !== YEARS[0] || draft.yearTo !== YEARS[YEARS.length - 1],
   ].filter(Boolean).length;
 
+  const selectionSource = applied ?? draft;
+  const selectionSourceItems = (selectionSource?.items ?? []).map((id) => worksheetMap[id]).filter(Boolean);
+  const selectionIitSummary = selectionSource?.iits?.length === IITs.length
+    ? 'ALL'
+    : selectionSource?.iits?.length === LEGACY_IITS.length && LEGACY_IITS.every((iid) => selectionSource.iits.includes(iid))
+      ? "OLD IIT's"
+      : selectionSource?.iits?.length
+        ? `${selectionSource.iits.length} selected`
+        : 'None';
+
   function renderSelectionLine() {
     const source = applied ?? draft;
     const sourceItems = source.items.map((id) => worksheetMap[id]).filter(Boolean);
-    const sourceModeValidity = deriveModeValidity(sourceItems, source.iits, source.yearFrom, source.yearTo);
-    const defaultSourceView = sourceModeValidity.grouped.valid
-      ? "grouped"
-      : VIEW_OPTIONS.find((option) => sourceModeValidity[option.id]?.valid)?.id ?? source.view;
-    const pills = [];
 
-    sourceItems.forEach((item) => {
-      pills.push({
-        key: `item-${item.kpiId}`,
-        label: item.label,
-        title: `${item.moduleLabel} › ${item.submoduleLabel} › ${item.label}`,
-        tone: '#0f766e',
-        clear: () => removeFromApplied('item', item.kpiId),
-        open: () => setOpenPopover('filters'),
-      });
-    });
-
-    source.iits.forEach((id) => {
-      pills.push({
-        key: `iit-${id}`,
-        label: `IIT · ${id}`,
-        title: `Included institute: ${id}`,
-        tone: '#ea580c',
-        clear: () => removeFromApplied('iit', id),
-        open: () => setOpenPopover('iits'),
-      });
-    });
-
-    pills.push({
-      key: 'years',
-      label: `Years · ${source.yearFrom}–${source.yearTo}`,
-      title: `Compare range: ${source.yearFrom} to ${source.yearTo}`,
-      tone: '#1d4ed8',
-      clear: source.yearFrom !== YEARS[0] || source.yearTo !== YEARS[YEARS.length - 1]
-        ? () => updateSelectionSummarySource((prev) => ({ ...prev, yearFrom: YEARS[0], yearTo: YEARS[YEARS.length - 1], focusYear: YEARS[YEARS.length - 1] }))
-        : undefined,
-      open: () => {},
-    });
-
-    pills.push({
-      key: 'mode',
-      label: `Mode · ${VIEW_OPTIONS.find((option) => option.id === source.view)?.label ?? source.view}`,
-      title: `Compare mode: ${VIEW_OPTIONS.find((option) => option.id === source.view)?.label ?? source.view}`,
-      tone: '#db2777',
-      clear: source.view !== defaultSourceView
-        ? () => updateSelectionSummarySource((prev) => ({ ...prev, view: defaultSourceView, scale: defaultSourceView === 'table' ? 'raw' : prev.scale }))
-        : undefined,
-      open: () => setOpenPopover('mode'),
-    });
-
-    pills.push({
-      key: 'scale',
-      label: `Scale · ${source.scale === 'indexed' ? 'Indexed 100' : 'Raw'}`,
-      title: `Scale: ${source.scale === 'indexed' ? 'Indexed 100' : 'Raw'}`,
-      tone: '#0891b2',
-      clear: source.scale !== 'raw' ? () => updateSelectionSummarySource((prev) => ({ ...prev, scale: 'raw' })) : undefined,
-      open: () => setOpenPopover('mode'),
-    });
-
-    if (!pills.length) return null;
     return (
-      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-        {pills.map((pill) => (
-          <SimpleChip key={pill.key} tone={pill.tone} removable={Boolean(pill.clear)} onRemove={pill.clear} onClick={pill.open} title={pill.title}>
-            {pill.label}
-          </SimpleChip>
-        ))}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {sourceItems.length ? sourceItems.map((item) => (
+          <button
+            key={item.kpiId}
+            type="button"
+            onClick={() => openBuilder(1)}
+            title={`${item.moduleLabel} > ${item.submoduleLabel} > ${item.label}`}
+            className="inline-flex items-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_2px_10px_rgba(15,23,42,0.05)] transition hover:border-sky-200 hover:bg-sky-50/40"
+          >
+            {item.label}
+          </button>
+        )) : (
+          <span className="text-sm text-slate-500">No KPI selected.</span>
+        )}
+        <a
+          href="#advanced-filter"
+          onClick={(event) => {
+            event.preventDefault();
+            openBuilder(1);
+          }}
+          className="text-sm font-semibold text-sky-700 underline-offset-4 transition hover:text-sky-800 hover:underline"
+        >
+          More
+        </a>
       </div>
     );
   }
@@ -1573,7 +1726,7 @@ export default function ComparePage({
           <div className="mt-3 flex flex-wrap gap-2">
             {draft.iits.slice(0, 8).map((iid) => (
               <SimpleChip key={iid} tone="#ea580c" removable onRemove={() => setDraft((prev) => ({ ...prev, iits: prev.iits.filter((item) => item !== iid) }))}>
-                {iid}
+                {instituteShortLabel(iid)}
               </SimpleChip>
             ))}
             {draft.iits.length > 8 ? <SimpleChip tone="#64748b">+{draft.iits.length - 8} more</SimpleChip> : null}
@@ -1594,7 +1747,7 @@ export default function ComparePage({
                 className="mt-0.5 h-4 w-4 rounded border-slate-300 text-sky-600"
               />
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-800">{iit.id} · {iit.name}</div>
+                <div className="text-sm font-semibold text-slate-800">{iit.name}</div>
                 <div className="mt-0.5 text-xs text-slate-500">{iit.state}</div>
               </div>
             </label>
@@ -1606,159 +1759,186 @@ export default function ComparePage({
 
   function renderFilterPopover() {
     if (openPopover !== 'filters') return null;
+
     return (
-      <div data-compare-popover className="absolute left-0 top-full z-40 mt-4 w-full max-w-[500px]">
-        <div className="ml-10 h-4 w-4 rotate-45 border-l border-t border-sky-100 bg-white shadow-[-6px_-6px_18px_rgba(125,211,252,0.08)]" />
-        <div className="rounded-[30px] border border-sky-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-4 shadow-[0_28px_60px_rgba(14,116,144,0.16)]">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-slate-900">Filters</div>
-            <div className="mt-0.5 text-xs text-slate-500">Multiple selection stays compact, clean, and easy to scan.</div>
-          </div>
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-600">{activeFilterCount} active</span>
-        </div>
-
-        <div className="mt-4 rounded-[24px] border border-slate-200 bg-white p-3 shadow-[0_10px_30px_rgba(148,163,184,0.08)]">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Hierarchy</div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setDraft((prev) => ({
-                  ...prev,
-                  modules: hierarchy.map((module) => module.id),
-                  submodules: hierarchy.flatMap((module) => module.submodules.map((submodule) => submodule.id)),
-                  items: hierarchy.flatMap((module) => module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.kpiId))),
-                }))}
-                className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-700"
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                onClick={() => setDraft((prev) => ({ ...prev, modules: [], submodules: [], items: [] }))}
-                className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-600"
-              >
-                Clear
-              </button>
+      <div className="fixed inset-0 z-[260] bg-slate-950/18 px-4 py-5 backdrop-blur-[2px]">
+        <div className="mx-auto flex h-full w-full max-w-[1220px] flex-col overflow-hidden rounded-[34px] border border-slate-200 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.18)]">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+            <div>
+              <div className="text-[1.25rem] font-extrabold text-slate-900">Advanced compare &amp; filter</div>
+              <div className="mt-1 text-sm text-slate-500">Refine KPI selection, date range, and IIT scope, then apply the filters to refresh the compare graph.</div>
             </div>
+            <button
+              type="button"
+              onClick={() => setOpenPopover(null)}
+              className="grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm"
+              aria-label="Close advanced filters"
+            >
+              {compareIcon('close', false, '#0f172a')}
+            </button>
           </div>
-          <div className="mt-3 max-h-[320px] overflow-auto pr-1">
-            {filteredHierarchy.length ? filteredHierarchy.map((module) => {
-              const moduleState = getModuleSelectionState(module);
-              const moduleExpanded = expandedModules[module.id] ?? true;
-              return (
-                <div key={module.id} className="rounded-[22px] border border-slate-100 bg-slate-50/55 py-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-                  <TreeNodeRow
-                    level={0}
-                    label={module.id}
-                    subtitle={`${module.submodules.length} sub-modules`}
-                    checked={moduleState.checked}
-                    partial={moduleState.partial}
-                    hasChildren
-                    expanded={moduleExpanded}
-                    onToggleExpand={() => toggleModuleExpand(module.id)}
-                    onToggleCheck={() => toggleModuleSelection(module.id)}
+
+          <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
+            <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+              <div className="rounded-[26px] border border-slate-200 bg-slate-50/60 p-4">
+                <div className="text-sm font-extrabold text-slate-900">Date</div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <ToolbarSelect
+                    label="From"
+                    value={String(draft.yearFrom)}
+                    onChange={(value) => handleRangeChange('from', value)}
+                    options={YEARS.map((year) => ({ value: String(year), label: String(year) }))}
+                    minWidth={120}
                   />
-                  {moduleExpanded ? module.submodules.map((submodule) => {
-                    const submoduleState = getSubmoduleSelectionState(submodule);
-                    const subExpanded = expandedSubmodules[submodule.id] ?? false;
-                    return (
-                      <div key={submodule.id}>
-                        <TreeNodeRow
-                          level={1}
-                          label={submodule.label}
-                          subtitle={`${submodule.worksheets.length} compare items`}
-                          checked={submoduleState.checked}
-                          partial={submoduleState.partial}
-                          hasChildren
-                          expanded={subExpanded}
-                          onToggleExpand={() => toggleSubmoduleExpand(submodule.id)}
-                          onToggleCheck={() => toggleSubmoduleSelection(submodule.id)}
-                        />
-                        {subExpanded ? submodule.worksheets.map((item) => (
-                          <TreeNodeRow
-                            key={item.kpiId}
-                            level={2}
-                            label={item.label}
-                            subtitle={item.helper}
-                            checked={draft.items.includes(item.kpiId)}
-                            badge={item.comparable ? undefined : 'Table only'}
-                            onToggleCheck={() => toggleItemSelection(item.kpiId)}
-                          />
-                        )) : null}
-                      </div>
-                    );
-                  }) : null}
+                  <ToolbarSelect
+                    label="To"
+                    value={String(draft.yearTo)}
+                    onChange={(value) => handleRangeChange('to', value)}
+                    options={YEARS.map((year) => ({ value: String(year), label: String(year) }))}
+                    minWidth={120}
+                  />
                 </div>
-              );
-            }) : <div className="rounded-2xl border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-500">No matching hierarchy nodes.</div>}
-          </div>
-        </div>
+              </div>
 
-        <div className="mt-3">
-          {renderIitSelectionPanel()}
-        </div>
-        {false ? (
-        <div className="mt-3 rounded-[24px] border border-slate-200 bg-white p-3 shadow-[0_10px_30px_rgba(148,163,184,0.08)]">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">IIT selection</div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setDraft((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))}
-                className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-700"
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                onClick={() => setDraft((prev) => ({ ...prev, iits: [] }))}
-                className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-600"
-              >
-                Clear
-              </button>
+              <div className="rounded-[26px] border border-slate-200 bg-slate-50/60 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-extrabold text-slate-900">IIT scope</div>
+                    <div className="mt-1 text-xs text-slate-500">Use the quick sets or refine the list below.</div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDraft((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))}
+                      className="rounded-full border px-3 py-1.5 text-xs font-extrabold transition"
+                      style={{
+                        borderColor: draft.iits.length === LEGACY_IITS.length && LEGACY_IITS.every((iid) => draft.iits.includes(iid)) ? 'rgba(37,99,235,0.28)' : 'rgba(148,163,184,0.22)',
+                        background: draft.iits.length === LEGACY_IITS.length && LEGACY_IITS.every((iid) => draft.iits.includes(iid)) ? 'rgba(37,99,235,0.08)' : 'white',
+                        color: draft.iits.length === LEGACY_IITS.length && LEGACY_IITS.every((iid) => draft.iits.includes(iid)) ? '#1d4ed8' : '#475569',
+                      }}
+                    >
+                      OLD IIT's
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDraft((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))}
+                      className="rounded-full border px-3 py-1.5 text-xs font-extrabold transition"
+                      style={{
+                        borderColor: draft.iits.length === IITs.length ? 'rgba(37,99,235,0.28)' : 'rgba(148,163,184,0.22)',
+                        background: draft.iits.length === IITs.length ? 'rgba(37,99,235,0.08)' : 'white',
+                        color: draft.iits.length === IITs.length ? '#1d4ed8' : '#475569',
+                      }}
+                    >
+                      ALL
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDraft((prev) => ({ ...prev, iits: [] }))}
+                      className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  {renderIitSelectionPanel()}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-[28px] border border-slate-200 bg-white p-4 shadow-[0_10px_30px_rgba(148,163,184,0.08)]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-extrabold text-slate-900">Hierarchy and KPI selection</div>
+                  <div className="mt-1 text-xs text-slate-500">Only the final worksheet KPI chips are shown on the compare page. Hover them there to see the breadcrumb path.</div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="min-w-[220px] flex-1 sm:min-w-[260px]">
+                    <SearchField value={toolbarSearch} onChange={setToolbarSearch} placeholder="Search module, sub-module, or worksheet" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDraft((prev) => ({
+                      ...prev,
+                      modules: hierarchy.map((module) => module.id),
+                      submodules: hierarchy.flatMap((module) => module.submodules.map((submodule) => submodule.id)),
+                      items: hierarchy.flatMap((module) => module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.kpiId))),
+                    }))}
+                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDraft((prev) => ({ ...prev, modules: [], submodules: [], items: [] }))}
+                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 max-h-[440px] overflow-auto pr-1">
+                {filteredHierarchy.length ? filteredHierarchy.map((module) => {
+                  const moduleState = getModuleSelectionState(module);
+                  const moduleExpanded = expandedModules[module.id] ?? true;
+                  return (
+                    <div key={module.id} className="rounded-[22px] border border-slate-100 bg-slate-50/55 py-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                      <TreeNodeRow
+                        level={0}
+                        label={module.id}
+                        subtitle={`${module.submodules.length} sub-modules`}
+                        checked={moduleState.checked}
+                        partial={moduleState.partial}
+                        hasChildren
+                        expanded={moduleExpanded}
+                        onToggleExpand={() => toggleModuleExpand(module.id)}
+                        onToggleCheck={() => toggleModuleSelection(module.id)}
+                      />
+                      {moduleExpanded ? module.submodules.map((submodule) => {
+                        const submoduleState = getSubmoduleSelectionState(submodule);
+                        const subExpanded = expandedSubmodules[submodule.id] ?? false;
+                        return (
+                          <div key={submodule.id}>
+                            <TreeNodeRow
+                              level={1}
+                              label={submodule.label}
+                              subtitle={`${submodule.worksheets.length} compare items`}
+                              checked={submoduleState.checked}
+                              partial={submoduleState.partial}
+                              hasChildren
+                              expanded={subExpanded}
+                              onToggleExpand={() => toggleSubmoduleExpand(submodule.id)}
+                              onToggleCheck={() => toggleSubmoduleSelection(submodule.id)}
+                            />
+                            {subExpanded ? submodule.worksheets.map((item) => (
+                              <TreeNodeRow
+                                key={item.kpiId}
+                                level={2}
+                                label={item.label}
+                                subtitle={item.helper}
+                                checked={draft.items.includes(item.kpiId)}
+                                badge={item.comparable ? undefined : 'Table only'}
+                                onToggleCheck={() => toggleItemSelection(item.kpiId)}
+                              />
+                            )) : null}
+                          </div>
+                        );
+                      }) : null}
+                    </div>
+                  );
+                }) : <div className="rounded-2xl border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-500">No matching hierarchy nodes.</div>}
+              </div>
             </div>
           </div>
-          {draft.iits.length ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {draft.iits.slice(0, 8).map((iid) => (
-                <SimpleChip key={iid} tone="#ea580c" removable onRemove={() => setDraft((prev) => ({ ...prev, iits: prev.iits.filter((item) => item !== iid) }))}>
-                  {iid}
-                </SimpleChip>
-              ))}
-              {draft.iits.length > 8 ? <SimpleChip tone="#64748b">+{draft.iits.length - 8} more</SimpleChip> : null}
-            </div>
-          ) : null}
-          <div className="mt-3 grid max-h-44 gap-2 overflow-auto pr-1">
-            {filteredIITs.map((iit) => (
-              <label key={iit.id} className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50/35 px-3 py-2 transition hover:border-sky-100 hover:bg-sky-50/65">
-                <input
-                  type="checkbox"
-                  checked={draft.iits.includes(iit.id)}
-                  onChange={() => setDraft((prev) => ({
-                    ...prev,
-                    iits: prev.iits.includes(iit.id)
-                      ? prev.iits.filter((item) => item !== iit.id)
-                      : [...prev.iits, iit.id],
-                  }))}
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-sky-600"
-                />
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-slate-800">{iit.id} · {iit.name}</div>
-                  <div className="mt-0.5 text-xs text-slate-500">{iit.state}</div>
-                </div>
-              </label>
-            ))}
+
+          <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
+            <button type="button" onClick={() => setOpenPopover(null)} className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
+            <button type="button" onClick={applyCompare} className="rounded-2xl bg-[#3ac778] px-5 py-2.5 text-sm font-bold text-white shadow-sm">
+              Apply filters
+            </button>
           </div>
         </div>
-        ) : null}
-
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <button type="button" onClick={() => setOpenPopover(null)} className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
-          <button type="button" onClick={() => setOpenPopover(null)} className="rounded-2xl px-4 py-2.5 text-sm font-bold text-white shadow-[0_14px_30px_rgba(37,99,235,0.2)]" style={{ background: 'linear-gradient(135deg, #3856a8 0%, #516fbe 100%)' }}>Save</button>
-        </div>
-      </div>
       </div>
     );
   }
@@ -1872,8 +2052,17 @@ export default function ComparePage({
 
   function renderChartCard(targetRef, fullscreen = false) {
     if (!applied) return null;
-    const viewLabel = VIEW_OPTIONS.find((option) => option.id === applied.view)?.label ?? applied.view;
-    const subtitle = `${summarizeList(appliedItems.map((item) => item.label), 2)} · ${summarizeList(appliedIITs, 4)} · ${applied.yearFrom}–${applied.yearTo}`;
+    const appliedWorksheetPills = appliedItems.map((item) => ({
+      id: item.kpiId,
+      label: item.label,
+      breadcrumb: [
+        moduleMap[item.moduleId]?.label ?? item.moduleLabel ?? item.moduleId,
+        submoduleMap[item.submoduleId]?.label ?? item.submoduleLabel ?? item.submoduleId,
+        item.label,
+      ].filter(Boolean).join(" > "),
+    }));
+    const appliedYearsLabel = `${applied.yearFrom}-${applied.yearTo}`;
+    const appliedIitsLabel = summarizeList(appliedIITs.map((iid) => instituteShortLabel(iid)), 5);
 
     return (
       <div
@@ -1882,33 +2071,8 @@ export default function ComparePage({
         style={{ borderColor: "rgba(59,130,246,0.15)" }}
       >
         <div className={cn("relative", fullscreen ? "h-full p-5" : "p-4")}>
-          {!fullscreen ? (
-            <button
-              type="button"
-              onClick={() => setIsFullscreen((value) => !value)}
-              className="absolute right-0 top-0 grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700"
-              title={isFullscreen ? "Exit fullscreen" : "Open fullscreen"}
-            >
-              {compareIcon("fullscreen", false, "#475569")}
-            </button>
-          ) : null}
-
-          <div className="flex flex-wrap items-start justify-between gap-3 pr-14">
-            <div className="min-w-0 flex-1">
-              <div className="text-[1.05rem] font-extrabold leading-tight text-slate-900">Compare</div>
-              <div className="mt-1 text-sm text-slate-500">{subtitle}</div>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <CompareViewToolbar
-                value={applied.view}
-                disabledMap={Object.fromEntries(VIEW_OPTIONS.map((option) => [option.id, !appliedModeValidity[option.id]?.valid]))}
-                onChange={(nextView) => {
-                  const nextState = appliedModeValidity[nextView];
-                  if (!nextState?.valid) return;
-                  commitAppliedSelection({ ...applied, view: nextView, scale: nextView === "table" ? "raw" : applied.scale });
-                }}
-              />
+          <div className="grid gap-4 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-start">
+            <div className="flex flex-wrap items-center gap-2">
               {SCALE_OPTIONS.map((option) => {
                 const disabled = option.id === "indexed" && (applied.view === "table" || !appliedModeValidity[applied.view]?.valid);
                 const active = applied.scale === option.id;
@@ -1918,11 +2082,12 @@ export default function ComparePage({
                     type="button"
                     disabled={disabled}
                     onClick={() => commitAppliedSelection({ ...applied, scale: option.id })}
-                    className={cn("rounded-full px-3 py-1.5 text-xs font-bold transition", disabled ? "cursor-not-allowed opacity-50" : "")}
+                    className={cn("rounded-full px-4 py-2 text-[0.78rem] font-bold transition", disabled ? "cursor-not-allowed opacity-50" : "")}
                     style={{
-                      background: active ? "#e8f0ff" : "white",
-                      border: `1px solid ${active ? "rgba(37,99,235,0.28)" : "rgba(148,163,184,0.18)"}`,
-                      color: active ? "#1d4ed8" : "#475569",
+                      background: "rgba(255,255,255,0.98)",
+                      border: `1px solid ${active ? "#f97316" : "rgba(203,213,225,0.9)"}`,
+                      color: active ? "#f97316" : "#475569",
+                      boxShadow: active ? "0 8px 24px rgba(249,115,22,0.14)" : "0 2px 10px rgba(15,23,42,0.04)",
                     }}
                   >
                     {option.label}
@@ -1930,29 +2095,47 @@ export default function ComparePage({
                 );
               })}
             </div>
-          </div>
 
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap gap-2">
-              {appliedYears.map((year) => (
-                <SimpleChip key={year} tone={year === applied.focusYear ? "#1d4ed8" : "#64748b"} onClick={() => commitAppliedSelection({ ...applied, focusYear: year })}>
-                  {year}
-                </SimpleChip>
-              ))}
+            <div className="min-w-0 text-center lg:px-4">
+              <div className="text-[1.08rem] font-extrabold leading-tight text-slate-900">Compare</div>
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                {appliedWorksheetPills.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={openWorksheetFilters}
+                    title={item.breadcrumb}
+                    className="inline-flex items-center rounded-[14px] bg-[#eef5ff] px-4 py-2 text-sm font-bold text-[#1252a0] shadow-[inset_0_1px_0_rgba(255,255,255,0.92)] transition hover:bg-[#e2eeff]"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3 text-sm text-slate-600">{appliedIitsLabel}</div>
+              <div className="mt-1 text-sm font-semibold text-slate-700">{appliedYearsLabel}</div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={handleShare} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
-                {compareIcon("share", false, "#475569")}
-                <span>Share summary</span>
-              </button>
-              <button type="button" onClick={applied.view === "table" ? handleDownloadCsv : handleDownloadSvg} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
-                {compareIcon("download", false, "#475569")}
-                <span>{applied.view === "table" ? "CSV" : "SVG"}</span>
-              </button>
-              <button type="button" onClick={handleDownloadPng} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
-                {compareIcon("image", false, "#475569")}
-                <span>PNG</span>
-              </button>
+
+            <div className="flex flex-wrap items-center justify-start gap-3 lg:justify-end">
+              <CompareViewToolbar
+                value={applied.view}
+                disabledMap={Object.fromEntries(VIEW_OPTIONS.map((option) => [option.id, !appliedModeValidity[option.id]?.valid]))}
+                onChange={(nextView) => {
+                  const nextState = appliedModeValidity[nextView];
+                  if (!nextState?.valid) return;
+                  commitAppliedSelection({ ...applied, view: nextView, scale: nextView === "table" ? "raw" : applied.scale });
+                }}
+              />
+              {!fullscreen ? (
+                <button
+                  type="button"
+                  onClick={() => setIsFullscreen((value) => !value)}
+                  className="grid h-11 w-11 place-items-center rounded-[16px] border bg-white text-sky-700 shadow-[0_10px_24px_rgba(37,99,235,0.10)]"
+                  style={{ borderColor: "rgba(191,219,254,0.95)" }}
+                  title={isFullscreen ? "Exit fullscreen" : "Open fullscreen"}
+                >
+                  {compareIcon("fullscreen", false, "#2563eb")}
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -1962,58 +2145,7 @@ export default function ComparePage({
             </div>
           ) : null}
 
-          <div className="mt-4 rounded-[28px] border border-slate-200 bg-white p-4">
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-slate-900">{viewLabel}</div>
-                <div className="text-xs text-slate-500">{subtitle}</div>
-              </div>
-              <div className="flex flex-wrap items-end justify-end gap-3">
-                {applied.view === "grouped" ? (
-                  <>
-                    <ToolbarSelect
-                      label="Items shown"
-                      value={groupedWindowSize}
-                      onChange={(value) => {
-                        setGroupedWindowSize(value);
-                        setGroupedPage(0);
-                      }}
-                      minWidth={108}
-                      options={groupedWindowOptions}
-                    />
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-600">
-                        {groupedRows.length ? `${groupedVisibleStart}-${groupedVisibleEnd} of ${groupedRows.length}` : "0 items"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setGroupedPage((prev) => Math.max(0, prev - 1))}
-                        disabled={groupedPage === 0 || groupedWindowSize === "all"}
-                        className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Prev
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setGroupedPage((prev) => Math.min(groupedPageCount - 1, prev + 1))}
-                        disabled={groupedPage >= groupedPageCount - 1 || groupedWindowSize === "all"}
-                        className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Next
-                      </button>
-                    </div>
-                  </>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={handleDownloadPdf}
-                  className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
-                >
-                  PDF
-                </button>
-              </div>
-            </div>
-
+          <div className="mt-4 bg-white pt-2">
             {applied.view !== "table" && !appliedModeValidity[applied.view]?.valid ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                 {appliedModeValidity[applied.view]?.reason}
@@ -2023,7 +2155,7 @@ export default function ComparePage({
             {applied.view === "grouped" && appliedModeValidity.grouped.valid ? (
               <div style={{ height: fullscreen ? 620 : 520 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={visibleGroupedRows} margin={{ top: 12, right: 18, left: 8, bottom: 52 }}>
+                  <BarChart data={groupedRows} margin={{ top: 12, right: 18, left: 8, bottom: 52 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                     <XAxis
                       dataKey="label"
@@ -2036,8 +2168,8 @@ export default function ComparePage({
                     <YAxis tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} width={78} />
                     <Tooltip content={<CompareTooltip metricLookup={appliedMetricLookup} scaleMode={applied.scale} mode="grouped" />} />
                     {groupedIITs.map((iid, index) => (
-                      <Bar key={iid} dataKey={`display_${iid}`} fill={PALETTE[index % PALETTE.length]} radius={[10, 10, 0, 0]} maxBarSize={Math.max(18, 42 - visibleGroupedRows.length)}>
-                        {visibleGroupedRows.map((row) => <Cell key={`${iid}-${row.metricId}`} />)}
+                      <Bar key={iid} dataKey={`display_${iid}`} fill={PALETTE[index % PALETTE.length]} radius={[10, 10, 0, 0]} maxBarSize={Math.max(18, 42 - groupedRows.length)}>
+                        {groupedRows.map((row) => <Cell key={`${iid}-${row.metricId}`} />)}
                       </Bar>
                     ))}
                   </BarChart>
@@ -2101,6 +2233,44 @@ export default function ComparePage({
               </div>
             ) : null}
           </div>
+
+          <div
+            data-export-hide="true"
+            className={`${fullscreen ? "fixed bottom-8 right-8 z-[340]" : "absolute bottom-4 right-4 z-20"} flex flex-col items-end gap-2`}
+          >
+            {speedDialOpen
+              ? speedDialItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      item.action();
+                      setSpeedDialOpen(false);
+                    }}
+                    className="dashboard-speed-action group relative z-[141] grid h-11 w-11 place-items-center rounded-2xl bg-white shadow-lg transition hover:-translate-y-0.5"
+                    style={{ color: "#0f172a", border: "1px solid rgba(15,42,94,0.14)" }}
+                  >
+                    <span className="dashboard-speed-tooltip pointer-events-none absolute right-[calc(100%+10px)] top-1/2 z-[142] -translate-y-1/2 whitespace-nowrap rounded-xl border bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 opacity-0 shadow-sm transition">
+                      {item.label}
+                    </span>
+                    <span>{compareIcon(item.icon, false, "#0f172a")}</span>
+                  </button>
+                ))
+              : null}
+            <button
+              type="button"
+              onClick={() => setSpeedDialOpen((value) => !value)}
+              className="dashboard-speed-action group relative z-[141] grid h-12 w-12 place-items-center rounded-2xl text-3xl text-white shadow-lg"
+              style={{ background: "#1e6cc8", lineHeight: 1 }}
+            >
+              <span className="dashboard-speed-tooltip pointer-events-none absolute right-[calc(100%+10px)] top-1/2 z-[142] -translate-y-1/2 whitespace-nowrap rounded-xl border bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 opacity-0 shadow-sm transition">
+                {speedDialOpen ? "Close actions" : "Open actions"}
+              </span>
+              <span style={{ transform: speedDialOpen ? "translateY(-1px)" : "translateY(-2px)" }}>
+                {speedDialOpen ? "x" : "+"}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -2108,125 +2278,110 @@ export default function ComparePage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <div className="text-[1.6rem] font-extrabold tracking-tight text-slate-900">Compare</div>
-        <div className="mt-1 text-sm text-slate-500">A cleaner compare builder with compact filters, softer cards, and a neater hierarchy selection flow.</div>
-      </div>
-
       {notice ? (
         <div className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700">
           {notice}
         </div>
       ) : null}
 
-      <div className="relative" data-compare-toolbar>
+      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.95fr]">
         <div
-          className="rounded-[32px] border px-4 py-4 shadow-[0_20px_60px_rgba(37,99,235,0.08)]"
+          className="rounded-[32px] border px-5 py-5 shadow-sm"
           style={{
-            borderColor: 'rgba(59,130,246,0.15)',
+            borderColor: 'rgba(59,130,246,0.12)',
             background: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.98) 100%)',
           }}
         >
-          <div className="flex flex-wrap items-end gap-3">
-            <button
-              type="button"
-              onClick={() => openBuilder(1)}
-              className="inline-flex h-12 items-center gap-3 rounded-[18px] px-6 text-sm font-extrabold text-white shadow-[0_14px_30px_rgba(37,99,235,0.26)] transition hover:-translate-y-0.5"
-              style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%)' }}
-            >
-              {compareIcon('build', true, '#ffffff')}
-              <span>Build Compare</span>
-            </button>
-
-            <div className="min-w-[260px] flex-1 lg:max-w-[360px]">
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Search by keyword</span>
-                <input
-                  value={toolbarSearch}
-                  onChange={(event) => setToolbarSearch(event.target.value)}
-                  placeholder="Search hierarchy, worksheets, or IITs"
-                  className="h-12 rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] px-4 text-sm text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] outline-none transition focus:border-sky-300 focus:shadow-[0_0_0_4px_rgba(191,219,254,0.4)]"
-                />
-              </label>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setDraft((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))}
-              className="inline-flex h-12 items-center gap-2 rounded-[18px] border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50/60"
-            >
-              <span>Older IITs</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setDraft((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))}
-              className="inline-flex h-12 items-center gap-2 rounded-[18px] border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50/60"
-            >
-              <span>All</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setOpenPopover((value) => (value === 'iits' ? null : 'iits'))}
-              className="inline-flex h-12 items-center gap-3 rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] px-5 text-sm font-extrabold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50/60"
-            >
-              {compareIcon('iit', false, '#475569')}
-              <span>More</span>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-extrabold text-slate-600">{draft.iits.length}</span>
-            </button>
-
-            <ToolbarSelect
-              label="From"
-              value={String(draft.yearFrom)}
-              onChange={(value) => handleRangeChange('from', value)}
-              options={YEARS.map((year) => ({ value: String(year), label: String(year) }))}
-              minWidth={92}
-            />
-
-            <ToolbarSelect
-              label="To"
-              value={String(draft.yearTo)}
-              onChange={(value) => handleRangeChange('to', value)}
-              options={YEARS.map((year) => ({ value: String(year), label: String(year) }))}
-              minWidth={92}
-            />
-
-            <button
-              type="button"
-              onClick={() => setOpenPopover((value) => (value === 'filters' ? null : 'filters'))}
-              className="inline-flex h-12 items-center gap-3 rounded-[18px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] px-5 text-sm font-extrabold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50/60"
-            >
-              {compareIcon('filters', false, '#475569')}
-              <span>Filters</span>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-extrabold text-slate-600">{activeFilterCount}</span>
-            </button>
-
-            <button
-              type="button"
-              disabled={!canApply}
-              onClick={applyCompare}
-              className={cn('inline-flex h-12 items-center gap-3 rounded-[18px] px-6 text-sm font-extrabold text-white shadow-[0_14px_30px_rgba(59,130,246,0.18)] transition', !canApply ? 'cursor-not-allowed opacity-50' : 'hover:-translate-y-0.5')}
-              style={{ background: 'linear-gradient(135deg, #7c97e8 0%, #6c88df 100%)' }}
-            >
-              {compareIcon('compare', true, '#ffffff')}
-              <span>Apply Compare</span>
-            </button>
-          </div>
-
+          <div className="text-[1.05rem] font-extrabold text-slate-900">Select KPI(s):</div>
           {renderSelectionLine()}
         </div>
 
-        {renderFilterPopover()}
-        {renderIitPopover()}
-        {renderModePopover()}
+        <div
+          className="rounded-[32px] border px-5 py-5 shadow-sm"
+          style={{
+            borderColor: 'rgba(59,130,246,0.12)',
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.98) 100%)',
+          }}
+        >
+          <div className="text-[1.05rem] font-extrabold text-slate-900">Date:</div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <ToolbarSelect
+              label="From"
+              value={String(selectionSource.yearFrom)}
+              onChange={(value) => updateSelectionSummarySource((prev) => {
+                const year = Number(value);
+                const nextFrom = Math.min(year, prev.yearTo);
+                const nextFocus = Math.min(Math.max(prev.focusYear, nextFrom), prev.yearTo);
+                return { ...prev, yearFrom: nextFrom, focusYear: nextFocus };
+              })}
+              options={YEARS.map((year) => ({ value: String(year), label: String(year) }))}
+              minWidth={0}
+              className="w-full"
+              labelClassName="px-0 text-[0.72rem] font-semibold tracking-[0.22em] text-slate-500"
+              selectClassName="w-full rounded-[16px] border-[1.5px] border-[#d8e5ff] bg-white text-base font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus:border-[#93c5fd] focus:shadow-[0_0_0_4px_rgba(219,234,254,0.9)]"
+            />
+            <ToolbarSelect
+              label="To"
+              value={String(selectionSource.yearTo)}
+              onChange={(value) => updateSelectionSummarySource((prev) => {
+                const year = Number(value);
+                const nextTo = Math.max(year, prev.yearFrom);
+                const nextFocus = Math.min(Math.max(prev.focusYear, prev.yearFrom), nextTo);
+                return { ...prev, yearTo: nextTo, focusYear: nextFocus };
+              })}
+              options={YEARS.map((year) => ({ value: String(year), label: String(year) }))}
+              minWidth={0}
+              className="w-full"
+              labelClassName="px-0 text-[0.72rem] font-semibold tracking-[0.22em] text-slate-500"
+              selectClassName="w-full rounded-[16px] border-[1.5px] border-[#d8e5ff] bg-white text-base font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus:border-[#93c5fd] focus:shadow-[0_0_0_4px_rgba(219,234,254,0.9)]"
+            />
+          </div>
+
+          <div className="mt-5 text-[0.98rem] font-extrabold text-slate-900">IIT(s):</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))}
+              className="rounded-full border px-4 py-2 text-sm font-extrabold transition"
+              style={{
+                borderColor: selectionSource.iits.length === LEGACY_IITS.length && LEGACY_IITS.every((iid) => selectionSource.iits.includes(iid)) ? 'rgba(37,99,235,0.28)' : 'rgba(148,163,184,0.22)',
+                background: selectionSource.iits.length === LEGACY_IITS.length && LEGACY_IITS.every((iid) => selectionSource.iits.includes(iid)) ? 'rgba(37,99,235,0.08)' : 'white',
+                color: selectionSource.iits.length === LEGACY_IITS.length && LEGACY_IITS.every((iid) => selectionSource.iits.includes(iid)) ? '#1d4ed8' : '#475569',
+              }}
+            >
+              OLD IIT's
+            </button>
+            <button
+              type="button"
+              onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))}
+              className="rounded-full border px-4 py-2 text-sm font-extrabold transition"
+              style={{
+                borderColor: selectionSource.iits.length === IITs.length ? 'rgba(37,99,235,0.28)' : 'rgba(148,163,184,0.22)',
+                background: selectionSource.iits.length === IITs.length ? 'rgba(37,99,235,0.08)' : 'white',
+                color: selectionSource.iits.length === IITs.length ? '#1d4ed8' : '#475569',
+              }}
+            >
+              ALL
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpenPopover('filters')}
+              className="rounded-full border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] px-4 py-2 text-sm font-extrabold text-slate-700 transition hover:border-sky-200"
+            >
+              More
+            </button>
+          </div>
+          <div className="mt-3 text-xs font-semibold text-slate-500">Current IIT filter: {selectionIitSummary}</div>
+        </div>
       </div>
 
-      {!applied ? <EmptyStateCard onBuild={() => openBuilder(1)} /> : null}
+      {renderFilterPopover()}
+
+      {!applied ? <EmptyStateCard onBuild={() => setOpenPopover('filters')} /> : null}
 
       {!applied && canApply ? (
         <div className="rounded-[24px] border border-sky-100 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700">
-          Selections are ready. Use Apply Compare to render the chart card.
+          Selections are ready. Open More to refine them or keep the current defaults.
         </div>
       ) : null}
 
@@ -2243,14 +2398,115 @@ export default function ComparePage({
             >
               {compareIcon('close', true, '#ffffff')}
             </button>
-            <div className="mb-3 pr-16">
-              <div className="text-lg font-semibold text-slate-900">Compare · Fullscreen</div>
-              <div className="text-xs text-slate-500">The close button is kept separate from the visual-type controls.</div>
-            </div>
             <div className="min-h-0 flex-1 overflow-auto">{renderChartCard(fullscreenRef, true)}</div>
           </div>
         </div>
       ) : null}
+
+      <Drawer
+        open={detailsOpen}
+        title="Compare - Detail Report"
+        onClose={() => setDetailsOpen(false)}
+      >
+        <div className="text-sm text-slate-700">
+          Current context: {summarizeList(appliedIITs.map((iid) => instituteShortLabel(iid)), 4)} - {applied?.yearFrom ?? YEARS[0]}-{applied?.yearTo ?? YEARS[YEARS.length - 1]} - {VIEW_OPTIONS.find((option) => option.id === applied?.view)?.label ?? "Compare"}
+        </div>
+        <div className="mt-2 text-xs text-slate-500">
+          Last updated: {lastUpdatedLabel} - Last downloaded: {lastDownloadedLabel}
+        </div>
+        <div className="mt-4">
+          <DataTable
+            columns={compareDetailColumns}
+            rows={compareDetailRows}
+            maxHeight={620}
+          />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={handleDownloadCsv}
+            className="rounded-2xl px-4 py-2 text-sm font-semibold text-white"
+            style={{ border: `1px solid ${uiAccent}`, background: uiAccent }}
+          >
+            Download CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const downloadStamp = new Date().toISOString();
+              downloadTableSvg(
+                `iitmis_compare_${applied?.view ?? "compare"}_details.svg`,
+                compareDetailColumns,
+                compareDetailRows,
+                {
+                  title: "IIT MIS Compare Detail Report",
+                  subtitle: `${applied?.yearFrom ?? YEARS[0]}-${applied?.yearTo ?? YEARS[YEARS.length - 1]} - ${summarizeList(appliedIITs.map((iid) => instituteShortLabel(iid)), 4)}`,
+                  lastUpdatedAt: facts?.meta?.generatedAt,
+                  lastDownloadedAt: downloadStamp,
+                },
+              );
+              markDownloaded("SVG downloaded.", downloadStamp);
+            }}
+            className="rounded-2xl px-4 py-2 text-sm font-semibold text-white"
+            style={{ border: `1px solid ${uiAccent}`, background: uiAccent }}
+          >
+            Download SVG
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadPng}
+            className="rounded-2xl px-4 py-2 text-sm font-semibold text-white"
+            style={{ border: `1px solid ${uiAccent}`, background: uiAccent }}
+          >
+            Download PNG
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            className="rounded-2xl px-4 py-2 text-sm font-semibold text-white"
+            style={{ border: `1px solid ${uiAccent}`, background: uiAccent }}
+          >
+            PDF
+          </button>
+        </div>
+      </Drawer>
+
+      <Drawer
+        open={aiPanelOpen}
+        title="AI interpretation - Compare"
+        onClose={() => setAiPanelOpen(false)}
+      >
+        <div className="text-sm text-slate-700">
+          Current context: {summarizeList(appliedIITs.map((iid) => instituteShortLabel(iid)), 4)} - {applied?.yearFrom ?? YEARS[0]}-{applied?.yearTo ?? YEARS[YEARS.length - 1]} - {VIEW_OPTIONS.find((option) => option.id === applied?.view)?.label ?? "Compare"}
+        </div>
+        <div className="mt-2 text-xs text-slate-500">
+          Last updated: {lastUpdatedLabel} - Last downloaded: {lastDownloadedLabel}
+        </div>
+        <div className="mt-4 whitespace-pre-line rounded-[24px] border p-4 text-sm text-slate-700" style={{ borderColor: "rgba(59,130,246,0.12)", background: "rgba(248,250,252,0.85)" }}>
+          {compareInterpretation}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              downloadText(
+                `iitmis_compare_${applied?.view ?? "compare"}_ai_interpretation.txt`,
+                `AI interpretation\n\n${compareInterpretation}`,
+              );
+              markDownloaded("AI interpretation downloaded.");
+            }}
+            className="rounded-2xl px-4 py-2 text-sm font-semibold"
+            style={{ color: "#1252a0", border: "1px solid rgba(59,130,246,0.18)", background: "white" }}
+          >
+            Download AI interpretation
+          </button>
+        </div>
+      </Drawer>
     </div>
   );
+
 }
+
+
+
+
