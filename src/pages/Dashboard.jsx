@@ -2542,6 +2542,27 @@ export default function Dashboard({
                       }
                 }
               >
+                <button
+                  type="button"
+                  data-export-hide="true"
+                  onClick={handleFullscreen}
+                  title={isFullscreen ? "Close fullscreen" : "Open fullscreen"}
+                  className="absolute right-4 top-4 z-20 grid h-10 w-10 place-items-center rounded-xl bg-white shadow-sm"
+                  style={{
+                    border: "1px solid rgba(59,130,246,0.18)",
+                    color: isFullscreen ? "#dc2626" : "#1252a0",
+                  }}
+                >
+                  {isFullscreen ? (
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M6 6l12 12" />
+                      <path d="M18 6L6 18" />
+                    </svg>
+                  ) : (
+                    iconSvg("fullscreen", false, "#1252a0")
+                  )}
+                </button>
+
                 <div ref={chartExportRef} className="relative flex min-h-0 flex-1 flex-col">
                 <div className={`dashboard-chart-header absolute inset-x-5 z-10 flex items-start gap-3 pr-14 ${isFullscreen ? "top-5" : "top-5"}`}>
                   <div className="flex shrink-0 items-center gap-2">
@@ -2610,26 +2631,6 @@ export default function Dashboard({
                       }}
                     />
                   </div>
-                  <button
-                    type="button"
-                    data-export-hide="true"
-                    onClick={handleFullscreen}
-                    title={isFullscreen ? "Close fullscreen" : "Open fullscreen"}
-                    className="absolute right-0 top-0 grid h-10 w-10 place-items-center rounded-xl bg-white shadow-sm"
-                    style={{
-                      border: "1px solid rgba(59,130,246,0.18)",
-                      color: isFullscreen ? "#dc2626" : "#1252a0",
-                    }}
-                  >
-                    {isFullscreen ? (
-                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                        <path d="M6 6l12 12" />
-                        <path d="M18 6L6 18" />
-                      </svg>
-                    ) : (
-                      iconSvg("fullscreen", false, "#1252a0")
-                    )}
-                  </button>
                 </div>
 
                 <div
