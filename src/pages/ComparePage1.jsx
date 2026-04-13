@@ -1710,6 +1710,7 @@ export default function ComparePage({
   ].filter(Boolean).length;
 
   const selectionSource = applied ?? draft;
+  const selectionSourceItems = (selectionSource?.items ?? []).map((id) => worksheetMap[id]).filter(Boolean);
   const selectionIitSummary = selectionSource?.iits?.length === IITs.length
     ? 'ALL'
     : selectionSource?.iits?.length === LEGACY_IITS.length && LEGACY_IITS.every((iid) => selectionSource.iits.includes(iid))
@@ -1750,23 +1751,20 @@ export default function ComparePage({
 
   function renderSubKpiLine() {
     const source = applied ?? draft;
-    const sourceSubmodules = source.submodules
-      .map((id) => {
-        const submodule = submoduleMap[id];
-        if (!submodule) return null;
-        return {
-          ...submodule,
-          moduleLabel: moduleMap[submodule.moduleId]?.label ?? moduleMap[submodule.moduleId]?.id ?? submodule.moduleId,
-        };
-      })
-      .filter(Boolean);
-    const visibleSubmodules = sourceSubmodules.slice(0, 4);
-    const hiddenCount = Math.max(sourceSubmodules.length - visibleSubmodules.length, 0);
+    const primaryModuleId = source.modules[0] ?? selectionSourceItems[0]?.moduleId ?? null;
+    const primaryModule = primaryModuleId ? moduleMap[primaryModuleId] : null;
+    const submoduleOptions = primaryModule?.submodules ?? [];
+    const orderedSubmodules = [
+      ...submoduleOptions.filter((submodule) => source.submodules.includes(submodule.id)),
+      ...submoduleOptions.filter((submodule) => !source.submodules.includes(submodule.id)),
+    ];
+    const visibleSubmodules = orderedSubmodules.slice(0, 4);
+    const hiddenCount = Math.max(orderedSubmodules.length - visibleSubmodules.length, 0);
 
-    if (!sourceSubmodules.length) {
+    if (!primaryModule || !orderedSubmodules.length) {
       return (
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="text-sm text-slate-500">No sub-module selected.</span>
+          <span className="text-sm text-slate-500">No sub-module available for the current module selection.</span>
           <SelectionActionButton label="More" onClick={() => openBuilder(1)} title="Open sub-module filters" />
         </div>
       );
@@ -1774,17 +1772,33 @@ export default function ComparePage({
 
     return (
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        {visibleSubmodules.map((submodule) => (
-          <button
-            key={submodule.id}
-            type="button"
-            onClick={() => openBuilder(1)}
-            title={`${submodule.moduleLabel} > ${submodule.label}`}
-            className="inline-flex items-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_2px_10px_rgba(15,23,42,0.05)] transition hover:border-sky-200 hover:bg-sky-50/40"
-          >
-            {submodule.label}
-          </button>
-        ))}
+        {visibleSubmodules.map((submodule) => {
+          const active = source.submodules.includes(submodule.id);
+          return (
+            <button
+              key={submodule.id}
+              type="button"
+              onClick={() => {
+                const nextItems = (submoduleMap[submodule.id]?.worksheets ?? []).map((worksheet) => worksheet.kpiId).filter(Boolean);
+                updateSelectionSummarySource((prev) => ({
+                  ...prev,
+                  modules: primaryModuleId ? [primaryModuleId] : prev.modules,
+                  submodules: [submodule.id],
+                  items: nextItems,
+                }));
+              }}
+              title={`${primaryModule.label} > ${submodule.label}`}
+              className="inline-flex items-center rounded-full border px-4 py-2 text-sm font-semibold shadow-[0_2px_10px_rgba(15,23,42,0.05)] transition"
+              style={{
+                borderColor: active ? 'rgba(37,99,235,0.28)' : 'rgba(203,213,225,0.9)',
+                background: active ? 'rgba(37,99,235,0.08)' : 'white',
+                color: active ? '#1d4ed8' : '#475569',
+              }}
+            >
+              {submodule.label}
+            </button>
+          );
+        })}
         <SelectionActionButton
           label={hiddenCount > 0 ? `More (+${hiddenCount})` : 'More'}
           onClick={() => openBuilder(1)}

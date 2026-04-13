@@ -340,6 +340,87 @@ function humanizeLabelText(value) {
     .join(" > ");
 }
 
+function getExportCaptureDimensions(el) {
+  const rect = el.getBoundingClientRect();
+  return {
+    width: Math.max(1, Math.ceil(Math.max(rect.width, el.scrollWidth, el.clientWidth))),
+    height: Math.max(1, Math.ceil(Math.max(rect.height, el.scrollHeight, el.clientHeight))),
+  };
+}
+
+function expandClonedExportLayout(root, view) {
+  const nodes = [root, ...root.querySelectorAll("*")];
+
+  nodes.forEach((node) => {
+    if (!(node instanceof view.HTMLElement)) return;
+
+    const style = view.getComputedStyle(node);
+    const overflowValues = [style.overflow, style.overflowX, style.overflowY];
+
+    if (overflowValues.some((value) => value && value !== "visible")) {
+      node.style.overflow = "visible";
+      node.style.overflowX = "visible";
+      node.style.overflowY = "visible";
+    }
+
+    if (style.maxWidth !== "none") node.style.maxWidth = "none";
+    if (style.maxHeight !== "none") node.style.maxHeight = "none";
+  });
+}
+
+async function captureElementCanvas(el) {
+  const scale = window.devicePixelRatio || 2;
+  const { width, height } = getExportCaptureDimensions(el);
+  const captureId = `export-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  el.setAttribute("data-export-capture-id", captureId);
+
+  try {
+    const canvas = await html2canvas(el, {
+      backgroundColor: "#ffffff",
+      scale,
+      useCORS: true,
+      width,
+      height,
+      windowWidth: width,
+      windowHeight: height,
+      scrollX: 0,
+      scrollY: 0,
+      onclone: (doc) => {
+        doc.querySelectorAll('[data-export-hide="true"]').forEach((node) => {
+          node.style.display = "none";
+        });
+
+        const view = doc.defaultView;
+        const cloneRoot = doc.querySelector(`[data-export-capture-id="${captureId}"]`);
+        if (!view || !(cloneRoot instanceof view.HTMLElement)) return;
+
+        doc.documentElement.style.width = `${width}px`;
+        doc.documentElement.style.height = `${height}px`;
+        doc.documentElement.style.overflow = "visible";
+        doc.body.style.width = `${width}px`;
+        doc.body.style.height = `${height}px`;
+        doc.body.style.margin = "0";
+        doc.body.style.overflow = "visible";
+
+        cloneRoot.style.width = `${width}px`;
+        cloneRoot.style.minWidth = `${width}px`;
+        cloneRoot.style.height = "auto";
+        cloneRoot.style.minHeight = `${height}px`;
+        cloneRoot.style.maxWidth = "none";
+        cloneRoot.style.maxHeight = "none";
+        cloneRoot.style.overflow = "visible";
+
+        expandClonedExportLayout(cloneRoot, view);
+      },
+    });
+
+    return { canvas, width, height, scale };
+  } finally {
+    el.removeAttribute("data-export-capture-id");
+  }
+}
+
 function buildExportShell({
   bodyWidth,
   bodyHeight,
@@ -456,20 +537,10 @@ export async function downloadElementSvg(el, filename, meta = {}) {
   if (!el) return;
 
   if (meta?.preserveLayout) {
-    const canvas = await html2canvas(el, {
-      backgroundColor: "#ffffff",
-      scale: window.devicePixelRatio || 2,
-      useCORS: true,
-      onclone: (doc) => {
-        doc.querySelectorAll('[data-export-hide="true"]').forEach((node) => {
-          node.style.display = "none";
-        });
-      },
-    });
+    const { canvas, width, height } = await captureElementCanvas(el);
     const imageHref = canvas.toDataURL("image/png", 0.98);
-    const ratio = window.devicePixelRatio || 2;
-    const bodyWidth = canvas.width / ratio;
-    const bodyHeight = canvas.height / ratio;
+    const bodyWidth = width;
+    const bodyHeight = height;
     const bodyMarkup = `<image href="${imageHref}" x="0" y="0" width="${bodyWidth}" height="${bodyHeight}" />`;
     const svgStr = buildExportShell({
       bodyWidth,
@@ -505,20 +576,10 @@ export async function downloadElementSvg(el, filename, meta = {}) {
     return;
   }
 
-  const canvas = await html2canvas(el, {
-    backgroundColor: "#ffffff",
-    scale: window.devicePixelRatio || 2,
-    useCORS: true,
-    onclone: (doc) => {
-      doc.querySelectorAll('[data-export-hide="true"]').forEach((node) => {
-        node.style.display = "none";
-      });
-    },
-  });
-
+  const { canvas, width, height } = await captureElementCanvas(el);
   const imageHref = canvas.toDataURL("image/png", 0.98);
-  const bodyWidth = canvas.width / (window.devicePixelRatio || 2);
-  const bodyHeight = canvas.height / (window.devicePixelRatio || 2);
+  const bodyWidth = width;
+  const bodyHeight = height;
   const bodyMarkup = `<image href="${imageHref}" x="0" y="0" width="${bodyWidth}" height="${bodyHeight}" />`;
   const svgStr = buildExportShell({
     bodyWidth,
