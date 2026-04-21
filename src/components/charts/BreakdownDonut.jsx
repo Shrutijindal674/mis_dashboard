@@ -1,7 +1,7 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { formatCompact, formatPct } from "../../utils/helpers";
 
-function TooltipCard({ active, payload, isPct, metricLabel }) {
+function TooltipCard({ active, payload, isPct, metricLabel, drillHint }) {
   if (!active || !payload?.length) return null;
   const point = payload[0]?.payload ?? {};
   const val = Number(point.value ?? 0);
@@ -33,6 +33,11 @@ function TooltipCard({ active, payload, isPct, metricLabel }) {
           Share of total: {share.toFixed(1)}%
         </div>
       ) : null}
+      {drillHint ? (
+        <div className="mt-3 text-xs font-semibold" style={{ color: "#2563eb" }}>
+          {drillHint}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -51,7 +56,7 @@ function DonutLabel({ cx, cy, midAngle, outerRadius, name, value, isPct }) {
   );
 }
 
-export default function BreakdownDonut({ data, format, onSliceClick, accent, soft, metricLabel, height = 520, interactive = false }) {
+export default function BreakdownDonut({ data, format, onSliceClick, accent, soft, metricLabel, height = 520, interactive = false, drillHint = "" }) {
   const isPct = format === "pct";
   const total = data.reduce((s, x) => s + Number(x.value ?? 0), 0) || 1;
   const donutBoundary = "rgba(15,23,42,0.16)";
@@ -67,14 +72,14 @@ export default function BreakdownDonut({ data, format, onSliceClick, accent, sof
     <div className="min-w-0" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart margin={{ top: 28, right: 88, bottom: 28, left: 88 }}>
-          <Tooltip content={<TooltipCard isPct={isPct} metricLabel={metricLabel} />} />
+          <Tooltip content={<TooltipCard isPct={isPct} metricLabel={metricLabel} drillHint={drillHint} />} />
           <Pie
             data={donutData}
             dataKey="value"
             nameKey="name"
             innerRadius="52%"
             outerRadius="84%"
-            paddingAngle={1}
+            paddingAngle={donutData.length > 1 ? 1 : 0}
             onClick={(p) => onSliceClick?.(p?.name)}
             labelLine={false}
             label={(props) => <DonutLabel {...props} isPct={isPct} />}

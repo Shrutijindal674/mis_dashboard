@@ -100,7 +100,7 @@ function WrappedAxisLabel({ viewBox, value }) {
   );
 }
 
-function DetailsTooltip({ active, payload, label, isPct, xLabel, yLabel }) {
+function DetailsTooltip({ active, payload, label, isPct, xLabel, yLabel, drillHint }) {
   if (!active || !payload?.length) return null;
   const point = payload[0]?.payload ?? {};
   const formattedValue = isPct
@@ -127,6 +127,11 @@ function DetailsTooltip({ active, payload, label, isPct, xLabel, yLabel }) {
       <div className="mt-1 text-sm font-semibold" style={{ color: "#0f172a" }}>
         {formattedValue}
       </div>
+      {drillHint ? (
+        <div className="mt-3 text-xs font-semibold" style={{ color: "#2563eb" }}>
+          {drillHint}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -140,6 +145,7 @@ export default function BreakdownBar({
   yLabel = "Value",
   height = 520,
   interactive = false,
+  drillHint = "",
 }) {
   const isPct = format === "pct";
   const horizontal = data.length > 7;
@@ -217,7 +223,7 @@ export default function BreakdownBar({
               </>
             )}
             <Tooltip
-              content={<DetailsTooltip isPct={isPct} xLabel={xLabel} yLabel={yLabel} />}
+              content={<DetailsTooltip isPct={isPct} xLabel={xLabel} yLabel={yLabel} drillHint={drillHint} />}
               cursor={{ fill: "rgba(59,130,246,0.08)" }}
             />
             <Bar

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { makeMockFacts } from "./data/mockData";
 import { IITs } from "./constants";
 
@@ -13,6 +13,11 @@ function inferInstituteFromEmail(email) {
   return match?.id || IITs[0].id;
 }
 
+function appSnapshotKey(snapshot) {
+  if (!snapshot) return "";
+  return [snapshot.page, snapshot.role ?? "", snapshot.selectedInstituteId ?? ""].join("::");
+}
+
 export default function App() {
   const facts = useMemo(() => makeMockFacts("IITMIS_DEMO_SEED"), []);
 
@@ -20,19 +25,52 @@ export default function App() {
   const [role, setRole] = useState(null);
   const [selectedInstituteId, setSelectedInstituteId] = useState(IITs[0].id);
   const [loginMeta, setLoginMeta] = useState(null);
+  const appHistoryRef = useRef([]);
+
+  function buildAppSnapshot() {
+    return {
+      page,
+      role,
+      selectedInstituteId,
+      loginMeta,
+    };
+  }
+
+  function rememberCurrentPage() {
+    const snapshot = buildAppSnapshot();
+    const previous = appHistoryRef.current[appHistoryRef.current.length - 1];
+    if (appSnapshotKey(previous) === appSnapshotKey(snapshot)) return;
+    appHistoryRef.current.push(snapshot);
+  }
+
+  function restoreAppSnapshot(snapshot) {
+    if (!snapshot) return;
+    setPage(snapshot.page ?? "landing");
+    setRole(snapshot.role ?? null);
+    setSelectedInstituteId(snapshot.selectedInstituteId ?? IITs[0].id);
+    setLoginMeta(snapshot.loginMeta ?? null);
+  }
+
+  function handleAppBack() {
+    const previousSnapshot = appHistoryRef.current.pop();
+    if (!previousSnapshot) return;
+    restoreAppSnapshot(previousSnapshot);
+  }
 
   function handleLogin(nextRole, instituteId, meta = null) {
     const resolvedRole = nextRole === "iit" ? "iit" : "ministry";
     const resolvedInstituteId = instituteId || inferInstituteFromEmail(meta?.email) || IITs[0].id;
-
-    setRole(resolvedRole);
-    setSelectedInstituteId(resolvedInstituteId);
-    setLoginMeta({
+    const nextLoginMeta = {
       email: meta?.email || (resolvedRole === "ministry" ? "admin@example.com" : `user@${resolvedInstituteId.toLowerCase()}.ac.in`),
       role: resolvedRole,
       instituteId: resolvedInstituteId,
       loggedInAt: new Date().toISOString(),
-    });
+    };
+
+    rememberCurrentPage();
+    setRole(resolvedRole);
+    setSelectedInstituteId(resolvedInstituteId);
+    setLoginMeta(nextLoginMeta);
 
     if (resolvedRole === "iit") {
       setPage("dashboard");
@@ -55,8 +93,9 @@ export default function App() {
     return (
       <MapPage
         selectedInstituteId={selectedInstituteId}
-        onBack={() => setPage("landing")}
+        onBack={handleAppBack}
         onPick={(id) => {
+          rememberCurrentPage();
           setSelectedInstituteId(id);
           setPage("dashboard");
         }}
@@ -70,13 +109,18 @@ export default function App() {
       instituteId={selectedInstituteId}
       facts={facts}
       loginMeta={loginMeta}
+      onBack={handleAppBack}
       onSelectInstitute={(id) => {
         if (role === "ministry") setSelectedInstituteId(id);
       }}
       onChangeInstitute={() => {
-        if (role === "ministry") setPage("map");
+        if (role === "ministry") {
+          rememberCurrentPage();
+          setPage("map");
+        }
       }}
       onLogout={() => {
+        appHistoryRef.current = [];
         setRole(null);
         setLoginMeta(null);
         setPage("landing");

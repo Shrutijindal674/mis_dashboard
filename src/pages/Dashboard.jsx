@@ -36,6 +36,15 @@ import {
   kpiValue,
   scopeRowsForKpi,
 } from "../data/kpiDefs";
+import {
+  FACULTY_STAFF_HIERARCHY_GROUPS,
+  getFacultyStaffPathwayShortLabel,
+} from "../data/hierarchyMap";
+import {
+  FACULTY_STAFF_FIELD_LABELS,
+  buildFacultyStaffRowsForPathway,
+  getFacultyStaffRootValue,
+} from "../data/facultyStaffSheetData";
 
 import Select from "../components/ui/Select";
 import SubKpiCarousel from "../components/ui/SubKpiCarousel";
@@ -49,6 +58,10 @@ import BreakdownDonut from "../components/charts/BreakdownDonut";
 import BreakdownLine from "../components/charts/BreakdownLine";
 import VisualToolbar from "../components/ui/VisualToolbar";
 import Breadcrumbs from "../components/ui/Breadcrumbs";
+import DrillHierarchyIndicator, {
+  DrillPathwayLegend,
+  buildPathwayValueSummaries,
+} from "../components/ui/DrillHierarchyIndicator";
 import misLandingLogo from "../../public/mis-landing-logo.png";
 import ComparePage from "./ComparePage";
 import ReportsHubPage, { buildTemplateForFact } from "./ReportsPage";
@@ -62,6 +75,10 @@ const IIT_HOME_LOGOS = {
 };
 
 const LEGACY_COMPARE_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
+
+function facultyStaffFieldLabel(fieldKey) {
+  return FACULTY_STAFF_FIELD_LABELS[fieldKey] ?? String(fieldKey ?? "").replaceAll("_", " ");
+}
 
 function dedupeList(values) {
   return Array.from(new Set((values ?? []).filter(Boolean)));
@@ -578,6 +595,9 @@ export default function Dashboard({
   const [speedDialOpen, setSpeedDialOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailFocus, setDetailFocus] = useState(null);
+  const [selectedFacultyStaffHierarchyKey, setSelectedFacultyStaffHierarchyKey] = useState("workforce-composition");
+  const [selectedFacultyStaffPathwayNo, setSelectedFacultyStaffPathwayNo] = useState(4);
+  const [facultyStaffChartExpanded, setFacultyStaffChartExpanded] = useState(false);
   const [shareEmbedOpen, setShareEmbedOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -1021,10 +1041,173 @@ export default function Dashboard({
     }));
   }, [breakdown, valueMode, selectedKpi.format]);
 
+  const isFacultyStaffHierarchyView =
+    selectedSubsectionId === "faculty-staff" &&
+    selectedKpiId === "kpi_psl_faculty_staff";
+
+  const activeFacultyStaffHierarchy = useMemo(() => {
+    return (
+      FACULTY_STAFF_HIERARCHY_GROUPS.find(
+        (group) => group.key === selectedFacultyStaffHierarchyKey,
+      ) ?? FACULTY_STAFF_HIERARCHY_GROUPS[0]
+    );
+  }, [selectedFacultyStaffHierarchyKey]);
+
+  const facultyStaffPathways = isFacultyStaffHierarchyView
+    ? activeFacultyStaffHierarchy?.pathways ?? []
+    : [];
+
+  const activeFacultyStaffPathway = useMemo(() => {
+    if (!isFacultyStaffHierarchyView || !facultyStaffPathways.length) return null;
+    return (
+      facultyStaffPathways.find(
+        (pathway) => Number(pathway.pathwayNo) === Number(selectedFacultyStaffPathwayNo),
+      ) ?? facultyStaffPathways[0]
+    );
+  }, [isFacultyStaffHierarchyView, facultyStaffPathways, selectedFacultyStaffPathwayNo]);
+
+  useEffect(() => {
+    if (!isFacultyStaffHierarchyView || !activeFacultyStaffHierarchy?.pathways?.length) return;
+    const belongsToActiveHierarchy = activeFacultyStaffHierarchy.pathways.some(
+      (pathway) => Number(pathway.pathwayNo) === Number(selectedFacultyStaffPathwayNo),
+    );
+    if (!belongsToActiveHierarchy) {
+      setSelectedFacultyStaffPathwayNo(activeFacultyStaffHierarchy.pathways[0].pathwayNo);
+      setDrillPath([]);
+      setDetailFocus(null);
+    }
+  }, [isFacultyStaffHierarchyView, activeFacultyStaffHierarchy, selectedFacultyStaffPathwayNo]);
+
+  useEffect(() => {
+    if (!isFacultyStaffHierarchyView) {
+      setFacultyStaffChartExpanded(false);
+    }
+  }, [isFacultyStaffHierarchyView]);
+
+  const facultyStaffRawRowsByPathway = useMemo(() => {
+    if (!isFacultyStaffHierarchyView) return {};
+    const out = {};
+    for (const group of FACULTY_STAFF_HIERARCHY_GROUPS) {
+      for (const pathway of group.pathways) {
+        const rows = buildFacultyStaffRowsForPathway(pathway)
+          .filter(
+            (row) =>
+              row.InstituteId === activeInstituteId &&
+              Number(row.Year ?? 0) === Number(yearRange.to),
+          )
+          .map((row) => ({
+            name: row.Breakdown ?? "Not available",
+            value: Number(row.Value ?? 0),
+            rawValue: Number(row.Value ?? 0),
+            fieldKey: row.FieldKey,
+            isPercentField: Boolean(row.IsPercentField),
+            pathwayNo: pathway.pathwayNo,
+            metricKey: pathway.metricKey,
+            breadcrumb: row.Breadcrumb,
+          }));
+        out[pathway.pathwayNo] = rows;
+      }
+    }
+    return out;
+  }, [isFacultyStaffHierarchyView, activeInstituteId, yearRange.to]);
+
+  const facultyStaffDisplayRowsByPathway = useMemo(() => {
+    if (!isFacultyStaffHierarchyView) return {};
+    const out = {};
+    for (const [pathwayNo, rows] of Object.entries(facultyStaffRawRowsByPathway)) {
+      if (valueMode !== "percent") {
+        out[pathwayNo] = rows;
+        continue;
+      }
+      const countRows = rows.filter((item) => !item.isPercentField);
+      const total = countRows.reduce((sum, item) => sum + Number(item.value ?? 0), 0) || 1;
+      out[pathwayNo] = rows.map((item) => ({
+        ...item,
+        value: item.isPercentField ? Number(item.rawValue ?? 0) / 100 : Number(item.rawValue ?? 0) / total,
+      }));
+    }
+    return out;
+  }, [isFacultyStaffHierarchyView, facultyStaffRawRowsByPathway, valueMode]);
+
+  const facultyStaffRootValues = useMemo(() => {
+    if (!isFacultyStaffHierarchyView) return {};
+    const allPathways = FACULTY_STAFF_HIERARCHY_GROUPS.flatMap((group) => group.pathways);
+    return Object.fromEntries(
+      allPathways.map((pathway) => [
+        pathway.pathwayNo,
+        getFacultyStaffRootValue(pathway, activeInstituteId, yearRange.to),
+      ]),
+    );
+  }, [isFacultyStaffHierarchyView, activeInstituteId, yearRange.to]);
+
+  const facultyStaffValueSummaries = useMemo(() => {
+    if (!isFacultyStaffHierarchyView) return {};
+    const allPathways = FACULTY_STAFF_HIERARCHY_GROUPS.flatMap((group) => group.pathways);
+    return buildPathwayValueSummaries(
+      allPathways,
+      facultyStaffRawRowsByPathway,
+      facultyStaffDisplayRowsByPathway,
+    );
+  }, [isFacultyStaffHierarchyView, facultyStaffRawRowsByPathway, facultyStaffDisplayRowsByPathway]);
+
+  const facultyStaffDisplayBreakdown = activeFacultyStaffPathway
+    ? facultyStaffDisplayRowsByPathway[activeFacultyStaffPathway.pathwayNo] ?? []
+    : [];
+
+  const facultyStaffOverviewBreakdown = useMemo(() => {
+    if (!isFacultyStaffHierarchyView || !activeFacultyStaffPathway) return [];
+    const rootLabel = facultyStaffFieldLabel(activeFacultyStaffPathway.rootField);
+    const rawRootValue = Number(
+      facultyStaffRootValues?.[activeFacultyStaffPathway.pathwayNo] ?? 0,
+    );
+
+    return [
+      {
+        name: rootLabel,
+        value: valueMode === "percent" ? 1 : rawRootValue,
+        rawValue: rawRootValue,
+        fieldKey: activeFacultyStaffPathway.rootField,
+        isPercentField: false,
+        pathwayNo: activeFacultyStaffPathway.pathwayNo,
+        breadcrumb: `Faculty & Staff > Faculty and Staff > ${activeFacultyStaffPathway.hierarchyLabel ?? ""} > ${getFacultyStaffPathwayShortLabel(activeFacultyStaffPathway)} > ${rootLabel}`,
+        isOverviewNode: true,
+      },
+    ];
+  }, [isFacultyStaffHierarchyView, activeFacultyStaffPathway, facultyStaffRootValues, valueMode]);
+
+  const facultyStaffChartBreakdown =
+    isFacultyStaffHierarchyView && !facultyStaffChartExpanded
+      ? facultyStaffOverviewBreakdown
+      : facultyStaffDisplayBreakdown;
+
+  const visibleBreakdown = isFacultyStaffHierarchyView
+    ? facultyStaffDisplayBreakdown
+    : displayBreakdown;
+
+  const visibleChartBreakdown = isFacultyStaffHierarchyView
+    ? facultyStaffChartBreakdown
+    : displayBreakdown;
+
   const trendSeries = useMemo(() => {
     const years = YEARS.filter(
       (year) => year >= yearRange.from && year <= yearRange.to,
     );
+
+    if (isFacultyStaffHierarchyView && activeFacultyStaffPathway) {
+      const allRows = buildFacultyStaffRowsForPathway(activeFacultyStaffPathway);
+      return years.map((year) => {
+        const rows = allRows.filter(
+          (row) =>
+            row.InstituteId === activeInstituteId &&
+            Number(row.Year ?? 0) === Number(year),
+        );
+        return {
+          name: String(year),
+          value: rows.reduce((sum, row) => sum + Number(row.Value ?? 0), 0),
+        };
+      });
+    }
+
     return years.map((year) => {
       let rows = facts?.[selectedKpi.fact] ?? [];
       rows = scopeRowsForKpi(selectedKpi, rows);
@@ -1037,7 +1220,7 @@ export default function Dashboard({
         value: kpiValue(selectedKpi, rows) ?? 0,
       };
     });
-  }, [facts, selectedKpi, activeInstituteId, yearRange]);
+  }, [facts, selectedKpi, activeInstituteId, yearRange, isFacultyStaffHierarchyView, activeFacultyStaffPathway]);
 
   const noFurtherDrill =
     drillPath.length >= ((selectedKpi.levels?.length ?? 1) - 1);
@@ -1258,6 +1441,28 @@ export default function Dashboard({
     selectedKpi.levels?.[drillPath.length]?.label ?? "Breakdown";
 
   const detailTable = useMemo(() => {
+    if (isFacultyStaffHierarchyView && activeFacultyStaffPathway) {
+      let scoped = buildFacultyStaffRowsForPathway(activeFacultyStaffPathway).filter(
+        (row) =>
+          row.InstituteId === activeInstituteId &&
+          Number(row.Year ?? 0) === Number(yearRange.to),
+      );
+      if (detailFocus?.field === "Breakdown") {
+        scoped = scoped.filter((row) => String(row.Breakdown ?? "") === String(detailFocus.value));
+      }
+      return {
+        columns: [
+          { key: "Year", label: "Year" },
+          { key: "RootLabel", label: "Total node" },
+          { key: "RootValue", label: "Total value", format: formatCompact },
+          { key: "Breakdown", label: "Part node" },
+          { key: "Value", label: activeFacultyStaffPathway.valueLabel, format: formatCompact },
+          { key: "Breadcrumb", label: "Breadcrumb" },
+        ],
+        rows: scoped.slice(0, 250),
+      };
+    }
+
     const rows = scopeRowsForKpi(selectedKpi, scopedFacts.thisIIT[selectedKpi.fact] ?? []);
     let scoped = applyDrill(rows, drillPath, selectedKpi.levels ?? []);
     if (detailFocus?.field) {
@@ -1289,7 +1494,16 @@ export default function Dashboard({
       .slice(0, 10)
       .map((key) => ({ key, label: key }));
     return { columns, rows: scoped.slice(0, 250) };
-  }, [scopedFacts, selectedKpi, drillPath, detailFocus]);
+  }, [
+    scopedFacts,
+    selectedKpi,
+    drillPath,
+    detailFocus,
+    isFacultyStaffHierarchyView,
+    activeFacultyStaffPathway,
+    activeInstituteId,
+    yearRange.to,
+  ]);
   const rootBreakdownLabel =
     selectedKpi.levels?.[0]?.label ?? currentBreakdownLabel;
   const displayBaseBreakdownLabel =
@@ -1300,11 +1514,41 @@ export default function Dashboard({
     valueMode === "percent" && selectedKpi.format !== "pct"
       ? `${currentViewLabel}`
       : currentViewLabel;
+  const activeFacultyStaffPathwayLabel = isFacultyStaffHierarchyView
+    ? getFacultyStaffPathwayShortLabel(activeFacultyStaffPathway)
+    : null;
+
+  const visibleCurrentBreakdownLabel = isFacultyStaffHierarchyView
+    ? activeFacultyStaffPathwayLabel ?? "Breakdown"
+    : currentBreakdownLabel;
+
+  const visibleCurrentValueLabel = isFacultyStaffHierarchyView
+    ? activeFacultyStaffPathwayLabel ?? currentViewLabel
+    : currentValueLabel;
+
+  const visibleBaseBreakdownLabel = isFacultyStaffHierarchyView
+    ? activeFacultyStaffPathway?.hierarchyLabel ?? null
+    : displayBaseBreakdownLabel;
+
+  const chartDrillHint =
+    kpiView !== "bar" && kpiView !== "donut"
+      ? ""
+      : isFacultyStaffHierarchyView
+        ? (!facultyStaffChartExpanded ? "Click to drill into this pathway." : "")
+        : selectedKpi.drillable && !noFurtherDrill
+          ? "Click to drill down."
+          : "";
 
   // Added for SVG download Chart with Title and breadcrumbs
   const breadcrumbText = useMemo(() => {
+    if (isFacultyStaffHierarchyView) {
+      return [
+        activeFacultyStaffPathway?.hierarchyLabel,
+        activeFacultyStaffPathwayLabel,
+      ].filter(Boolean).join(" > ");
+    }
     return [displayBaseBreakdownLabel, ...drillPath].filter(Boolean).join(" > ");
-  }, [displayBaseBreakdownLabel, drillPath]);
+  }, [displayBaseBreakdownLabel, drillPath, isFacultyStaffHierarchyView, activeFacultyStaffPathwayLabel, activeFacultyStaffPathway]);
 
   useEffect(() => {
     if (!visualToolbarItems.some((item) => item.id === kpiView)) {
@@ -1404,7 +1648,32 @@ export default function Dashboard({
     setDetailsOpen(true);
   }
 
+  function selectFacultyStaffBreakdown(name) {
+    setFacultyStaffChartExpanded(true);
+    setDetailFocus({
+      field: "Breakdown",
+      value: name,
+      label: activeFacultyStaffPathwayLabel ?? "Part node",
+    });
+    setNotice(`${name} selected. Use Details to view the worksheet-derived records.`);
+  }
+
+  function onFacultyStaffChartDrill(name) {
+    if (!facultyStaffChartExpanded) {
+      setFacultyStaffChartExpanded(true);
+      setDetailFocus(null);
+      setNotice(`Drilled into ${activeFacultyStaffPathwayLabel ?? "the selected pathway"}.`);
+      return;
+    }
+    selectFacultyStaffBreakdown(name);
+  }
+
   function onDrillNext(name) {
+    if (isFacultyStaffHierarchyView) {
+      selectFacultyStaffBreakdown(name);
+      return;
+    }
+
     const lastIndex = (selectedKpi.levels?.length ?? 1) - 1;
     if (!selectedKpi.drillable) {
       setFocusedSelection(name);
@@ -1474,10 +1743,10 @@ export default function Dashboard({
 
     if (kpiView === "table") {
       const tableColumns = [
-        { key: "name", label: currentBreakdownLabel },
+        { key: "name", label: visibleCurrentBreakdownLabel },
         {
           key: "value",
-          label: currentValueLabel,
+          label: visibleCurrentValueLabel,
           format: (value) =>
             valueMode === "percent" && selectedKpi.format !== "pct"
               ? formatPct(value)
@@ -1489,7 +1758,7 @@ export default function Dashboard({
       downloadTableSvg(
         `${selectedKpi.id}_${yearRange.to}.svg`,
         tableColumns,
-        displayBreakdown,
+        visibleBreakdown,
         exportMeta,
       );
       markDownloaded("SVG downloaded.", downloadStamp);
@@ -1565,24 +1834,24 @@ export default function Dashboard({
     { id: "table", label: "Table", icon: "▦" },
   ];
 
-  const visualItemCount = displayBreakdown.length;
-  const fullscreenBarHeight =
-    visualItemCount > 7
-      ? Math.max(
-          Math.max(360, Math.min(460, viewportHeight - 320)),
-          Math.min(visualItemCount * 54 + 140, 1800),
-        )
-      : Math.max(360, Math.min(460, viewportHeight - 320));
-  const fullscreenDonutHeight =
-    visualItemCount > 8
-      ? Math.max(
-          Math.max(360, Math.min(460, viewportHeight - 320)),
-          Math.min(visualItemCount * 34 + 240, 1200),
-        )
-      : Math.max(360, Math.min(460, viewportHeight - 320));
+  const fullscreenChartReserve = isFacultyStaffHierarchyView ? 360 : 300;
+  const fullscreenBarHeight = Math.max(
+    250,
+    Math.min(420, viewportHeight - fullscreenChartReserve),
+  );
+  const fullscreenDonutHeight = Math.max(
+    240,
+    Math.min(390, viewportHeight - fullscreenChartReserve),
+  );
   const chartCanvasHeight = isFullscreen
     ? kpiView === "table"
-      ? Math.max(320, Math.min(430, viewportHeight - 360))
+      ? Math.max(
+          280,
+          Math.min(
+            400,
+            viewportHeight - (isFacultyStaffHierarchyView ? 340 : 300),
+          ),
+        )
       : kpiView === "bar" || kpiView === "trend"
         ? fullscreenBarHeight
         : fullscreenDonutHeight
@@ -1598,8 +1867,7 @@ export default function Dashboard({
     !isFullscreen || kpiView === "table"
       ? undefined
       : {
-          height: "calc(100dvh - 180px)",
-          overflowY: "auto",
+          overflowY: "hidden",
           overflowX: "hidden",
         };
 
@@ -1615,7 +1883,7 @@ export default function Dashboard({
         title={
           filterContext === "compare" ? "Compare Filters" : "Reports Filters"
         }
-        accent={accent}
+        accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
         schema={
           filterContext === "compare"
             ? COMPARE_FILTER_SCHEMA
@@ -2159,7 +2427,7 @@ export default function Dashboard({
                     if (currentIgViewOptions.length) handleSubviewChange(selectedSubsectionId, itemId);
                     else openSubsection(activeDomain, itemId);
                   }}
-                  accent={accent}
+                  accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
                   soft={soft}
                   title={currentSubsection.label}
                   helper="Select the metric to analyze."
@@ -2601,12 +2869,28 @@ export default function Dashboard({
                     >
                       {currentViewLabel}
                     </div>
+                    {isFacultyStaffHierarchyView ? (
+                      <DrillHierarchyIndicator
+                        groups={FACULTY_STAFF_HIERARCHY_GROUPS}
+                        selectedHierarchyKey={selectedFacultyStaffHierarchyKey}
+                        onSelectHierarchy={(key) => {
+                          const group = FACULTY_STAFF_HIERARCHY_GROUPS.find((item) => item.key === key);
+                          setSelectedFacultyStaffHierarchyKey(key);
+                          setSelectedFacultyStaffPathwayNo(group?.pathways?.[0]?.pathwayNo ?? selectedFacultyStaffPathwayNo);
+                          setDrillPath([]);
+                          setDetailFocus(null);
+                          setFacultyStaffChartExpanded(false);
+                          setChartRenderNonce((value) => value + 1);
+                        }}
+                        className="mt-1"
+                      />
+                    ) : null}
                     <div className="mt-2 flex justify-center">
                       <Breadcrumbs
-                        base={displayBaseBreakdownLabel}
-                        levels={selectedKpi.levels ?? []}
-                        drillPath={drillPath}
-                        onPopTo={popDrillTo}
+                        base={visibleBaseBreakdownLabel}
+                        levels={isFacultyStaffHierarchyView ? [] : selectedKpi.levels ?? []}
+                        drillPath={isFacultyStaffHierarchyView ? [] : drillPath}
+                        onPopTo={isFacultyStaffHierarchyView ? () => {} : popDrillTo}
                       />
                     </div>
                     <div
@@ -2634,29 +2918,56 @@ export default function Dashboard({
                 </div>
 
                 <div
-                  key={`${kpiView}-${isFullscreen ? "fs" : "std"}-${chartRenderNonce}-${selectedKpi.id}-${drillPath.join("-")}`}
+                  key={`${kpiView}-${isFullscreen ? "fs" : "std"}-${chartRenderNonce}-${selectedKpi.id}-${drillPath.join("-")}-${selectedFacultyStaffHierarchyKey}-${selectedFacultyStaffPathwayNo}`}
                   ref={chartOnlyRef}
-                  className={`dashboard-chart-body min-w-0 ${isFullscreen ? (kpiView === "table" ? "flex flex-1 min-h-0 items-center justify-center overflow-hidden pt-24 pb-14" : "flex flex-1 min-h-0 items-start justify-center pt-24 pb-14" ) : "flex min-h-[460px] items-center justify-center pt-24 pb-10"}`}
+                  className={`dashboard-chart-body min-w-0 ${isFullscreen ? (kpiView === "table" ? `flex flex-1 min-h-0 items-center justify-center overflow-hidden ${isFacultyStaffHierarchyView ? "pt-40" : "pt-24"} pb-14` : `flex flex-1 min-h-0 items-start justify-center ${isFacultyStaffHierarchyView ? "pt-40" : "pt-24"} pb-14` ) : `flex min-h-[460px] items-center justify-center ${isFacultyStaffHierarchyView ? "pt-40" : "pt-24"} pb-10`}`}
                   style={{
                     ...visualChartBodyStyle,
                     ...(isFullscreen ? {} : { transform: "translateY(12px)" }),
                   }}
                 >
-                  <div className={`${chartPanelWidthClass} mx-auto`}>
+                  <div className={`${isFacultyStaffHierarchyView ? "flex w-full max-w-[1240px] items-start gap-4 px-2" : `${chartPanelWidthClass} mx-auto`}`}>
+                    {isFacultyStaffHierarchyView ? (
+                      <DrillPathwayLegend
+                        pathways={facultyStaffPathways}
+                        activePathwayNo={selectedFacultyStaffPathwayNo}
+                        onSelectPathway={(pathwayNo) => {
+                          setSelectedFacultyStaffPathwayNo(pathwayNo);
+                          setDrillPath([]);
+                          setDetailFocus(null);
+                          setFacultyStaffChartExpanded(false);
+                          setChartRenderNonce((value) => value + 1);
+                        }}
+                        onSelectBreakdown={(breakdownLabel) => {
+                          setDetailFocus({
+                            field: "Breakdown",
+                            value: breakdownLabel,
+                            label: activeFacultyStaffPathwayLabel ?? "Part node",
+                          });
+                        }}
+                        valueSummaries={facultyStaffValueSummaries}
+                        rootValues={facultyStaffRootValues}
+                        displayMode={valueMode}
+                        accent={activeFacultyStaffHierarchy?.color ?? accent}
+                        isFullscreen={isFullscreen}
+                      />
+                    ) : null}
+                    <div className={isFacultyStaffHierarchyView ? "min-w-0 flex-1" : ""}>
                     {kpiView === "bar" ? (
                       <BreakdownBar
-                        data={displayBreakdown}
+                        data={visibleChartBreakdown}
                         format={
                           valueMode === "percent" && selectedKpi.format !== "pct"
                             ? "pct"
                             : selectedKpi.format
                         }
-                        onBarClick={selectedKpi.drillable ? onDrillNext : undefined}
-                        accent={accent}
-                        xLabel={currentBreakdownLabel}
-                        yLabel={currentValueLabel}
+                        onBarClick={isFacultyStaffHierarchyView ? onFacultyStaffChartDrill : selectedKpi.drillable ? onDrillNext : undefined}
+                        accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
+                        xLabel={visibleCurrentBreakdownLabel}
+                        yLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
-                        interactive={selectedKpi.drillable}
+                        interactive={selectedKpi.drillable || isFacultyStaffHierarchyView}
+                        drillHint={chartDrillHint}
                       />
                     ) : kpiView === "trend" ? (
                       <BreakdownLine
@@ -2666,33 +2977,34 @@ export default function Dashboard({
                             ? "pct"
                             : selectedKpi.format
                         }
-                        accent={accent}
-                        yLabel={currentValueLabel}
+                        accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
+                        yLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
                       />
                     ) : kpiView === "donut" ? (
                       <BreakdownDonut
-                        data={displayBreakdown}
+                        data={visibleChartBreakdown}
                         format={
                           valueMode === "percent" && selectedKpi.format !== "pct"
                             ? "pct"
                             : selectedKpi.format
                         }
-                        onSliceClick={selectedKpi.drillable ? onDrillNext : undefined}
-                        accent={accent}
+                        onSliceClick={isFacultyStaffHierarchyView ? onFacultyStaffChartDrill : selectedKpi.drillable ? onDrillNext : undefined}
+                        accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
                         soft={soft}
-                        metricLabel={currentValueLabel}
+                        metricLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
-                        interactive={selectedKpi.drillable}
+                        interactive={selectedKpi.drillable || isFacultyStaffHierarchyView}
+                        drillHint={chartDrillHint}
                       />
                     ) : (
                       <div className="w-full pt-4">
                         <DataTable
                           columns={[
-                            { key: "name", label: currentBreakdownLabel },
+                            { key: "name", label: visibleCurrentBreakdownLabel },
                             {
                               key: "value",
-                              label: currentValueLabel,
+                              label: visibleCurrentValueLabel,
                               format: (value) =>
                                 valueMode === "percent" &&
                                 selectedKpi.format !== "pct"
@@ -2702,12 +3014,13 @@ export default function Dashboard({
                                     : formatCompact(value),
                             },
                           ]}
-                          rows={displayBreakdown}
+                          rows={visibleBreakdown}
                           maxHeight={500}
-                          onRowClick={selectedKpi.drillable ? (row) => onDrillNext(row.name) : undefined}
+                          onRowClick={selectedKpi.drillable || isFacultyStaffHierarchyView ? (row) => onDrillNext(row.name) : undefined}
                         />
                       </div>
                     )}
+                    </div>
                   </div>
                 </div>
 
