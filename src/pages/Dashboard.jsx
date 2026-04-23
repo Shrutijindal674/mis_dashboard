@@ -58,10 +58,6 @@ import BreakdownDonut from "../components/charts/BreakdownDonut";
 import BreakdownLine from "../components/charts/BreakdownLine";
 import VisualToolbar from "../components/ui/VisualToolbar";
 import Breadcrumbs from "../components/ui/Breadcrumbs";
-import DrillHierarchyIndicator, {
-  DrillPathwayLegend,
-  buildPathwayValueSummaries,
-} from "../components/ui/DrillHierarchyIndicator";
 import misLandingLogo from "../../public/mis-landing-logo.png";
 import ComparePage from "./ComparePage";
 import ReportsHubPage, { buildTemplateForFact } from "./ReportsPage";
@@ -78,6 +74,36 @@ const LEGACY_COMPARE_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
 
 function facultyStaffFieldLabel(fieldKey) {
   return FACULTY_STAFF_FIELD_LABELS[fieldKey] ?? String(fieldKey ?? "").replaceAll("_", " ");
+}
+
+function facultyStaffFieldIsNonCountMetric(fieldKey) {
+  const key = String(fieldKey ?? "").trim().toLowerCase();
+  return key.includes("percent") || key.includes("ratio") || key.includes("experience");
+}
+
+function blendHexColor(baseHex, targetHex, amount) {
+  const normalizedBase = String(baseHex ?? "").trim();
+  const normalizedTarget = String(targetHex ?? "").trim();
+  const blendAmount = Math.min(1, Math.max(0, Number(amount) || 0));
+
+  const toRgb = (hex) => {
+    const clean = hex.replace("#", "");
+    if (!/^[0-9a-fA-F]{6}$/.test(clean)) return null;
+    return {
+      r: Number.parseInt(clean.slice(0, 2), 16),
+      g: Number.parseInt(clean.slice(2, 4), 16),
+      b: Number.parseInt(clean.slice(4, 6), 16),
+    };
+  };
+
+  const base = toRgb(normalizedBase);
+  const target = toRgb(normalizedTarget);
+  if (!base || !target) return normalizedBase || normalizedTarget || "#2563eb";
+
+  const blendChannel = (from, to) => Math.round(from + (to - from) * blendAmount);
+  const toHex = (value) => value.toString(16).padStart(2, "0");
+
+  return `#${toHex(blendChannel(base.r, target.r))}${toHex(blendChannel(base.g, target.g))}${toHex(blendChannel(base.b, target.b))}`;
 }
 
 function dedupeList(values) {
@@ -595,9 +621,9 @@ export default function Dashboard({
   const [speedDialOpen, setSpeedDialOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailFocus, setDetailFocus] = useState(null);
-  const [selectedFacultyStaffHierarchyKey, setSelectedFacultyStaffHierarchyKey] = useState("workforce-composition");
-  const [selectedFacultyStaffPathwayNo, setSelectedFacultyStaffPathwayNo] = useState(4);
-  const [facultyStaffChartExpanded, setFacultyStaffChartExpanded] = useState(false);
+  const [selectedFacultyStaffHierarchyKey, setSelectedFacultyStaffHierarchyKey] = useState("vacancy-staffing");
+  const [selectedFacultyStaffPathwayNo, setSelectedFacultyStaffPathwayNo] = useState(1);
+  const [facultyStaffDrillCarouselOpen, setFacultyStaffDrillCarouselOpen] = useState(false);
   const [shareEmbedOpen, setShareEmbedOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -1045,6 +1071,22 @@ export default function Dashboard({
     selectedSubsectionId === "faculty-staff" &&
     selectedKpiId === "kpi_psl_faculty_staff";
 
+  const allFacultyStaffMappedPathways = useMemo(
+    () => FACULTY_STAFF_HIERARCHY_GROUPS.flatMap((group) =>
+      group.pathways.map((pathway) => ({
+        ...pathway,
+        hierarchyKey: group.key,
+        hierarchyLabel: group.label,
+        hierarchyShortLabel: group.shortLabel,
+        hierarchyColor: group.color,
+        hierarchyBg: group.bg,
+      })),
+    ),
+    [],
+  );
+
+  const selectedFacultyStaffCarouselId = `faculty-staff-pathway-${selectedFacultyStaffPathwayNo}`;
+
   const activeFacultyStaffHierarchy = useMemo(() => {
     return (
       FACULTY_STAFF_HIERARCHY_GROUPS.find(
@@ -1054,7 +1096,7 @@ export default function Dashboard({
   }, [selectedFacultyStaffHierarchyKey]);
 
   const facultyStaffPathways = isFacultyStaffHierarchyView
-    ? activeFacultyStaffHierarchy?.pathways ?? []
+    ? allFacultyStaffMappedPathways
     : [];
 
   const activeFacultyStaffPathway = useMemo(() => {
@@ -1067,20 +1109,13 @@ export default function Dashboard({
   }, [isFacultyStaffHierarchyView, facultyStaffPathways, selectedFacultyStaffPathwayNo]);
 
   useEffect(() => {
-    if (!isFacultyStaffHierarchyView || !activeFacultyStaffHierarchy?.pathways?.length) return;
-    const belongsToActiveHierarchy = activeFacultyStaffHierarchy.pathways.some(
-      (pathway) => Number(pathway.pathwayNo) === Number(selectedFacultyStaffPathwayNo),
-    );
-    if (!belongsToActiveHierarchy) {
-      setSelectedFacultyStaffPathwayNo(activeFacultyStaffHierarchy.pathways[0].pathwayNo);
-      setDrillPath([]);
-      setDetailFocus(null);
-    }
-  }, [isFacultyStaffHierarchyView, activeFacultyStaffHierarchy, selectedFacultyStaffPathwayNo]);
+    if (!isFacultyStaffHierarchyView || !activeFacultyStaffPathway) return;
+    setSelectedFacultyStaffHierarchyKey(activeFacultyStaffPathway.hierarchyKey ?? "workforce-composition");
+  }, [isFacultyStaffHierarchyView, activeFacultyStaffPathway]);
 
   useEffect(() => {
     if (!isFacultyStaffHierarchyView) {
-      setFacultyStaffChartExpanded(false);
+      setFacultyStaffDrillCarouselOpen(false);
     }
   }, [isFacultyStaffHierarchyView]);
 
@@ -1140,45 +1175,11 @@ export default function Dashboard({
     );
   }, [isFacultyStaffHierarchyView, activeInstituteId, yearRange.to]);
 
-  const facultyStaffValueSummaries = useMemo(() => {
-    if (!isFacultyStaffHierarchyView) return {};
-    const allPathways = FACULTY_STAFF_HIERARCHY_GROUPS.flatMap((group) => group.pathways);
-    return buildPathwayValueSummaries(
-      allPathways,
-      facultyStaffRawRowsByPathway,
-      facultyStaffDisplayRowsByPathway,
-    );
-  }, [isFacultyStaffHierarchyView, facultyStaffRawRowsByPathway, facultyStaffDisplayRowsByPathway]);
-
   const facultyStaffDisplayBreakdown = activeFacultyStaffPathway
     ? facultyStaffDisplayRowsByPathway[activeFacultyStaffPathway.pathwayNo] ?? []
     : [];
 
-  const facultyStaffOverviewBreakdown = useMemo(() => {
-    if (!isFacultyStaffHierarchyView || !activeFacultyStaffPathway) return [];
-    const rootLabel = facultyStaffFieldLabel(activeFacultyStaffPathway.rootField);
-    const rawRootValue = Number(
-      facultyStaffRootValues?.[activeFacultyStaffPathway.pathwayNo] ?? 0,
-    );
-
-    return [
-      {
-        name: rootLabel,
-        value: valueMode === "percent" ? 1 : rawRootValue,
-        rawValue: rawRootValue,
-        fieldKey: activeFacultyStaffPathway.rootField,
-        isPercentField: false,
-        pathwayNo: activeFacultyStaffPathway.pathwayNo,
-        breadcrumb: `Faculty & Staff > Faculty and Staff > ${activeFacultyStaffPathway.hierarchyLabel ?? ""} > ${getFacultyStaffPathwayShortLabel(activeFacultyStaffPathway)} > ${rootLabel}`,
-        isOverviewNode: true,
-      },
-    ];
-  }, [isFacultyStaffHierarchyView, activeFacultyStaffPathway, facultyStaffRootValues, valueMode]);
-
-  const facultyStaffChartBreakdown =
-    isFacultyStaffHierarchyView && !facultyStaffChartExpanded
-      ? facultyStaffOverviewBreakdown
-      : facultyStaffDisplayBreakdown;
+  const facultyStaffChartBreakdown = facultyStaffDisplayBreakdown;
 
   const visibleBreakdown = isFacultyStaffHierarchyView
     ? facultyStaffDisplayBreakdown
@@ -1518,37 +1519,46 @@ export default function Dashboard({
     ? getFacultyStaffPathwayShortLabel(activeFacultyStaffPathway)
     : null;
 
+  const facultyStaffBreadcrumbPath = isFacultyStaffHierarchyView
+    ? [currentSubsection.label, currentViewLabel, activeFacultyStaffPathwayLabel].filter(Boolean)
+    : [];
+
+  const facultyStaffValueAxisLabel = isFacultyStaffHierarchyView
+    ? valueMode === "percent"
+      ? "Share"
+      : (activeFacultyStaffPathway?.children ?? []).some(facultyStaffFieldIsNonCountMetric)
+        ? "Metric value"
+        : "Total number"
+    : currentValueLabel;
+
   const visibleCurrentBreakdownLabel = isFacultyStaffHierarchyView
     ? activeFacultyStaffPathwayLabel ?? "Breakdown"
     : currentBreakdownLabel;
 
   const visibleCurrentValueLabel = isFacultyStaffHierarchyView
-    ? activeFacultyStaffPathwayLabel ?? currentViewLabel
+    ? facultyStaffValueAxisLabel
     : currentValueLabel;
 
   const visibleBaseBreakdownLabel = isFacultyStaffHierarchyView
-    ? activeFacultyStaffPathway?.hierarchyLabel ?? null
+    ? activeDomain
     : displayBaseBreakdownLabel;
 
   const chartDrillHint =
     kpiView !== "bar" && kpiView !== "donut"
       ? ""
       : isFacultyStaffHierarchyView
-        ? (!facultyStaffChartExpanded ? "Click to drill into this pathway." : "")
+        ? ""
         : selectedKpi.drillable && !noFurtherDrill
           ? "Click to drill down."
           : "";
 
-  // Added for SVG download Chart with Title and breadcrumbs
+  // Added for SVG download  // Added for SVG download Chart with Title and breadcrumbs
   const breadcrumbText = useMemo(() => {
     if (isFacultyStaffHierarchyView) {
-      return [
-        activeFacultyStaffPathway?.hierarchyLabel,
-        activeFacultyStaffPathwayLabel,
-      ].filter(Boolean).join(" > ");
+      return [activeDomain, ...facultyStaffBreadcrumbPath].filter(Boolean).join(" > ");
     }
     return [displayBaseBreakdownLabel, ...drillPath].filter(Boolean).join(" > ");
-  }, [displayBaseBreakdownLabel, drillPath, isFacultyStaffHierarchyView, activeFacultyStaffPathwayLabel, activeFacultyStaffPathway]);
+  }, [activeDomain, displayBaseBreakdownLabel, drillPath, isFacultyStaffHierarchyView, facultyStaffBreadcrumbPath]);
 
   useEffect(() => {
     if (!visualToolbarItems.some((item) => item.id === kpiView)) {
@@ -1649,7 +1659,6 @@ export default function Dashboard({
   }
 
   function selectFacultyStaffBreakdown(name) {
-    setFacultyStaffChartExpanded(true);
     setDetailFocus({
       field: "Breakdown",
       value: name,
@@ -1659,12 +1668,6 @@ export default function Dashboard({
   }
 
   function onFacultyStaffChartDrill(name) {
-    if (!facultyStaffChartExpanded) {
-      setFacultyStaffChartExpanded(true);
-      setDetailFocus(null);
-      setNotice(`Drilled into ${activeFacultyStaffPathwayLabel ?? "the selected pathway"}.`);
-      return;
-    }
     selectFacultyStaffBreakdown(name);
   }
 
@@ -1872,6 +1875,155 @@ export default function Dashboard({
         };
 
   const canShowFilters = section === "Compare" || section === "Reports";
+
+  const facultyStaffBreadcrumbForSheet = (sheetLabel) =>
+    `People & Student Life > Faculty & Staff > ${sheetLabel}`;
+
+  const facultyStaffCarouselParentAccent = accent;
+  const facultyStaffCarouselParentSoft = soft;
+  const facultyStaffCarouselChildAccent = blendHexColor(accent, "#ffffff", 0.18);
+  const facultyStaffCarouselChildSoft = blendHexColor(accent, "#ffffff", 0.86);
+
+  const facultyStaffCarouselItems = useMemo(() => {
+    const decorateSheetItem = (item) => {
+      const isFacultyStaffParent = item.id === "faculty-staff-summary";
+      return {
+        id: item.id,
+        label: item.label,
+        tooltip: facultyStaffBreadcrumbForSheet(item.label),
+        ...(isFacultyStaffParent
+          ? {
+              variant: "parent-drill-toggle",
+              expanded: facultyStaffDrillCarouselOpen,
+              accent: facultyStaffCarouselParentAccent,
+              soft: facultyStaffCarouselParentSoft,
+            }
+          : {}),
+      };
+    };
+
+    if (!isFacultyStaffHierarchyView || !facultyStaffDrillCarouselOpen) {
+      return currentIgViewOptions.length
+        ? currentIgViewOptions.map(decorateSheetItem)
+        : [decorateSheetItem({ id: selectedSubsectionId, label: currentSubsection.label })];
+    }
+
+    return [
+      {
+        id: "faculty-staff-summary",
+        label: "Faculty and Staff",
+        tooltip: "People & Student Life > Faculty & Staff > Faculty and Staff > drill pills open. Click to collapse them.",
+        variant: "parent-drill-toggle",
+        expanded: true,
+        accent: facultyStaffCarouselParentAccent,
+        soft: facultyStaffCarouselParentSoft,
+      },
+      ...allFacultyStaffMappedPathways.map((pathway) => ({
+        id: `faculty-staff-pathway-${pathway.pathwayNo}`,
+        label: getFacultyStaffPathwayShortLabel(pathway),
+        tooltip: `People & Student Life > Faculty & Staff > Faculty and Staff > ${pathway.hierarchyLabel} > ${getFacultyStaffPathwayShortLabel(pathway)} > ${facultyStaffFieldLabel(pathway.rootField)}${pathway.children?.length ? ` > ${pathway.children.map(facultyStaffFieldLabel).join(" > ")}` : ""}`,
+        variant: "mapped-drill",
+        accent: facultyStaffCarouselChildAccent,
+        soft: facultyStaffCarouselChildSoft,
+      })),
+    ];
+  }, [
+    isFacultyStaffHierarchyView,
+    facultyStaffDrillCarouselOpen,
+    currentIgViewOptions,
+    selectedSubsectionId,
+    currentSubsection.label,
+    allFacultyStaffMappedPathways,
+    facultyStaffCarouselParentAccent,
+    facultyStaffCarouselParentSoft,
+    facultyStaffCarouselChildAccent,
+    facultyStaffCarouselChildSoft,
+  ]);
+
+  const facultyStaffCarouselActiveId =
+    isFacultyStaffHierarchyView && facultyStaffDrillCarouselOpen
+      ? selectedFacultyStaffCarouselId
+      : currentIgViewOptions.length
+        ? currentIgViewId
+        : selectedSubsectionId;
+
+  const lastFacultyStaffCarouselId = allFacultyStaffMappedPathways.length
+    ? `faculty-staff-pathway-${allFacultyStaffMappedPathways[allFacultyStaffMappedPathways.length - 1].pathwayNo}`
+    : null;
+
+  const facultyStaffCarouselScrollTargetId =
+    selectedSubsectionId === "faculty-staff" &&
+    facultyStaffDrillCarouselOpen &&
+    facultyStaffCarouselActiveId === lastFacultyStaffCarouselId
+      ? "faculty-staff-summary"
+      : null;
+
+  function pickFacultyStaffCarouselItem(itemId) {
+    if (itemId === "faculty-staff-summary") {
+      if (isFacultyStaffHierarchyView && currentIgViewId === "faculty-staff-summary") {
+        setFacultyStaffDrillCarouselOpen((value) => !value);
+      } else {
+        handleSubviewChange("faculty-staff", "faculty-staff-summary");
+        setFacultyStaffDrillCarouselOpen(true);
+      }
+      setDrillPath([]);
+      setDetailFocus(null);
+      setKpiView("bar");
+      setChartRenderNonce((value) => value + 1);
+      return;
+    }
+
+    if (itemId?.startsWith("faculty-staff-pathway-")) {
+      const pathwayNo = Number(itemId.replace("faculty-staff-pathway-", ""));
+      const pathway = allFacultyStaffMappedPathways.find((item) => Number(item.pathwayNo) === pathwayNo);
+      if (pathway) {
+        setSelectedFacultyStaffPathwayNo(pathway.pathwayNo);
+        setSelectedFacultyStaffHierarchyKey(pathway.hierarchyKey);
+        setFacultyStaffDrillCarouselOpen(true);
+        setDrillPath([]);
+        setDetailFocus(null);
+        setChartRenderNonce((value) => value + 1);
+      }
+      return;
+    }
+
+    handleSubviewChange(selectedSubsectionId, itemId);
+    setFacultyStaffDrillCarouselOpen(false);
+  }
+
+  function navigateFacultyStaffBreadcrumb(levelIndex) {
+    if (!isFacultyStaffHierarchyView) return;
+
+    if (levelIndex === 0) {
+      const moduleDefaultSubsectionId = activeDomainDef?.children?.[0]?.id;
+      if (moduleDefaultSubsectionId) {
+        openSubsection(activeDomain, moduleDefaultSubsectionId);
+      }
+      return;
+    }
+
+    if (levelIndex === 1) {
+      openSubsection(activeDomain, "faculty-staff", "faculty-staff-summary");
+      setFacultyStaffDrillCarouselOpen(false);
+      setChartRenderNonce((value) => value + 1);
+      return;
+    }
+
+    if (levelIndex === 2) {
+      openSubsection(activeDomain, "faculty-staff", "faculty-staff-summary");
+      setFacultyStaffDrillCarouselOpen(true);
+      setChartRenderNonce((value) => value + 1);
+      return;
+    }
+
+    if (levelIndex === 3 && activeFacultyStaffPathway) {
+      openSubsection(activeDomain, "faculty-staff", "faculty-staff-summary");
+      setSelectedFacultyStaffPathwayNo(activeFacultyStaffPathway.pathwayNo);
+      setSelectedFacultyStaffHierarchyKey(activeFacultyStaffPathway.hierarchyKey);
+      setFacultyStaffDrillCarouselOpen(true);
+      setChartRenderNonce((value) => value + 1);
+    }
+  }
 
   return (
     <div
@@ -2417,20 +2569,26 @@ export default function Dashboard({
             <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-3">
                 <SubKpiCarousel
-                  kpis={
-                    currentIgViewOptions.length
-                      ? currentIgViewOptions.map((item) => ({ id: item.id, label: item.label }))
-                      : [{ id: selectedSubsectionId, label: currentSubsection.label }]
-                  }
-                  activeId={currentIgViewOptions.length ? currentIgViewId : selectedSubsectionId}
+                  kpis={facultyStaffCarouselItems}
+                  activeId={facultyStaffCarouselActiveId}
+                  autoScrollTargetId={facultyStaffCarouselScrollTargetId}
                   onPick={(itemId) => {
-                    if (currentIgViewOptions.length) handleSubviewChange(selectedSubsectionId, itemId);
-                    else openSubsection(activeDomain, itemId);
+                    if (selectedSubsectionId === "faculty-staff") {
+                      pickFacultyStaffCarouselItem(itemId);
+                    } else if (currentIgViewOptions.length) {
+                      handleSubviewChange(selectedSubsectionId, itemId);
+                    } else {
+                      openSubsection(activeDomain, itemId);
+                    }
                   }}
-                  accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
+                  accent={accent}
                   soft={soft}
                   title={currentSubsection.label}
-                  helper="Select the metric to analyze."
+                  helper={
+                    isFacultyStaffHierarchyView && facultyStaffDrillCarouselOpen
+                      ? "Select a mapped drill from the Faculty and Staff sheet. Click Faculty and Staff to return to the sheet carousel."
+                      : "Select the metric to analyze."
+                  }
                 />
               </div>
               <div
@@ -2869,28 +3027,12 @@ export default function Dashboard({
                     >
                       {currentViewLabel}
                     </div>
-                    {isFacultyStaffHierarchyView ? (
-                      <DrillHierarchyIndicator
-                        groups={FACULTY_STAFF_HIERARCHY_GROUPS}
-                        selectedHierarchyKey={selectedFacultyStaffHierarchyKey}
-                        onSelectHierarchy={(key) => {
-                          const group = FACULTY_STAFF_HIERARCHY_GROUPS.find((item) => item.key === key);
-                          setSelectedFacultyStaffHierarchyKey(key);
-                          setSelectedFacultyStaffPathwayNo(group?.pathways?.[0]?.pathwayNo ?? selectedFacultyStaffPathwayNo);
-                          setDrillPath([]);
-                          setDetailFocus(null);
-                          setFacultyStaffChartExpanded(false);
-                          setChartRenderNonce((value) => value + 1);
-                        }}
-                        className="mt-1"
-                      />
-                    ) : null}
                     <div className="mt-2 flex justify-center">
                       <Breadcrumbs
                         base={visibleBaseBreakdownLabel}
                         levels={isFacultyStaffHierarchyView ? [] : selectedKpi.levels ?? []}
-                        drillPath={isFacultyStaffHierarchyView ? [] : drillPath}
-                        onPopTo={isFacultyStaffHierarchyView ? () => {} : popDrillTo}
+                        drillPath={isFacultyStaffHierarchyView ? facultyStaffBreadcrumbPath : drillPath}
+                        onPopTo={isFacultyStaffHierarchyView ? navigateFacultyStaffBreadcrumb : popDrillTo}
                       />
                     </div>
                     <div
@@ -2920,39 +3062,13 @@ export default function Dashboard({
                 <div
                   key={`${kpiView}-${isFullscreen ? "fs" : "std"}-${chartRenderNonce}-${selectedKpi.id}-${drillPath.join("-")}-${selectedFacultyStaffHierarchyKey}-${selectedFacultyStaffPathwayNo}`}
                   ref={chartOnlyRef}
-                  className={`dashboard-chart-body min-w-0 ${isFullscreen ? (kpiView === "table" ? `flex flex-1 min-h-0 items-center justify-center overflow-hidden ${isFacultyStaffHierarchyView ? "pt-40" : "pt-24"} pb-14` : `flex flex-1 min-h-0 items-start justify-center ${isFacultyStaffHierarchyView ? "pt-40" : "pt-24"} pb-14` ) : `flex min-h-[460px] items-center justify-center ${isFacultyStaffHierarchyView ? "pt-40" : "pt-24"} pb-10`}`}
+                  className={`dashboard-chart-body min-w-0 ${isFullscreen ? (kpiView === "table" ? "flex flex-1 min-h-0 items-center justify-center overflow-hidden pt-24 pb-14" : "flex flex-1 min-h-0 items-start justify-center pt-24 pb-14" ) : "flex min-h-[460px] items-center justify-center pt-24 pb-10"}`}
                   style={{
                     ...visualChartBodyStyle,
                     ...(isFullscreen ? {} : { transform: "translateY(12px)" }),
                   }}
                 >
-                  <div className={`${isFacultyStaffHierarchyView ? "flex w-full max-w-[1240px] items-start gap-4 px-2" : `${chartPanelWidthClass} mx-auto`}`}>
-                    {isFacultyStaffHierarchyView ? (
-                      <DrillPathwayLegend
-                        pathways={facultyStaffPathways}
-                        activePathwayNo={selectedFacultyStaffPathwayNo}
-                        onSelectPathway={(pathwayNo) => {
-                          setSelectedFacultyStaffPathwayNo(pathwayNo);
-                          setDrillPath([]);
-                          setDetailFocus(null);
-                          setFacultyStaffChartExpanded(false);
-                          setChartRenderNonce((value) => value + 1);
-                        }}
-                        onSelectBreakdown={(breakdownLabel) => {
-                          setDetailFocus({
-                            field: "Breakdown",
-                            value: breakdownLabel,
-                            label: activeFacultyStaffPathwayLabel ?? "Part node",
-                          });
-                        }}
-                        valueSummaries={facultyStaffValueSummaries}
-                        rootValues={facultyStaffRootValues}
-                        displayMode={valueMode}
-                        accent={activeFacultyStaffHierarchy?.color ?? accent}
-                        isFullscreen={isFullscreen}
-                      />
-                    ) : null}
-                    <div className={isFacultyStaffHierarchyView ? "min-w-0 flex-1" : ""}>
+                  <div className={`${chartPanelWidthClass} mx-auto`}>
                     {kpiView === "bar" ? (
                       <BreakdownBar
                         data={visibleChartBreakdown}
@@ -3020,7 +3136,6 @@ export default function Dashboard({
                         />
                       </div>
                     )}
-                    </div>
                   </div>
                 </div>
 
