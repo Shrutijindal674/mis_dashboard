@@ -325,10 +325,11 @@ export default function SubKpiCarousel({
               const active = kpi.id === activeId;
               const isMappedDrill = kpi.variant === "mapped-drill";
               const isParentDrillToggle = kpi.variant === "parent-drill-toggle";
+              const isNestedParentToggle = kpi.variant === "nested-parent-toggle";
               const parentExpanded = Boolean(kpi.expanded);
               const parentUsesExpandedShape = isParentDrillToggle && parentExpanded;
-              const isActiveTopLevelHeading = active && !isMappedDrill && !isParentDrillToggle;
-              const showTrailingAction = !isMappedDrill && (active || hoveredItemId === kpi.id);
+              const isActiveTopLevelHeading = active && !isMappedDrill && !isParentDrillToggle && !isNestedParentToggle;
+              const showTrailingAction = (isNestedParentToggle || !isMappedDrill) && (active || hoveredItemId === kpi.id || parentExpanded);
               const itemAccent = kpi.accent || accent;
               const itemSoft = kpi.soft || soft;
               const parentIsProminent = isParentDrillToggle && (active || parentExpanded);
@@ -349,10 +350,10 @@ export default function SubKpiCarousel({
                   <button
                     type="button"
                     onClick={() => onPick(kpi.id)}
-                    aria-expanded={isParentDrillToggle ? parentExpanded : undefined}
+                    aria-expanded={isParentDrillToggle || isNestedParentToggle ? parentExpanded : undefined}
                     aria-label={
-                      isParentDrillToggle
-                        ? `${kpi.label}. ${parentExpanded ? "Collapse drill pills" : "Expand drill pills"}`
+                      isParentDrillToggle || isNestedParentToggle
+                        ? `${kpi.label}. ${parentExpanded ? "Collapse sub-categories" : "Expand sub-categories"}`
                         : undefined
                     }
                     className={cx(
@@ -360,6 +361,8 @@ export default function SubKpiCarousel({
                         ? parentUsesExpandedShape
                           ? "group flex min-w-[198px] items-center justify-between gap-3 rounded-[20px] border px-4 py-2.5 text-left text-[13px] font-extrabold leading-tight transition duration-200"
                           : "group flex items-center justify-between gap-2 rounded-full border px-3 py-1.5 text-left text-[12.5px] font-semibold transition"
+                        : isNestedParentToggle
+                          ? "group flex items-center justify-between gap-2 rounded-full border px-3 py-1.5 text-left text-[12.5px] font-semibold transition"
                         : isMappedDrill
                           ? "max-w-[220px] flex items-center rounded-full border px-3 py-1.5 text-[12.5px] font-semibold transition"
                         : isActiveTopLevelHeading
@@ -371,36 +374,50 @@ export default function SubKpiCarousel({
                         ? parentExpanded || active
                             ? `linear-gradient(135deg, ${itemAccent}, ${itemAccent}DD)`
                             : "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(248,250,252,0.94))"
-                        : active
-                          ? itemAccent
-                          : isMappedDrill
+                        : isNestedParentToggle
+                          ? parentExpanded || active
                             ? itemSoft
-                            : "rgba(255,255,255,0.96)",
+                            : "rgba(255,255,255,0.96)"
+                          : active
+                            ? itemAccent
+                            : isMappedDrill
+                              ? itemSoft
+                              : "rgba(255,255,255,0.96)",
                       color: isParentDrillToggle
                         ? parentExpanded || active
                           ? "white"
                           : "#334155"
-                        : active
-                          ? "white"
-                          : isMappedDrill
-                            ? itemAccent
-                            : "#334155",
+                        : isNestedParentToggle
+                          ? itemAccent
+                          : active
+                            ? "white"
+                            : isMappedDrill
+                              ? itemAccent
+                              : "#334155",
                       borderColor: isParentDrillToggle
                         ? parentIsProminent
                           ? `${itemAccent}66`
                           : "rgba(148,163,184,0.18)"
-                        : active
-                          ? itemAccent
-                          : isMappedDrill
-                            ? `${itemAccent}30`
-                            : "rgba(148,163,184,0.18)",
+                        : isNestedParentToggle
+                          ? parentExpanded || active
+                            ? `${itemAccent}45`
+                            : "rgba(148,163,184,0.18)"
+                          : active
+                            ? itemAccent
+                            : isMappedDrill
+                              ? `${itemAccent}30`
+                              : "rgba(148,163,184,0.18)",
                       boxShadow: isParentDrillToggle
                         ? parentIsProminent
                           ? `0 16px 32px ${itemAccent}20, inset 0 1px 0 rgba(255,255,255,0.8)`
                           : "0 1px 2px rgba(15,23,42,0.04)"
-                        : active
-                          ? `0 10px 22px ${itemAccent}22`
-                          : "0 1px 2px rgba(15,23,42,0.04)",
+                        : isNestedParentToggle
+                          ? parentExpanded || active
+                            ? `0 10px 22px ${itemAccent}18`
+                            : "0 1px 2px rgba(15,23,42,0.04)"
+                          : active
+                            ? `0 10px 22px ${itemAccent}22`
+                            : "0 1px 2px rgba(15,23,42,0.04)",
                     }}
                     title={kpi.tooltip || kpi.label}
                   >
@@ -439,6 +456,35 @@ export default function SubKpiCarousel({
                               "transition-transform duration-300",
                               parentUsesExpandedShape ? "h-4 w-4" : "h-3 w-3",
                             )}
+                            style={{ transform: parentExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
+                            fill="none"
+                          >
+                            <path
+                              d="M6 3.5 10.5 8 6 12.5"
+                              stroke="currentColor"
+                              strokeWidth="2.1"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                      </>
+                    ) : isNestedParentToggle ? (
+                      <>
+                        <span className="truncate">{kpi.label}</span>
+                        <span
+                          className="grid h-6 w-6 shrink-0 place-items-center rounded-full border transition duration-200"
+                          style={{
+                            background: `${itemAccent}12`,
+                            borderColor: `${itemAccent}30`,
+                            color: itemAccent,
+                            opacity: showTrailingAction ? 1 : 0.9,
+                          }}
+                          aria-hidden="true"
+                        >
+                          <svg
+                            viewBox="0 0 16 16"
+                            className="h-3 w-3 transition-transform duration-300"
                             style={{ transform: parentExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
                             fill="none"
                           >

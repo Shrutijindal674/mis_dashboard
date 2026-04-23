@@ -230,7 +230,7 @@ export default function BreakdownBar({
               dataKey="value"
               radius={horizontal ? [0, 12, 12, 0] : [12, 12, 0, 0]}
               fill={accent}
-              onClick={(d) => onBarClick?.(d?.name)}
+              onClick={interactive ? (d) => onBarClick?.(d?.name) : undefined}
             >
               {data.map((item, index) => (
                 <Cell key={`${item.name}-${index}`} cursor={interactive ? "pointer" : "default"} />
