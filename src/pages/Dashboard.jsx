@@ -189,6 +189,55 @@ function dedupeList(values) {
   return Array.from(new Set((values ?? []).filter(Boolean)));
 }
 
+function buildDashboardSearchResults(query) {
+  const normalizedQuery = String(query ?? "").trim().toLowerCase();
+  if (!normalizedQuery) return [];
+
+  const results = [];
+  for (const domain of DOMAIN_DEFS) {
+    if (String(domain.id ?? "").toLowerCase().includes(normalizedQuery)) {
+      results.push({
+        key: `module-${domain.id}`,
+        type: "module",
+        label: domain.id,
+        subtitle: `${domain.children.length} sub-modules`,
+        domainId: domain.id,
+      });
+    }
+
+    for (const subsection of domain.children) {
+      const subsectionText = `${domain.id} ${subsection.label}`.toLowerCase();
+      if (subsectionText.includes(normalizedQuery)) {
+        results.push({
+          key: `submodule-${subsection.id}`,
+          type: "submodule",
+          label: subsection.label,
+          subtitle: domain.id,
+          domainId: domain.id,
+          subsectionId: subsection.id,
+        });
+      }
+
+      for (const worksheet of SUBSECTION_VIEW_OPTIONS[subsection.id] ?? []) {
+        const worksheetText = `${domain.id} ${subsection.label} ${worksheet.label} ${worksheet.helper ?? ""}`.toLowerCase();
+        if (worksheetText.includes(normalizedQuery)) {
+          results.push({
+            key: `worksheet-${worksheet.id}-${subsection.id}`,
+            type: "worksheet",
+            label: worksheet.label,
+            subtitle: `${domain.id} > ${subsection.label}`,
+            domainId: domain.id,
+            subsectionId: subsection.id,
+            viewId: worksheet.id,
+          });
+        }
+      }
+    }
+  }
+
+  return results.slice(0, 8);
+}
+
 function iconSvg(kind, active = false, tone = null) {
   const stroke = active ? "white" : tone || "#64748b";
   const common = {
@@ -669,6 +718,7 @@ export default function Dashboard({
   role,
   instituteId,
   facts,
+  onBack,
   onLogout,
   onChangeInstitute,
   onSelectInstitute,
@@ -713,13 +763,17 @@ export default function Dashboard({
   const [filterDraft, setFilterDraft] = useState(null);
   const [reportAutoOpenKey, setReportAutoOpenKey] = useState(0);
   const [homeSearch, setHomeSearch] = useState("");
+  const [homeSearchOpen, setHomeSearchOpen] = useState(false);
   const [recent, setRecent] = useState([]);
   const [notice, setNotice] = useState("");
   const [lastDownloadedAt, setLastDownloadedAt] = useState(null);
   const [subsectionViews, setSubsectionViews] = useState(DEFAULT_SUBSECTION_VIEWS);
 
+  const homeSearchRef = useRef(null);
   const profileRef = useRef(null);
   const headerSearchRef = useRef(null);
+  const dashboardHistoryRef = useRef([]);
+  const latestNavigationSnapshotRef = useRef(null);
   const navigationRestoringRef = useRef(false);
   const navigationReadyRef = useRef(false);
   const navigationKeyRef = useRef("");
@@ -770,6 +824,9 @@ export default function Dashboard({
 
   useEffect(() => {
     function onDocClick(event) {
+      if (homeSearchRef.current && !homeSearchRef.current.contains(event.target)) {
+        setHomeSearchOpen(false);
+      }
       if (profileRef.current && !profileRef.current.contains(event.target)) {
         setProfileOpen(false);
       }
@@ -889,15 +946,50 @@ export default function Dashboard({
     return results.slice(0, 8);
   }, [headerSearch]);
 
-  function handleHeaderSearchSelect(result) {
+  const homeSearchResults = useMemo(
+    () => buildDashboardSearchResults(homeSearch),
+    [homeSearch],
+  );
+
+  function navigateFromSearchResult(result) {
     if (!result) return;
     if (result.type === "module") {
       openDomain(result.domainId);
     } else {
       openSubsection(result.domainId, result.subsectionId, result.viewId ?? null);
     }
+  }
+
+  function handleHeaderSearchSelect(result) {
+    if (!result) return;
+    navigateFromSearchResult(result);
     setHeaderSearch(result.label);
     setHeaderSearchOpen(false);
+  }
+
+  function handleHeaderSearchSubmit() {
+    if (headerSearchResults[0]) {
+      handleHeaderSearchSelect(headerSearchResults[0]);
+      return;
+    }
+    setHeaderSearchOpen(Boolean(headerSearch.trim()));
+  }
+
+  function handleHomeSearchSelect(result) {
+    if (!result) return;
+    navigateFromSearchResult(result);
+    setHomeSearch(result.label);
+    setHeaderSearch(result.label);
+    setHomeSearchOpen(false);
+    setHeaderSearchOpen(false);
+  }
+
+  function handleHomeSearchSubmit() {
+    if (homeSearchResults[0]) {
+      handleHomeSearchSelect(homeSearchResults[0]);
+      return;
+    }
+    setHomeSearchOpen(Boolean(homeSearch.trim()));
   }
 
   useEffect(() => {
@@ -907,12 +999,14 @@ export default function Dashboard({
       setSelectedSubsectionId(fallback.id);
       setSelectedKpiId(resolveSubsectionKpiId(fallback.id, subsectionViews));
       setDrillPath([]);
+      setDetailFocus(null);
       return;
     }
     const targetKpiId = resolveSubsectionKpiId(selectedSubsectionId, subsectionViews);
     if (targetKpiId !== selectedKpiId) {
       setSelectedKpiId(targetKpiId);
       setDrillPath([]);
+      setDetailFocus(null);
     }
   }, [activeDomainDef, selectedSubsectionId, selectedKpiId, subsectionViews]);
 
@@ -928,6 +1022,26 @@ export default function Dashboard({
   const currentIgViewId = subsectionViews[selectedSubsectionId] ?? currentIgViewOptions[0]?.id;
   const currentIgViewMeta = currentIgViewOptions.find((item) => item.id === currentIgViewId) ?? null;
   const currentViewLabel = currentIgViewMeta?.label ?? currentSubsection?.label ?? selectedKpi?.label;
+  const currentNavigationKey = useMemo(
+    () => [
+      section,
+      module,
+      selectedSubsectionId,
+      currentIgViewId ?? "",
+      selectedFacultyStaffHierarchyKey,
+      selectedFacultyStaffPathwayNo,
+      facultyStaffDrillCarouselOpen ? "open" : "closed",
+    ].join("::"),
+    [
+      section,
+      module,
+      selectedSubsectionId,
+      currentIgViewId,
+      selectedFacultyStaffHierarchyKey,
+      selectedFacultyStaffPathwayNo,
+      facultyStaffDrillCarouselOpen,
+    ],
+  );
 
   const compareSeedMetricIds = useMemo(() => {
     const worksheetOptions = (currentIgViewOptions.length
@@ -1313,8 +1427,14 @@ export default function Dashboard({
     });
   }, [facts, selectedKpi, activeInstituteId, yearRange, isFacultyStaffHierarchyView, activeFacultyStaffPathway]);
 
+  const canShowTimeSeries =
+    Number(yearRange.to) > Number(yearRange.from) && trendSeries.length > 1;
+
   const noFurtherDrill =
     drillPath.length >= ((selectedKpi.levels?.length ?? 1) - 1);
+
+  const canDrillChart =
+    !isFacultyStaffHierarchyView && Boolean(selectedKpi.drillable) && !noFurtherDrill;
 
   const headline = useMemo(() => {
     const rows = scopeRowsForKpi(selectedKpi, scopedFacts.thisIIT[selectedKpi.fact] ?? []);
@@ -1381,7 +1501,6 @@ export default function Dashboard({
         label: "UG students",
         note: "Student Profile",
         color: "#1d4ed8",
-        onClick: () => openSubsection("People & Student Life", "student-profile", "student-profile-sheet"),
       },
       {
         id: "pg",
@@ -1389,7 +1508,6 @@ export default function Dashboard({
         label: "PG students",
         note: "Student Profile",
         color: "#ec4899",
-        onClick: () => openSubsection("People & Student Life", "student-profile", "student-profile-sheet"),
       },
       {
         id: "phd",
@@ -1397,7 +1515,6 @@ export default function Dashboard({
         label: "PhD students",
         note: "Student Profile",
         color: "#f97316",
-        onClick: () => openSubsection("People & Student Life", "student-profile", "student-profile-sheet"),
       },
       {
         id: "faculty",
@@ -1405,7 +1522,6 @@ export default function Dashboard({
         label: "Faculty in position",
         note: "Faculty & Staff",
         color: "#7c3aed",
-        onClick: () => openSubsection("People & Student Life", "faculty-staff", "faculty-staff-summary"),
       },
       {
         id: "intl",
@@ -1413,7 +1529,6 @@ export default function Dashboard({
         label: "International students",
         note: "International Students",
         color: "#16a34a",
-        onClick: () => openSubsection("People & Student Life", "student-profile", "international-students"),
       },
       {
         id: "programmes",
@@ -1421,7 +1536,6 @@ export default function Dashboard({
         label: "Programmes",
         note: "Academic Programs",
         color: "#eab308",
-        onClick: () => openSubsection("Institution & Governance", "institutional-profile", "programs"),
       },
     ],
     [homeSnapshot],
@@ -1481,23 +1595,168 @@ export default function Dashboard({
     [homeSnapshot, yearRange.to],
   );
 
-  const openReportsForKpis = (kpiIds, focusKpiId = null) => {
-    const nextIds = kpiIds?.length ? Array.from(new Set(kpiIds)) : [];
-    setReportsCfg((prev) => ({
-      ...prev,
-      KpiIds: nextIds,
-      InstituteId:
-        role === "iit"
-          ? [activeInstituteId || IITs[0].id]
-          : prev.InstituteId?.length
-            ? prev.InstituteId
-            : [activeInstituteId || IITs[0].id],
-      YearRange: { from: yearRange.from, to: yearRange.to },
-    }));
-    if (focusKpiId) setSelectedKpiId(focusKpiId);
-    setReportAutoOpenKey((value) => value + 1);
-    setSection("Reports");
-  };
+  const homeDashboardCards = useMemo(
+    () => [
+      ...homeModuleCards.map((card) => ({
+        ...card,
+        displayValue: formatCompact(card.value),
+      })),
+      ...homeReportCards.map((card) => ({
+        ...card,
+        displayValue: card.value,
+      })),
+    ],
+    [homeModuleCards, homeReportCards],
+  );
+
+  const currentNavigationSnapshot = useMemo(
+    () => ({
+      key: currentNavigationKey,
+      section,
+      module,
+      selectedSubsectionId,
+      selectedKpiId,
+      drillPath: [...drillPath],
+      yearRange: { ...yearRange },
+      kpiView,
+      detailFocus: detailFocus ? { ...detailFocus } : null,
+      subsectionViews: { ...subsectionViews },
+      expandedDomains: { ...expandedDomains },
+      selectedFacultyStaffHierarchyKey,
+      selectedFacultyStaffPathwayNo,
+      facultyStaffDrillCarouselOpen,
+      compareCfg: {
+        ...compareCfg,
+        CompareMetricIds: [...(compareCfg.CompareMetricIds ?? [])],
+        InstituteId: [...(compareCfg.InstituteId ?? [])],
+        YearRange: { ...(compareCfg.YearRange ?? {}) },
+      },
+      reportsCfg: {
+        ...reportsCfg,
+        KpiIds: [...(reportsCfg.KpiIds ?? [])],
+        InstituteId: [...(reportsCfg.InstituteId ?? [])],
+        YearRange: { ...(reportsCfg.YearRange ?? {}) },
+      },
+    }),
+    [
+      currentNavigationKey,
+      section,
+      module,
+      selectedSubsectionId,
+      selectedKpiId,
+      drillPath,
+      yearRange,
+      kpiView,
+      detailFocus,
+      subsectionViews,
+      expandedDomains,
+      selectedFacultyStaffHierarchyKey,
+      selectedFacultyStaffPathwayNo,
+      facultyStaffDrillCarouselOpen,
+      compareCfg,
+      reportsCfg,
+    ],
+  );
+
+  useEffect(() => {
+    const previousKey = navigationKeyRef.current;
+    const previousSnapshot = latestNavigationSnapshotRef.current;
+
+    if (!navigationReadyRef.current) {
+      navigationReadyRef.current = true;
+      navigationKeyRef.current = currentNavigationKey;
+      latestNavigationSnapshotRef.current = currentNavigationSnapshot;
+      return;
+    }
+
+    if (navigationRestoringRef.current) {
+      navigationRestoringRef.current = false;
+      navigationKeyRef.current = currentNavigationKey;
+      latestNavigationSnapshotRef.current = currentNavigationSnapshot;
+      return;
+    }
+
+    if (previousKey && previousKey !== currentNavigationKey && previousSnapshot) {
+      const lastSnapshot = dashboardHistoryRef.current[dashboardHistoryRef.current.length - 1];
+      if (lastSnapshot?.key !== previousKey) {
+        dashboardHistoryRef.current.push(previousSnapshot);
+      }
+    }
+
+    navigationKeyRef.current = currentNavigationKey;
+    latestNavigationSnapshotRef.current = currentNavigationSnapshot;
+  }, [currentNavigationKey, currentNavigationSnapshot]);
+
+  function restoreNavigationSnapshot(snapshot) {
+    if (!snapshot) return false;
+
+    navigationRestoringRef.current = true;
+    setSection(snapshot.section ?? "Home");
+    setModule(snapshot.module ?? initialDomain);
+    setSelectedSubsectionId(snapshot.selectedSubsectionId ?? initialChild.id);
+    setSelectedKpiId(
+      snapshot.selectedKpiId
+      ?? resolveSubsectionKpiId(
+        snapshot.selectedSubsectionId ?? initialChild.id,
+        snapshot.subsectionViews ?? DEFAULT_SUBSECTION_VIEWS,
+      ),
+    );
+    setDrillPath([...(snapshot.drillPath ?? [])]);
+    setYearRange({
+      from: snapshot.yearRange?.from ?? YEARS[0],
+      to: snapshot.yearRange?.to ?? YEARS[YEARS.length - 1],
+    });
+    setKpiView(snapshot.kpiView ?? "bar");
+    setDetailFocus(snapshot.detailFocus ? { ...snapshot.detailFocus } : null);
+    setSubsectionViews(snapshot.subsectionViews ? { ...snapshot.subsectionViews } : DEFAULT_SUBSECTION_VIEWS);
+    setExpandedDomains(
+      snapshot.expandedDomains
+        ? { ...snapshot.expandedDomains }
+        : Object.fromEntries(DOMAIN_DEFS.map((item) => [item.id, item.id === (snapshot.module ?? initialDomain)])),
+    );
+    setSelectedFacultyStaffHierarchyKey(snapshot.selectedFacultyStaffHierarchyKey ?? "vacancy-staffing");
+    setSelectedFacultyStaffPathwayNo(snapshot.selectedFacultyStaffPathwayNo ?? 1);
+    setFacultyStaffDrillCarouselOpen(Boolean(snapshot.facultyStaffDrillCarouselOpen));
+    if (snapshot.compareCfg) {
+      setCompareCfg({
+        ...snapshot.compareCfg,
+        CompareMetricIds: [...(snapshot.compareCfg.CompareMetricIds ?? [])],
+        InstituteId: [...(snapshot.compareCfg.InstituteId ?? [])],
+        YearRange: { ...(snapshot.compareCfg.YearRange ?? {}) },
+      });
+    }
+    if (snapshot.reportsCfg) {
+      setReportsCfg({
+        ...snapshot.reportsCfg,
+        KpiIds: [...(snapshot.reportsCfg.KpiIds ?? [])],
+        InstituteId: [...(snapshot.reportsCfg.InstituteId ?? [])],
+        YearRange: { ...(snapshot.reportsCfg.YearRange ?? {}) },
+      });
+    }
+    setProfileOpen(false);
+    setHeaderSearchOpen(false);
+    setHomeSearchOpen(false);
+    setSpeedDialOpen(false);
+    setDetailsOpen(false);
+    return true;
+  }
+
+  function handleDashboardBack() {
+    const previousSnapshot = dashboardHistoryRef.current.pop();
+    if (previousSnapshot) {
+      restoreNavigationSnapshot(previousSnapshot);
+      return;
+    }
+
+    if (typeof onBack === "function") {
+      onBack();
+      return;
+    }
+
+    if (section !== "Home") {
+      setSection("Home");
+    }
+  }
 
   const dashboardInterpretation = useMemo(() => {
     if (!breakdown.length) return "Select a metric to analyse.";
@@ -1610,7 +1869,7 @@ export default function Dashboard({
     : null;
 
   const facultyStaffBreadcrumbPath = isFacultyStaffHierarchyView
-    ? [currentSubsection.label, currentViewLabel, activeFacultyStaffPathwayLabel].filter(Boolean)
+    ? [activeFacultyStaffPathwayLabel].filter(Boolean)
     : [];
 
   const facultyStaffValueAxisLabel = isFacultyStaffHierarchyView
@@ -1630,34 +1889,52 @@ export default function Dashboard({
     : currentValueLabel;
 
   const visibleBaseBreakdownLabel = isFacultyStaffHierarchyView
-    ? activeDomain
+    ? null
     : displayBaseBreakdownLabel;
 
+<<<<<<< HEAD
   const chartIsInteractive =
     isFacultyStaffHierarchyView || (selectedKpi.drillable && !noFurtherDrill);
+=======
+  const nonDrillCategoryLabel = isFacultyStaffHierarchyView
+    ? activeFacultyStaffPathwayLabel ?? currentViewLabel
+    : detailFocus?.value ?? currentViewLabel;
+>>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
 
   const chartDrillHint =
     kpiView !== "bar" && kpiView !== "donut"
       ? ""
+<<<<<<< HEAD
       : isFacultyStaffHierarchyView
         ? ""
         : chartIsInteractive
           ? "Click to drill down."
           : "";
+=======
+      : canDrillChart
+        ? "Click to drill down."
+        : "";
+>>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
 
-  // Added for SVG download  // Added for SVG download Chart with Title and breadcrumbs
+  // Used for SVG / PDF exports and for the chart header context line.
   const breadcrumbText = useMemo(() => {
-    if (isFacultyStaffHierarchyView) {
-      return [activeDomain, ...facultyStaffBreadcrumbPath].filter(Boolean).join(" > ");
+    if (isFacultyStaffHierarchyView || !selectedKpi.drillable) {
+      return nonDrillCategoryLabel;
     }
     return [displayBaseBreakdownLabel, ...drillPath].filter(Boolean).join(" > ");
-  }, [activeDomain, displayBaseBreakdownLabel, drillPath, isFacultyStaffHierarchyView, facultyStaffBreadcrumbPath]);
+  }, [
+    displayBaseBreakdownLabel,
+    drillPath,
+    isFacultyStaffHierarchyView,
+    nonDrillCategoryLabel,
+    selectedKpi.drillable,
+  ]);
 
   useEffect(() => {
     if (!visualToolbarItems.some((item) => item.id === kpiView)) {
       setKpiView("bar");
     }
-  }, [kpiView]);
+  }, [kpiView, canShowTimeSeries]);
 
   function popDrillTo(depth) {
     setDetailFocus(null);
@@ -1949,12 +2226,17 @@ export default function Dashboard({
     },
   ];
 
-  const visualToolbarItems = [
-    { id: "bar", label: "Bar", icon: "📊" },
-    { id: "trend", label: "Time series", icon: "↗" },
-    { id: "donut", label: "Donut", icon: "◔" },
-    { id: "table", label: "Table", icon: "▦" },
-  ];
+  const visualToolbarItems = useMemo(
+    () => [
+      { id: "bar", label: "Bar", icon: "📊" },
+      ...(canShowTimeSeries
+        ? [{ id: "trend", label: "Time series", icon: "↗" }]
+        : []),
+      { id: "donut", label: "Donut", icon: "◔" },
+      { id: "table", label: "Table", icon: "▦" },
+    ],
+    [canShowTimeSeries],
+  );
 
   const fullscreenChartReserve = isFacultyStaffHierarchyView ? 360 : 300;
   const fullscreenBarHeight = Math.max(
@@ -2000,10 +2282,8 @@ export default function Dashboard({
 
   const facultyStaffCarouselParentAccent = accent;
   const facultyStaffCarouselParentSoft = soft;
-  const facultyStaffCarouselChildAccent = blendHexColor(accent, "#ffffff", 0.18);
-  const facultyStaffCarouselChildSoft = blendHexColor(accent, "#ffffff", 0.86);
 
-  const facultyStaffCarouselItems = useMemo(() => {
+  const facultyStaffWorksheetCarouselItems = useMemo(() => {
     const decorateSheetItem = (item) => {
       const isFacultyStaffParent = item.id === "faculty-staff-summary";
       const isParentExpanded =
@@ -2033,12 +2313,16 @@ export default function Dashboard({
     currentIgViewOptions,
     selectedSubsectionId,
     currentSubsection.label,
+<<<<<<< HEAD
     isFacultyStaffSheetActive,
     facultyStaffDrillCarouselOpen,
+=======
+>>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
     facultyStaffCarouselParentAccent,
     facultyStaffCarouselParentSoft,
   ]);
 
+<<<<<<< HEAD
   const facultyStaffPathwayByNo = useMemo(
     () =>
       Object.fromEntries(
@@ -2144,6 +2428,23 @@ export default function Dashboard({
     isFacultyStaffSheetActive && facultyStaffDrillCarouselOpen && facultyStaffExpandedCategoryId
       ? facultyStaffNestedChildCarouselActiveId
       : null;
+=======
+  const facultyStaffCategoryCarouselItems = useMemo(() => {
+    if (!isFacultyStaffHierarchyView || !facultyStaffDrillCarouselOpen) return [];
+    return allFacultyStaffMappedPathways.map((pathway) => ({
+      id: `faculty-staff-pathway-${pathway.pathwayNo}`,
+      label: getFacultyStaffPathwayShortLabel(pathway),
+      tooltip: `People & Student Life > Faculty & Staff > Faculty and Staff > ${pathway.hierarchyLabel} > ${getFacultyStaffPathwayShortLabel(pathway)} > ${facultyStaffFieldLabel(pathway.rootField)}${pathway.children?.length ? ` > ${pathway.children.map(facultyStaffFieldLabel).join(" > ")}` : ""}`,
+      variant: "mapped-drill",
+      accent: pathway.hierarchyColor ?? accent,
+      soft: pathway.hierarchyBg ?? blendHexColor(pathway.hierarchyColor ?? accent, "#ffffff", 0.82),
+    }));
+  }, [isFacultyStaffHierarchyView, facultyStaffDrillCarouselOpen, allFacultyStaffMappedPathways, accent]);
+
+  const facultyStaffWorksheetCarouselActiveId = currentIgViewOptions.length
+    ? currentIgViewId
+    : selectedSubsectionId;
+>>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
 
   function pickFacultyStaffCarouselItem(itemId) {
     if (itemId === "faculty-staff-summary") {
@@ -2160,6 +2461,7 @@ export default function Dashboard({
       return;
     }
 
+<<<<<<< HEAD
     const categoryConfig = FACULTY_STAFF_CATEGORY_CONFIG.find((item) => item.id === itemId);
     if (categoryConfig) {
       if (categoryConfig.type === "group") {
@@ -2200,9 +2502,26 @@ export default function Dashboard({
       return;
     }
 
+=======
+>>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
     handleSubviewChange(selectedSubsectionId, itemId);
     setFacultyStaffDrillCarouselOpen(false);
     setFacultyStaffExpandedCategoryId(null);
+  }
+
+  function pickFacultyStaffCategoryCarouselItem(itemId) {
+    if (!itemId?.startsWith("faculty-staff-pathway-")) return;
+
+    const pathwayNo = Number(itemId.replace("faculty-staff-pathway-", ""));
+    const pathway = allFacultyStaffMappedPathways.find((item) => Number(item.pathwayNo) === pathwayNo);
+    if (!pathway) return;
+
+    setSelectedFacultyStaffPathwayNo(pathway.pathwayNo);
+    setSelectedFacultyStaffHierarchyKey(pathway.hierarchyKey);
+    setFacultyStaffDrillCarouselOpen(true);
+    setDrillPath([]);
+    setDetailFocus(null);
+    setChartRenderNonce((value) => value + 1);
   }
 
   function navigateFacultyStaffBreadcrumb(levelIndex) {
@@ -2358,13 +2677,7 @@ export default function Dashboard({
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => {
-                if (typeof window !== "undefined" && window.history.length > 1) {
-                  window.history.back();
-                  return;
-                }
-                if (section !== "Home") setSection("Home");
-              }}
+              onClick={handleDashboardBack}
               className="grid h-9 w-9 place-items-center rounded-2xl bg-white shadow-sm"
               style={{ border: "1px solid rgba(59,130,246,0.15)", color: "#1252a0" }}
               title="Go back"
@@ -2386,14 +2699,15 @@ export default function Dashboard({
                 </svg>
                 <input
                   value={headerSearch}
-                  onFocus={() => setHeaderSearchOpen(Boolean(headerSearchResults.length))}
+                  onFocus={() => setHeaderSearchOpen(Boolean(headerSearch.trim()))}
                   onChange={(event) => {
                     setHeaderSearch(event.target.value);
                     setHeaderSearchOpen(true);
                   }}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" && headerSearchResults[0]) {
-                      handleHeaderSearchSelect(headerSearchResults[0]);
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      handleHeaderSearchSubmit();
                     }
                   }}
                   placeholder="Search module, sub-module, or worksheet"
@@ -2783,9 +3097,8 @@ export default function Dashboard({
             <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-3">
                 <SubKpiCarousel
-                  kpis={facultyStaffCarouselItems}
-                  activeId={facultyStaffCarouselActiveId}
-                  autoScrollTargetId={facultyStaffCarouselScrollTargetId}
+                  kpis={facultyStaffWorksheetCarouselItems}
+                  activeId={facultyStaffWorksheetCarouselActiveId}
                   onPick={(itemId) => {
                     if (selectedSubsectionId === "faculty-staff") {
                       pickFacultyStaffCarouselItem(itemId);
@@ -2799,10 +3112,15 @@ export default function Dashboard({
                   soft={soft}
                   title={currentSubsection.label}
                   helper={
+<<<<<<< HEAD
                     isFacultyStaffSheetActive
                       ? facultyStaffDrillCarouselOpen
                         ? "Select a category to analyse."
                         : "Select the metric to analyze. Click Faculty and Staff to reveal its mapped drill paths below the carousel."
+=======
+                    isFacultyStaffHierarchyView
+                      ? "Select a category to analyse."
+>>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
                       : "Select the metric to analyze."
                   }
                 />
@@ -2851,6 +3169,18 @@ export default function Dashboard({
             </div>
           ) : null}
 
+          {isFacultyStaffHierarchyView && facultyStaffDrillCarouselOpen ? (
+            <SubKpiCarousel
+              kpis={facultyStaffCategoryCarouselItems}
+              activeId={selectedFacultyStaffCarouselId}
+              onPick={pickFacultyStaffCategoryCarouselItem}
+              accent={activeFacultyStaffHierarchy?.color ?? accent}
+              soft={activeFacultyStaffHierarchy?.bg ?? soft}
+              title="Categories"
+              helper="Select a metric to analyse."
+            />
+          ) : null}
+
           {section === "Home" ? (
             <div className="space-y-4">
               <div
@@ -2860,164 +3190,159 @@ export default function Dashboard({
                   border: "1px solid rgba(59,130,246,0.15)",
                 }}
               >
-                <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-                  <div>
-                  <div className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "#64748b" }}>
-                    Institute snapshot · AY {yearRange.from}–{yearRange.to}
-                  </div>
-                  <div className="mt-3 text-5xl font-black leading-none" style={{ color: "#0f2a5e" }}>
-                    {currentInstitute.name}
-                  </div>
-                  <div className="mt-3 max-w-3xl text-sm" style={{ color: "#475569" }}>
-                    Quick links to modules and institute reports.
-                  </div>
-
-                  <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                    <input
-                      value={homeSearch}
-                      onChange={(event) => setHomeSearch(event.target.value)}
-                      placeholder="Search reports, rankings, student data"
-                      className="h-12 flex-1 rounded-[18px] px-4 outline-none"
-                      style={{
-                        border: "1px solid rgba(59,130,246,0.16)",
-                        background: "#ffffff",
-                        color: "#0f172a",
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openReportsForKpis(
-                          homeReportCards.map((item) => item.kpiId),
-                          homeReportCards[0]?.kpiId,
-                        )
-                      }
-                      className="h-12 rounded-[18px] px-6 text-sm font-bold text-white"
-                      style={{ background: accent }}
-                    >
-                      Search
-                    </button>
-                  </div>
-
-                  <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {homeModuleCards.map((card) => (
-                      <button
-                        key={card.id}
-                        type="button"
-                        onClick={card.onClick}
-                        className="rounded-[24px] px-4 py-4 text-left transition hover:-translate-y-0.5"
+                <div className="space-y-6">
+                  <div className="flex min-w-0 items-center gap-4">
+                    {currentInstituteLogo ? (
+                      <img
+                        src={currentInstituteLogo}
+                        alt={`${currentInstitute.name} logo`}
+                        className="h-12 w-12 shrink-0 object-contain"
+                      />
+                    ) : (
+                      <div
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border text-[11px] font-extrabold uppercase tracking-[0.12em]"
                         style={{
+                          borderColor: "rgba(59,130,246,0.18)",
+                          color: "#0f2a5e",
                           background: "rgba(248,250,252,0.82)",
-                          border: "1px solid rgba(59,130,246,0.12)",
                         }}
                       >
-                        <div className="flex items-start gap-3">
-                          <span className="mt-1 h-14 w-1.5 rounded-full" style={{ background: card.color }} />
-                          <span className="block min-w-0">
-                            <span className="block text-3xl font-extrabold leading-none" style={{ color: "#0f172a" }}>
-                              {formatCompact(card.value)}
-                            </span>
-                            <span className="mt-2 block text-[1.02rem] font-semibold leading-tight" style={{ color: "#0f2a5e" }}>
-                              {card.label}
-                            </span>
-                            <span className="mt-1 block text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: "#64748b" }}>
-                              {card.note}
-                            </span>
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {homeReportCards.map((card) => (
-                      <button
-                        key={card.id}
-                        type="button"
-                        onClick={() => openReportsForKpis([card.kpiId], card.kpiId)}
-                        className="rounded-[24px] px-4 py-4 text-left transition hover:-translate-y-0.5"
-                        style={{
-                          background: "rgba(248,250,252,0.82)",
-                          border: "1px solid rgba(59,130,246,0.12)",
-                        }}
+                        {currentInstitute.id}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div
+                        className="truncate text-4xl font-black leading-none sm:text-5xl"
+                        style={{ color: "#0f2a5e" }}
                       >
-                        <div className="flex items-start gap-3">
-                          <span className="mt-1 h-14 w-1.5 rounded-full" style={{ background: card.color }} />
-                          <span className="block min-w-0">
-                            <span className="block text-3xl font-extrabold leading-none" style={{ color: "#0f172a" }}>
-                              {card.value}
-                            </span>
-                            <span className="mt-2 block text-[1.02rem] font-semibold leading-tight" style={{ color: "#0f2a5e" }}>
-                              {card.label}
-                            </span>
-                            <span className="mt-1 block text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: "#64748b" }}>
-                              {card.note}
-                            </span>
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="mt-5 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openReportsForKpis(
-                          homeReportCards.map((item) => item.kpiId),
-                          homeReportCards[0]?.kpiId,
-                        )
-                      }
-                      className="rounded-2xl px-4 py-2.5 text-sm font-bold text-white"
-                      style={{ background: accent }}
-                    >
-                      Explore institute reports
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSection("Compare")}
-                      className="rounded-2xl px-4 py-2.5 text-sm font-bold"
-                      style={{
-                        color: "#1252a0",
-                        border: "1px solid rgba(59,130,246,0.18)",
-                        background: "#ffffff",
-                      }}
-                    >
-                      Compare IITs
-                    </button>
-                  </div>
-                  </div>
-
-                  <div
-                    className="flex h-full items-center justify-center rounded-[28px] p-5"
-                    style={{
-                      background: "rgba(238,245,255,0.52)",
-                      border: "1px solid rgba(59,130,246,0.12)",
-                    }}
-                  >
-                    <div
-                      className="flex min-h-[320px] w-full items-center justify-center rounded-[24px] bg-white p-6"
-                      style={{ border: "1px solid rgba(59,130,246,0.12)" }}
-                    >
-                      {currentInstituteLogo ? (
-                        <img
-                          src={currentInstituteLogo}
-                          alt={`${currentInstitute.name} logo`}
-                          className="max-h-[280px] w-auto object-contain"
-                        />
-                      ) : (
-                        <div
-                          className="flex h-40 w-40 items-center justify-center rounded-full border text-center text-lg font-extrabold uppercase tracking-[0.18em]"
-                          style={{
-                            borderColor: "rgba(59,130,246,0.18)",
-                            color: "#0f2a5e",
-                            background: "rgba(248,250,252,0.82)",
-                          }}
-                        >
-                          {currentInstitute.id}
-                        </div>
-                      )}
+                        {currentInstitute.name}
+                      </div>
                     </div>
+                  </div>
+
+                  <div ref={homeSearchRef} className="relative max-w-4xl">
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <div
+                        className="flex h-12 flex-1 items-center gap-2 rounded-[18px] bg-white px-3 shadow-sm"
+                        style={{ border: "1px solid rgba(59,130,246,0.15)" }}
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          className="h-4 w-4 shrink-0"
+                          fill="none"
+                          stroke="#64748b"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <circle cx="11" cy="11" r="7" />
+                          <path d="m20 20-3.5-3.5" />
+                        </svg>
+                        <input
+                          value={homeSearch}
+                          onFocus={() => setHomeSearchOpen(Boolean(homeSearch.trim()))}
+                          onChange={(event) => {
+                            setHomeSearch(event.target.value);
+                            setHomeSearchOpen(true);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              handleHomeSearchSubmit();
+                            }
+                          }}
+                          placeholder="Search module, sub-module, or worksheet"
+                          className="h-full min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none"
+                        />
+                        {homeSearch ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setHomeSearch("");
+                              setHomeSearchOpen(false);
+                            }}
+                            className="grid h-6 w-6 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-500"
+                            aria-label="Clear search"
+                          >
+                            x
+                          </button>
+                        ) : null}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleHomeSearchSubmit}
+                        className="h-12 rounded-[18px] px-6 text-sm font-bold text-white"
+                        style={{ background: accent }}
+                      >
+                        Search
+                      </button>
+                    </div>
+
+                    {homeSearchOpen ? (
+                      <div
+                        className="absolute inset-x-0 top-full z-[150] mt-2 overflow-hidden rounded-[22px] bg-white shadow-xl"
+                        style={{ border: "1px solid rgba(59,130,246,0.14)" }}
+                      >
+                        {homeSearchResults.length ? (
+                          <div className="max-h-[320px] overflow-auto py-2">
+                            {homeSearchResults.map((result) => (
+                              <button
+                                key={result.key}
+                                type="button"
+                                onClick={() => handleHomeSearchSelect(result)}
+                                className="flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-slate-50"
+                              >
+                                <span
+                                  className="mt-1 h-2.5 w-2.5 rounded-full"
+                                  style={{ background: accent }}
+                                />
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm font-semibold text-slate-800">
+                                    {result.label}
+                                  </span>
+                                  <span className="mt-0.5 block text-xs text-slate-500">
+                                    {result.subtitle}
+                                  </span>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : homeSearch.trim() ? (
+                          <div className="px-4 py-4 text-sm text-slate-500">
+                            No matching module, sub-module, or worksheet found.
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="grid auto-rows-fr gap-5 md:grid-cols-2 lg:grid-cols-4">
+                    {homeDashboardCards.map((card) => (
+                      <div
+                        key={card.id}
+                        className="min-h-[188px] rounded-[28px] px-6 py-5 shadow-sm"
+                        style={{
+                          background: "rgba(248,250,252,0.82)",
+                          border: "1px solid rgba(59,130,246,0.12)",
+                        }}
+                      >
+                        <div className="flex h-full items-start gap-4">
+                          <span className="mt-1 h-[72px] w-1.5 rounded-full" style={{ background: card.color }} />
+                          <span className="block min-w-0 pr-1">
+                            <span className="block text-[2.25rem] font-extrabold leading-none" style={{ color: "#0f172a" }}>
+                              {card.displayValue}
+                            </span>
+                            <span className="mt-3 block text-[1.1rem] font-semibold leading-tight" style={{ color: "#0f2a5e" }}>
+                              {card.label}
+                            </span>
+                            <span className="mt-2 block text-[10.5px] font-semibold uppercase tracking-[0.12em]" style={{ color: "#64748b" }}>
+                              {card.note}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -3032,7 +3357,7 @@ export default function Dashboard({
               role={role}
               onConfigChange={setCompareCfg}
               onOpenFilters={() => openFilterFor("compare")}
-              onBack={() => setSection(module)}
+              onBack={handleDashboardBack}
               onViewReports={(metricIds) => {
                 setReportsCfg((prev) => ({ ...prev, KpiIds: metricIds }));
                 setSection("Reports");
@@ -3050,7 +3375,7 @@ export default function Dashboard({
               onOpenFilters={() => openFilterFor("reports")}
               onOpenSource={() => setSourceOpen(true)}
               onOpenInstructions={() => setInstructionsOpen(true)}
-              onBack={() => setSection(module)}
+              onBack={handleDashboardBack}
               focusKpiId={selectedKpiId}
               autoOpenKey={reportAutoOpenKey}
             />
@@ -3273,12 +3598,24 @@ export default function Dashboard({
                       {currentViewLabel}
                     </div>
                     <div className="mt-2 flex justify-center">
-                      <Breadcrumbs
-                        base={visibleBaseBreakdownLabel}
-                        levels={isFacultyStaffHierarchyView ? [] : selectedKpi.levels ?? []}
-                        drillPath={isFacultyStaffHierarchyView ? facultyStaffBreadcrumbPath : drillPath}
-                        onPopTo={isFacultyStaffHierarchyView ? navigateFacultyStaffBreadcrumb : popDrillTo}
-                      />
+                      {selectedKpi.drillable && !isFacultyStaffHierarchyView ? (
+                        <Breadcrumbs
+                          base={visibleBaseBreakdownLabel}
+                          levels={selectedKpi.levels ?? []}
+                          drillPath={drillPath}
+                          onPopTo={popDrillTo}
+                        />
+                      ) : (
+                        <div
+                          className="rounded-lg px-2.5 py-1.5 text-[13px] font-bold"
+                          style={{
+                            background: "rgba(25,117,190,0.08)",
+                            color: "#1252a0",
+                          }}
+                        >
+                          {nonDrillCategoryLabel}
+                        </div>
+                      )}
                     </div>
                     <div
                       className="mt-2.5 text-[13px] font-semibold"
@@ -3322,12 +3659,21 @@ export default function Dashboard({
                             ? "pct"
                             : selectedKpi.format
                         }
+<<<<<<< HEAD
                         onBarClick={chartIsInteractive ? (isFacultyStaffHierarchyView ? onFacultyStaffChartDrill : onDrillNext) : undefined}
                         accent={accent}
                         xLabel={visibleCurrentBreakdownLabel}
                         yLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
                         interactive={chartIsInteractive}
+=======
+                        onBarClick={canDrillChart ? onDrillNext : undefined}
+                        accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
+                        xLabel={visibleCurrentBreakdownLabel}
+                        yLabel={visibleCurrentValueLabel}
+                        height={chartCanvasHeight}
+                        interactive={canDrillChart}
+>>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
                         drillHint={chartDrillHint}
                       />
                     ) : kpiView === "trend" ? (
@@ -3350,12 +3696,21 @@ export default function Dashboard({
                             ? "pct"
                             : selectedKpi.format
                         }
+<<<<<<< HEAD
                         onSliceClick={chartIsInteractive ? (isFacultyStaffHierarchyView ? onFacultyStaffChartDrill : onDrillNext) : undefined}
                         accent={accent}
                         soft={soft}
                         metricLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
                         interactive={chartIsInteractive}
+=======
+                        onSliceClick={canDrillChart ? onDrillNext : undefined}
+                        accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
+                        soft={soft}
+                        metricLabel={visibleCurrentValueLabel}
+                        height={chartCanvasHeight}
+                        interactive={canDrillChart}
+>>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
                         drillHint={chartDrillHint}
                       />
                     ) : (
@@ -3377,7 +3732,7 @@ export default function Dashboard({
                           ]}
                           rows={visibleBreakdown}
                           maxHeight={500}
-                          onRowClick={selectedKpi.drillable || isFacultyStaffHierarchyView ? (row) => onDrillNext(row.name) : undefined}
+                          onRowClick={canDrillChart ? (row) => onDrillNext(row.name) : undefined}
                         />
                       </div>
                     )}
@@ -3760,3 +4115,4 @@ ${String(dashboardInterpretation).replace(/<[^>]+>/g, " ")}`,
     </div>
   );
 }
+
