@@ -1892,29 +1892,21 @@ export default function Dashboard({
     ? null
     : displayBaseBreakdownLabel;
 
-<<<<<<< HEAD
   const chartIsInteractive =
     isFacultyStaffHierarchyView || (selectedKpi.drillable && !noFurtherDrill);
-=======
+
   const nonDrillCategoryLabel = isFacultyStaffHierarchyView
     ? activeFacultyStaffPathwayLabel ?? currentViewLabel
     : detailFocus?.value ?? currentViewLabel;
->>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
 
   const chartDrillHint =
     kpiView !== "bar" && kpiView !== "donut"
       ? ""
-<<<<<<< HEAD
       : isFacultyStaffHierarchyView
         ? ""
         : chartIsInteractive
           ? "Click to drill down."
           : "";
-=======
-      : canDrillChart
-        ? "Click to drill down."
-        : "";
->>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
 
   // Used for SVG / PDF exports and for the chart header context line.
   const breadcrumbText = useMemo(() => {
@@ -2280,29 +2272,12 @@ export default function Dashboard({
   const facultyStaffBreadcrumbForSheet = (sheetLabel) =>
     `People & Student Life > Faculty & Staff > ${sheetLabel}`;
 
-  const facultyStaffCarouselParentAccent = accent;
-  const facultyStaffCarouselParentSoft = soft;
-
   const facultyStaffWorksheetCarouselItems = useMemo(() => {
     const decorateSheetItem = (item) => {
-      const isFacultyStaffParent = item.id === "faculty-staff-summary";
-      const isParentExpanded =
-        isFacultyStaffSheetActive &&
-        isFacultyStaffParent &&
-        facultyStaffDrillCarouselOpen;
-
       return {
         id: item.id,
         label: item.label,
         tooltip: facultyStaffBreadcrumbForSheet(item.label),
-        ...(isFacultyStaffParent
-          ? {
-              variant: "parent-drill-toggle",
-              expanded: isParentExpanded,
-              accent: facultyStaffCarouselParentAccent,
-              soft: facultyStaffCarouselParentSoft,
-            }
-          : {}),
       };
     };
 
@@ -2313,16 +2288,8 @@ export default function Dashboard({
     currentIgViewOptions,
     selectedSubsectionId,
     currentSubsection.label,
-<<<<<<< HEAD
-    isFacultyStaffSheetActive,
-    facultyStaffDrillCarouselOpen,
-=======
->>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
-    facultyStaffCarouselParentAccent,
-    facultyStaffCarouselParentSoft,
   ]);
 
-<<<<<<< HEAD
   const facultyStaffPathwayByNo = useMemo(
     () =>
       Object.fromEntries(
@@ -2428,23 +2395,10 @@ export default function Dashboard({
     isFacultyStaffSheetActive && facultyStaffDrillCarouselOpen && facultyStaffExpandedCategoryId
       ? facultyStaffNestedChildCarouselActiveId
       : null;
-=======
-  const facultyStaffCategoryCarouselItems = useMemo(() => {
-    if (!isFacultyStaffHierarchyView || !facultyStaffDrillCarouselOpen) return [];
-    return allFacultyStaffMappedPathways.map((pathway) => ({
-      id: `faculty-staff-pathway-${pathway.pathwayNo}`,
-      label: getFacultyStaffPathwayShortLabel(pathway),
-      tooltip: `People & Student Life > Faculty & Staff > Faculty and Staff > ${pathway.hierarchyLabel} > ${getFacultyStaffPathwayShortLabel(pathway)} > ${facultyStaffFieldLabel(pathway.rootField)}${pathway.children?.length ? ` > ${pathway.children.map(facultyStaffFieldLabel).join(" > ")}` : ""}`,
-      variant: "mapped-drill",
-      accent: pathway.hierarchyColor ?? accent,
-      soft: pathway.hierarchyBg ?? blendHexColor(pathway.hierarchyColor ?? accent, "#ffffff", 0.82),
-    }));
-  }, [isFacultyStaffHierarchyView, facultyStaffDrillCarouselOpen, allFacultyStaffMappedPathways, accent]);
 
   const facultyStaffWorksheetCarouselActiveId = currentIgViewOptions.length
     ? currentIgViewId
     : selectedSubsectionId;
->>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
 
   function pickFacultyStaffCarouselItem(itemId) {
     if (itemId === "faculty-staff-summary") {
@@ -2461,7 +2415,6 @@ export default function Dashboard({
       return;
     }
 
-<<<<<<< HEAD
     const categoryConfig = FACULTY_STAFF_CATEGORY_CONFIG.find((item) => item.id === itemId);
     if (categoryConfig) {
       if (categoryConfig.type === "group") {
@@ -2502,26 +2455,9 @@ export default function Dashboard({
       return;
     }
 
-=======
->>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
     handleSubviewChange(selectedSubsectionId, itemId);
     setFacultyStaffDrillCarouselOpen(false);
     setFacultyStaffExpandedCategoryId(null);
-  }
-
-  function pickFacultyStaffCategoryCarouselItem(itemId) {
-    if (!itemId?.startsWith("faculty-staff-pathway-")) return;
-
-    const pathwayNo = Number(itemId.replace("faculty-staff-pathway-", ""));
-    const pathway = allFacultyStaffMappedPathways.find((item) => Number(item.pathwayNo) === pathwayNo);
-    if (!pathway) return;
-
-    setSelectedFacultyStaffPathwayNo(pathway.pathwayNo);
-    setSelectedFacultyStaffHierarchyKey(pathway.hierarchyKey);
-    setFacultyStaffDrillCarouselOpen(true);
-    setDrillPath([]);
-    setDetailFocus(null);
-    setChartRenderNonce((value) => value + 1);
   }
 
   function navigateFacultyStaffBreadcrumb(levelIndex) {
@@ -3112,15 +3048,10 @@ export default function Dashboard({
                   soft={soft}
                   title={currentSubsection.label}
                   helper={
-<<<<<<< HEAD
                     isFacultyStaffSheetActive
                       ? facultyStaffDrillCarouselOpen
                         ? "Select a category to analyse."
-                        : "Select the metric to analyze. Click Faculty and Staff to reveal its mapped drill paths below the carousel."
-=======
-                    isFacultyStaffHierarchyView
-                      ? "Select a category to analyse."
->>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
+                        : "Select the metric to analyze. Choose Faculty and Staff to reveal its mapped drill paths below the carousel."
                       : "Select the metric to analyze."
                   }
                 />
@@ -3167,18 +3098,6 @@ export default function Dashboard({
                 </div>
               </div>
             </div>
-          ) : null}
-
-          {isFacultyStaffHierarchyView && facultyStaffDrillCarouselOpen ? (
-            <SubKpiCarousel
-              kpis={facultyStaffCategoryCarouselItems}
-              activeId={selectedFacultyStaffCarouselId}
-              onPick={pickFacultyStaffCategoryCarouselItem}
-              accent={activeFacultyStaffHierarchy?.color ?? accent}
-              soft={activeFacultyStaffHierarchy?.bg ?? soft}
-              title="Categories"
-              helper="Select a metric to analyse."
-            />
           ) : null}
 
           {section === "Home" ? (
@@ -3659,21 +3578,13 @@ export default function Dashboard({
                             ? "pct"
                             : selectedKpi.format
                         }
-<<<<<<< HEAD
                         onBarClick={chartIsInteractive ? (isFacultyStaffHierarchyView ? onFacultyStaffChartDrill : onDrillNext) : undefined}
-                        accent={accent}
-                        xLabel={visibleCurrentBreakdownLabel}
-                        yLabel={visibleCurrentValueLabel}
-                        height={chartCanvasHeight}
-                        interactive={chartIsInteractive}
-=======
-                        onBarClick={canDrillChart ? onDrillNext : undefined}
+                        onBarClick={chartIsInteractive ? (isFacultyStaffHierarchyView ? onFacultyStaffChartDrill : onDrillNext) : undefined}
                         accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
                         xLabel={visibleCurrentBreakdownLabel}
                         yLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
-                        interactive={canDrillChart}
->>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
+                        interactive={chartIsInteractive}
                         drillHint={chartDrillHint}
                       />
                     ) : kpiView === "trend" ? (
@@ -3696,21 +3607,12 @@ export default function Dashboard({
                             ? "pct"
                             : selectedKpi.format
                         }
-<<<<<<< HEAD
                         onSliceClick={chartIsInteractive ? (isFacultyStaffHierarchyView ? onFacultyStaffChartDrill : onDrillNext) : undefined}
-                        accent={accent}
-                        soft={soft}
-                        metricLabel={visibleCurrentValueLabel}
-                        height={chartCanvasHeight}
-                        interactive={chartIsInteractive}
-=======
-                        onSliceClick={canDrillChart ? onDrillNext : undefined}
                         accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
                         soft={soft}
                         metricLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
-                        interactive={canDrillChart}
->>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
+                        interactive={chartIsInteractive}
                         drillHint={chartDrillHint}
                       />
                     ) : (

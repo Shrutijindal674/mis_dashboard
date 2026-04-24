@@ -25,46 +25,16 @@ export default function SubKpiCarousel({
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [pageCount, setPageCount] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
+  const [hoveredItemId, setHoveredItemId] = useState(null);
   const scrollRef = useRef(null);
   const popoverRef = useRef(null);
   const itemRefs = useRef(new Map());
-  const expandedParentIdRef = useRef(null);
   const skipActiveAutoScrollRef = useRef(false);
 
   const activeCard = useMemo(
     () => kpis.find((card) => card.id === activeId) ?? null,
     [kpis, activeId],
   );
-
-  useEffect(() => {
-    const expandedParent = kpis.find((item) => item.variant === "parent-drill-toggle" && item.expanded);
-    const previousExpandedParentId = expandedParentIdRef.current;
-    expandedParentIdRef.current = expandedParent?.id ?? null;
-
-    if (!expandedParent || previousExpandedParentId === expandedParent.id) return undefined;
-
-    const track = scrollRef.current;
-    const parentItem = itemRefs.current.get(expandedParent.id);
-    if (!track || !parentItem) return undefined;
-
-    skipActiveAutoScrollRef.current = true;
-    let unlockTimer = null;
-    const frame = window.requestAnimationFrame(() => {
-      track.scrollTo({
-        left: Math.max(0, parentItem.offsetLeft - 18),
-        behavior: "smooth",
-      });
-      unlockTimer = window.setTimeout(() => {
-        skipActiveAutoScrollRef.current = false;
-      }, 320);
-    });
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-      if (unlockTimer) window.clearTimeout(unlockTimer);
-      skipActiveAutoScrollRef.current = false;
-    };
-  }, [kpis]);
 
   useEffect(() => {
     if (skipActiveAutoScrollRef.current) return undefined;
@@ -323,19 +293,13 @@ export default function SubKpiCarousel({
             {kpis.map((kpi) => {
               const active = kpi.id === activeId;
               const isMappedDrill = kpi.variant === "mapped-drill";
-              const isParentDrillToggle = kpi.variant === "parent-drill-toggle";
               const isNestedParentToggle = kpi.variant === "nested-parent-toggle";
               const parentExpanded = Boolean(kpi.expanded);
-              const parentUsesExpandedShape = isParentDrillToggle && parentExpanded;
-<<<<<<< HEAD
-              const isActiveTopLevelHeading = active && !isMappedDrill && !isParentDrillToggle && !isNestedParentToggle;
-              const showTrailingAction = (isNestedParentToggle || !isMappedDrill) && (active || hoveredItemId === kpi.id || parentExpanded);
-=======
-              const isActiveTopLevelHeading = active && !isMappedDrill && !isParentDrillToggle;
->>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
+              const isActiveTopLevelHeading = active && !isMappedDrill && !isNestedParentToggle;
+              const showTrailingAction =
+                isNestedParentToggle && (active || hoveredItemId === kpi.id || parentExpanded);
               const itemAccent = kpi.accent || accent;
               const itemSoft = kpi.soft || soft;
-              const parentIsProminent = isParentDrillToggle && (active || parentExpanded);
 
               return (
                 <div
@@ -349,24 +313,19 @@ export default function SubKpiCarousel({
                   <button
                     type="button"
                     onClick={() => onPick(kpi.id)}
-                    aria-expanded={isParentDrillToggle || isNestedParentToggle ? parentExpanded : undefined}
+                    onMouseEnter={() => setHoveredItemId(kpi.id)}
+                    onMouseLeave={() => setHoveredItemId((value) => (value === kpi.id ? null : value))}
+                    onFocus={() => setHoveredItemId(kpi.id)}
+                    onBlur={() => setHoveredItemId((value) => (value === kpi.id ? null : value))}
+                    aria-expanded={isNestedParentToggle ? parentExpanded : undefined}
                     aria-label={
-                      isParentDrillToggle || isNestedParentToggle
+                      isNestedParentToggle
                         ? `${kpi.label}. ${parentExpanded ? "Collapse sub-categories" : "Expand sub-categories"}`
                         : undefined
                     }
                     className={cx(
-                      isParentDrillToggle
-                        ? parentUsesExpandedShape
-<<<<<<< HEAD
-                          ? "group flex min-w-[198px] items-center justify-between gap-3 rounded-[20px] border px-4 py-2.5 text-left text-[13px] font-extrabold leading-tight transition duration-200"
-                          : "group flex items-center justify-between gap-2 rounded-full border px-3 py-1.5 text-left text-[12.5px] font-semibold transition"
-                        : isNestedParentToggle
+                      isNestedParentToggle
                           ? "group flex items-center justify-between gap-2 rounded-full border px-3 py-1.5 text-left text-[12.5px] font-semibold transition"
-=======
-                          ? "group flex min-w-[198px] items-center rounded-[20px] border px-4 py-2.5 text-left text-[13px] font-extrabold leading-tight transition duration-200"
-                          : "group flex items-center rounded-full border px-3 py-1.5 text-left text-[12.5px] font-semibold transition"
->>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
                         : isMappedDrill
                           ? "max-w-[220px] flex items-center rounded-full border px-3 py-1.5 text-[12.5px] font-semibold transition"
                         : isActiveTopLevelHeading
@@ -374,11 +333,7 @@ export default function SubKpiCarousel({
                             : "flex items-center rounded-full border px-3 py-1.5 text-[12.5px] font-semibold transition",
                     )}
                     style={{
-                      background: isParentDrillToggle
-                        ? parentExpanded || active
-                            ? `linear-gradient(135deg, ${itemAccent}, ${itemAccent}DD)`
-                            : "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(248,250,252,0.94))"
-                        : isNestedParentToggle
+                      background: isNestedParentToggle
                           ? parentExpanded || active
                             ? itemSoft
                             : "rgba(255,255,255,0.96)"
@@ -387,22 +342,14 @@ export default function SubKpiCarousel({
                             : isMappedDrill
                               ? itemSoft
                               : "rgba(255,255,255,0.96)",
-                      color: isParentDrillToggle
-                        ? parentExpanded || active
-                          ? "white"
-                          : "#334155"
-                        : isNestedParentToggle
+                      color: isNestedParentToggle
                           ? itemAccent
                           : active
                             ? "white"
                             : isMappedDrill
                               ? itemAccent
                               : "#334155",
-                      borderColor: isParentDrillToggle
-                        ? parentIsProminent
-                          ? `${itemAccent}66`
-                          : "rgba(148,163,184,0.18)"
-                        : isNestedParentToggle
+                      borderColor: isNestedParentToggle
                           ? parentExpanded || active
                             ? `${itemAccent}45`
                             : "rgba(148,163,184,0.18)"
@@ -411,11 +358,7 @@ export default function SubKpiCarousel({
                             : isMappedDrill
                               ? `${itemAccent}30`
                               : "rgba(148,163,184,0.18)",
-                      boxShadow: isParentDrillToggle
-                        ? parentIsProminent
-                          ? `0 16px 32px ${itemAccent}20, inset 0 1px 0 rgba(255,255,255,0.8)`
-                          : "0 1px 2px rgba(15,23,42,0.04)"
-                        : isNestedParentToggle
+                      boxShadow: isNestedParentToggle
                           ? parentExpanded || active
                             ? `0 10px 22px ${itemAccent}18`
                             : "0 1px 2px rgba(15,23,42,0.04)"
@@ -425,56 +368,7 @@ export default function SubKpiCarousel({
                     }}
                     title={kpi.tooltip || kpi.label}
                   >
-                    {isParentDrillToggle ? (
-<<<<<<< HEAD
-                      <>
-                        <span className="truncate">{kpi.label}</span>
-                        <span
-                          className={cx(
-                            "grid shrink-0 place-items-center border transition duration-200",
-                            parentUsesExpandedShape
-                              ? "h-9 w-9 rounded-[14px]"
-                              : "h-6 w-6 rounded-full",
-                          )}
-                          style={{
-                            background: parentExpanded
-                              ? `linear-gradient(135deg, ${itemAccent}, ${itemAccent}D6)`
-                              : active
-                                ? "rgba(255,255,255,0.18)"
-                                : `${itemAccent}12`,
-                            borderColor: parentExpanded
-                              ? `${itemAccent}B5`
-                              : active
-                                ? "rgba(255,255,255,0.34)"
-                                : `${itemAccent}2E`,
-                            color: parentExpanded || (active && !parentExpanded) ? "white" : itemAccent,
-                            boxShadow: parentExpanded
-                              ? `0 10px 20px ${itemAccent}26`
-                              : "inset 0 1px 0 rgba(255,255,255,0.6)",
-                            opacity: showTrailingAction ? 1 : 0,
-                          }}
-                          aria-hidden="true"
-                        >
-                          <svg
-                            viewBox="0 0 16 16"
-                            className={cx(
-                              "transition-transform duration-300",
-                              parentUsesExpandedShape ? "h-4 w-4" : "h-3 w-3",
-                            )}
-                            style={{ transform: parentExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
-                            fill="none"
-                          >
-                            <path
-                              d="M6 3.5 10.5 8 6 12.5"
-                              stroke="currentColor"
-                              strokeWidth="2.1"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        </span>
-                      </>
-                    ) : isNestedParentToggle ? (
+                    {isNestedParentToggle ? (
                       <>
                         <span className="truncate">{kpi.label}</span>
                         <span
@@ -503,15 +397,8 @@ export default function SubKpiCarousel({
                           </svg>
                         </span>
                       </>
-=======
-                      <span className="truncate">{kpi.label}</span>
->>>>>>> 9d6d4f8 (Update homepage layout and dashboard navigation)
                     ) : (
-                      isMappedDrill ? (
-                        <span className="truncate">{kpi.label}</span>
-                      ) : (
-                        <span className="truncate">{kpi.label}</span>
-                      )
+                      <span className="truncate">{kpi.label}</span>
                     )}
                   </button>
 
