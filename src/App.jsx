@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { makeMockFacts } from "./data/mockData";
+import { useRef, useState } from "react";
+import workbookFacts from "./data/workbookFacts";
 import { IITs } from "./constants";
 
 import Landing from "./pages/Landing";
@@ -19,7 +19,7 @@ function appSnapshotKey(snapshot) {
 }
 
 export default function App() {
-  const facts = useMemo(() => makeMockFacts("IITMIS_DEMO_SEED"), []);
+  const facts = workbookFacts;
 
   const [page, setPage] = useState("landing"); // landing | map | dashboard
   const [role, setRole] = useState(null);

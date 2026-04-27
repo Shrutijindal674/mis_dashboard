@@ -24,9 +24,13 @@ export default function Landing({ onLogin, defaultInstituteId }) {
   return (
     <div className="min-h-screen" style={{ background: "linear-gradient(135deg,#f6f8fb 0%,#eef3f9 100%)" }}>
       <div className="mx-auto grid min-h-screen max-w-7xl gap-6 px-6 py-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
-        <section className="flex min-h-[560px] items-center justify-center rounded-[36px] bg-white p-8 shadow-sm" style={{ border: "1px solid rgba(15,42,94,0.08)" }}>
+        <section className="flex min-h-[560px] items-center justify-center rounded-[36px] bg-white px-3 py-8 shadow-sm md:px-4" style={{ border: "1px solid rgba(15,42,94,0.08)" }}>
           <div className="flex w-full flex-col items-center justify-center text-center">
-            <img src="/mis-landing-logo.png" alt="IIT MIS Management" className="h-64 w-64 object-contain md:h-[26rem] md:w-[26rem]" />
+            <img
+              src="/mis-landing-logo.png"
+              alt="IIT MIS Management"
+              className="h-auto w-[min(96vw,38rem)] max-w-full object-contain lg:w-[min(50vw,46rem)]"
+            />
             <div className="mt-8 flex items-center justify-center gap-3 text-sm" style={{ color: "#334155" }}>
               <img src="/cdis-logo.png" alt="CDIS" className="h-8 w-8 object-contain" />
               <span>Developed by CDIS, IIT Kanpur</span>

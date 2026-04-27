@@ -5,7 +5,7 @@ import XLSX from "xlsx";
 const ROOT = process.cwd();
 
 const EXCEL_PATH = "C:\\Users\\lenovo\\OneDrive\\Desktop\\iitmis_dashboard\\MIS_Synthetic_5Y_Sample_Data.xlsx";
-const MOCK_DATA_PATH = path.join(ROOT, "src", "data", "mockData.js");
+const WORKBOOK_FACTS_PATH = path.join(ROOT, "src", "data", "workbookFacts.js");
 
 const INSTITUTE_META = {
   "IIT Bombay": { id: "IITB", state: "Maharashtra", short: "BOM" },
@@ -14,6 +14,46 @@ const INSTITUTE_META = {
   "IIT Kharagpur": { id: "IITKGP", state: "West Bengal", short: "KGP" },
   "IIT Madras": { id: "IITM", state: "Tamil Nadu", short: "MAD" },
 };
+
+const FACT_KEYS = [
+  "academicPrograms",
+  "admissionMode",
+  "alumniEngagement",
+  "alumniNetwork",
+  "auditObservations",
+  "budget",
+  "careerServices",
+  "collaborations",
+  "counsellingServices",
+  "courtCases",
+  "enrollment",
+  "enrollmentDetails",
+  "entranceExam",
+  "entrepreneurshipSupport",
+  "facultyAwards",
+  "facultyResearchEngagement",
+  "facultyStaffSummary",
+  "governancePolicy",
+  "institutionalProfile",
+  "internationalFacultyRecords",
+  "intlStudentRecords",
+  "intlStudents",
+  "medicalStaffDetails",
+  "medicalStaffSummary",
+  "missionRecruitment",
+  "monthly",
+  "patents",
+  "phdAlumniCareerDistribution",
+  "placements",
+  "placementsAndAlumni",
+  "placementStatistics",
+  "publications",
+  "rankingsAccreditations",
+  "scholarshipsFellowships",
+  "studentDeathCases",
+  "studentProfileSummary",
+  "topRecruiters",
+];
 
 function instituteId(name) {
   return INSTITUTE_META[name]?.id || String(name || "").replace(/\s+/g, "_").toUpperCase();
@@ -141,31 +181,26 @@ function readSheet(workbook, sheetName) {
     });
 }
 
+function createFactsTemplate() {
+  return Object.fromEntries(FACT_KEYS.map((key) => [key, []]));
+}
+
 function buildFacts(workbook) {
-  const facts = {
-    enrollment: [],
-    academicPrograms: [],
-    institutionalProfile: [],
-    auditObservations: [],
-    enrollmentDetails: [],
-    admissionMode: [],
-    intlStudentRecords: [],
-    intlStudents: [],
-    studentProfileSummary: [],
-    studentDeathCases: [],
-    facultyStaffSummary: [],
-    facultyResearchEngagement: [],
-    facultyAwards: [],
-    internationalFacultyRecords: [],
-    placements: [],
-    placementsAndAlumni: [],
-    placementStatistics: [],
-    topRecruiters: [],
-    publications: [],
-    patents: [],
-    budget: [],
-    collaborations: [],
-  };
+  const facts = createFactsTemplate();
+  const facultyDirectory = new Map();
+  const facultyRows = readSheet(workbook, "D10_Faculty");
+  const startupSupportByKey = new Map();
+  const phdCareerByKey = new Map();
+
+  for (const row of facultyRows) {
+    const b = base(row);
+    const employeeId = row["Employee ID"] || "";
+    if (!employeeId) continue;
+    facultyDirectory.set(
+      `${b.InstituteId}|${b.Year}|${employeeId}`,
+      row["Faculty Name"] || employeeId,
+    );
+  }
 
   for (const row of readSheet(workbook, "D09_Enrollment Details")) {
     const b = base(row);
@@ -237,6 +272,23 @@ function buildFacts(workbook) {
         DegreeCount: toNumber(degreeCount),
       });
     }
+
+    const rankingDefs = [
+      ["NIRF Overall", row["NIRF Ranking (Overall)"]],
+      ["NIRF Engineering", row["NIRF Ranking (Engineering)"]],
+    ];
+
+    rankingDefs.forEach(([scheme, rankValue], index) => {
+      if (!Number.isFinite(toNumber(rankValue, Number.NaN))) return;
+      facts.rankingsAccreditations.push({
+        ...b,
+        RecordId: `${b.InstituteId}-${b.Year}-ranking-${index + 1}`,
+        Category: "Rankings",
+        Scheme: scheme,
+        StatusOrGrade: `Rank ${toNumber(rankValue)}`,
+        Score: toNumber(rankValue),
+      });
+    });
   }
 
   for (const row of readSheet(workbook, "D04_Audit Observations")) {
@@ -258,15 +310,29 @@ function buildFacts(workbook) {
   for (const row of readSheet(workbook, "D03_Admission Mode")) {
     const b = base(row);
     const degree = row.Degree || "Not specified";
+    const studentCount = toNumber(row["Student Count"]);
+    const admissionChannel = row["Admission Channel"] || "Not specified";
 
     facts.admissionMode.push({
       ...b,
-      AdmissionChannel: row["Admission Channel"] || "Not specified",
+      AdmissionChannel: admissionChannel,
       Program: programFromDegree(degree),
       Degree: degree,
       Discipline: row.Department || "Not specified",
-      StudentCount: toNumber(row["Student Count"]),
+      StudentCount: studentCount,
       Details: row.Details || "",
+    });
+
+    facts.entranceExam.push({
+      ...b,
+      ExamName: admissionChannel,
+      ReservationCategory: "All Students",
+      StudentCount: studentCount,
+      RecordWeight: 1,
+      RankScore: studentCount,
+      Program: programFromDegree(degree),
+      Degree: degree,
+      Discipline: row.Department || "Not specified",
     });
   }
 
@@ -367,23 +433,28 @@ function buildFacts(workbook) {
     const b = base(row);
     const faculty = row["Faculty Employee ID"] || "FAC";
     const award = row["Award Name"] || "Award";
+    const facultyName =
+      facultyDirectory.get(`${b.InstituteId}|${b.Year}|${faculty}`) || faculty;
 
     facts.facultyAwards.push({
       ...b,
       AwardId: `${faculty}-${award}-${facts.facultyAwards.length}`,
       Level: row["Award Type"] || "Not specified",
       IssuingBody: row["Issuing Body"] || "Not specified",
-      FacultyName: faculty,
+      FacultyName: facultyName,
+      FacultyEmployeeId: faculty,
       AwardName: award,
       AwardDescription: row["Award Description"] || "",
     });
   }
 
   for (const row of readSheet(workbook, "D28_International Faculty")) {
+    const b = base(row);
+    const employeeId = row["Employee ID"] || "";
     facts.internationalFacultyRecords.push({
-      ...base(row),
-      Name: row["Employee ID"] || "",
-      EmployeeId: row["Employee ID"] || "",
+      ...b,
+      Name: facultyDirectory.get(`${b.InstituteId}|${b.Year}|${employeeId}`) || employeeId,
+      EmployeeId: employeeId,
       Country: row.Country || "International / not specified",
       AppointmentType: row["Appointment Funding Source"] || "Not specified",
       RoleType: row["Role Type"] || "Not specified",
@@ -436,6 +507,22 @@ function buildFacts(workbook) {
         StudentsCount: toNumber(studentsCount),
       });
     }
+
+    const careerServiceDefs = [
+      ["Placement Support", row["Students Registered for Placement"]],
+      ["Higher Education Guidance", row["Students Opted for Higher Education"]],
+      ["Competitive Exam Guidance", row["Students Preparing for Competitive Exams"]],
+      ["Entrepreneurship Guidance", row["Students Opted for Entrepreneurship"]],
+    ];
+
+    for (const [serviceType, sessionCount] of careerServiceDefs) {
+      facts.careerServices.push({
+        ...b,
+        ServiceType: serviceType,
+        SessionCount: toNumber(sessionCount),
+        SourceSheet: "D39_Placements and Alumni",
+      });
+    }
   }
 
   for (const row of readSheet(workbook, "D38_Placement Statistics")) {
@@ -468,6 +555,77 @@ function buildFacts(workbook) {
       StudentsRecruited: toNumber(row["Students Recruited"]),
     });
   }
+
+  for (const row of readSheet(workbook, "D34_PMRF Program")) {
+    const b = base(row);
+    const scholarshipDefs = [
+      ["PMRF Scholars", row["Total Scholars"]],
+      ["PMRF Male Scholars", row["Total Male Scholars"]],
+      ["PMRF Female Scholars", row["Total Female Scholars"]],
+      ["PMRF SC Scholars", row["Total SC Scholars"]],
+      ["PMRF ST Scholars", row["Total ST Scholars"]],
+      ["PMRF OBC Scholars", row["Total OBC Scholars"]],
+      ["PMRF EWS Scholars", row["Total EWS Scholars"]],
+      ["PMRF PwD Scholars", row["Total PwD Scholars"]],
+    ];
+
+    for (const [typeOffered, numberBeneficiaries] of scholarshipDefs) {
+      facts.scholarshipsFellowships.push({
+        ...b,
+        TypeOffered: typeOffered,
+        NumberBeneficiaries: toNumber(numberBeneficiaries),
+        SourceSheet: "D34_PMRF Program",
+      });
+    }
+  }
+
+  for (const row of readSheet(workbook, "D35_PMRF Scholar Details")) {
+    const b = base(row);
+    const careerPath = row["Post PhD Plans (Academia/ Industry/ Entrepreneurship)"] || "Not specified";
+    const key = `${b.InstituteId}|${b.Year}|${careerPath}`;
+    phdCareerByKey.set(key, {
+      ...(phdCareerByKey.get(key) || {
+        ...b,
+        CareerPath: careerPath,
+        Count: 0,
+      }),
+      Count: (phdCareerByKey.get(key)?.Count || 0) + 1,
+    });
+  }
+
+  facts.phdAlumniCareerDistribution.push(...phdCareerByKey.values());
+
+  for (const row of readSheet(workbook, "D51_Technology Business Incubat")) {
+    const b = base(row);
+    const supportType = row["Focus Areas"] || row.Name || "Incubation Support";
+    const key = `${b.InstituteId}|${b.Year}|incubator|${supportType}`;
+    startupSupportByKey.set(key, {
+      ...(startupSupportByKey.get(key) || {
+        ...b,
+        SupportType: supportType,
+        StudentStartups: 0,
+      }),
+      StudentStartups:
+        (startupSupportByKey.get(key)?.StudentStartups || 0) +
+        toNumber(row["Number of Startups Supported Annually"]),
+    });
+  }
+
+  for (const row of readSheet(workbook, "D47_Startup Success Stories")) {
+    const b = base(row);
+    const supportType = row["Startup Success Stories - Stage"] || "Startup Success Stories";
+    const key = `${b.InstituteId}|${b.Year}|startup-stage|${supportType}`;
+    startupSupportByKey.set(key, {
+      ...(startupSupportByKey.get(key) || {
+        ...b,
+        SupportType: supportType,
+        StudentStartups: 0,
+      }),
+      StudentStartups: (startupSupportByKey.get(key)?.StudentStartups || 0) + 1,
+    });
+  }
+
+  facts.entrepreneurshipSupport.push(...startupSupportByKey.values());
 
   for (const row of readSheet(workbook, "D44_Research and Innovation")) {
     const b = base(row);
@@ -553,80 +711,47 @@ function buildFacts(workbook) {
     });
   }
 
+  const rowCounts = Object.fromEntries(
+    FACT_KEYS.map((key) => [key, Array.isArray(facts[key]) ? facts[key].length : 0]),
+  );
+
+  facts.meta = {
+    generatedAt: new Date().toISOString(),
+    sourceWorkbook: path.basename(EXCEL_PATH),
+    dataMode: "excel-only workbook facts",
+    institutesIncluded: Object.keys(INSTITUTE_META),
+    yearsIncluded: [2021, 2022, 2023, 2024, 2025],
+    factRowCounts: rowCounts,
+    emptyFacts: FACT_KEYS.filter((key) => rowCounts[key] === 0),
+  };
+
   return facts;
 }
 
-function injectIntoMockData(facts) {
-  if (!fs.existsSync(MOCK_DATA_PATH)) {
-    throw new Error(`Could not find ${MOCK_DATA_PATH}. Please run this from the project root.`);
-  }
+function writeWorkbookFactsModule(facts) {
+  const moduleSource = `// Generated from ${path.basename(EXCEL_PATH)} by update-mock-data-from-excel.mjs
+// The dashboard now treats workbook-derived facts as the single source of truth.
 
-  let source = fs.readFileSync(MOCK_DATA_PATH, "utf8");
+export const WORKBOOK_FACTS = ${JSON.stringify(facts, null, 2)};
 
-  source = source.replace(
-    /\/\/ ----------------------------- Excel-backed synthetic sample data -----------------------------[\s\S]*?function preferExcelSyntheticFacts\(generatedFacts\) \{[\s\S]*?\n\}\n\n/g,
-    ""
-  );
-
-  const injectedBlock = `// ----------------------------- Excel-backed synthetic sample data -----------------------------
-// Source workbook: MIS_Synthetic_5Y_Sample_Data.xlsx
-// Scope: 5 IITs x 2021-2025, transformed into the dashboard's existing fact keys.
-const EXCEL_SYNTHETIC_FACTS = ${JSON.stringify(facts, null, 2)};
-
-function preferExcelSyntheticFacts(generatedFacts) {
-  const appliedFacts = Object.fromEntries(
-    Object.entries(EXCEL_SYNTHETIC_FACTS).filter(([, rows]) => Array.isArray(rows) && rows.length > 0)
-  );
-
-  return {
-    ...generatedFacts,
-    ...appliedFacts,
-    meta: {
-      ...generatedFacts.meta,
-      sourceWorkbook: "MIS_Synthetic_5Y_Sample_Data.xlsx",
-      dataMode: "excel-backed synthetic 5-year sample",
-      institutesIncluded: ["IIT Bombay", "IIT Delhi", "IIT Kanpur", "IIT Kharagpur", "IIT Madras"],
-      yearsIncluded: [2021, 2022, 2023, 2024, 2025],
-      excelRowsApplied: Object.fromEntries(
-        Object.entries(appliedFacts).map(([key, rows]) => [key, rows.length])
-      ),
-    },
-  };
+export function getWorkbookFacts() {
+  return WORKBOOK_FACTS;
 }
 
+export default WORKBOOK_FACTS;
 `;
 
-  const marker = "// ----------------------------- Mock data generator -----------------------------";
+  fs.writeFileSync(WORKBOOK_FACTS_PATH, moduleSource, "utf8");
 
-  if (source.includes(marker)) {
-    source = source.replace(marker, injectedBlock + marker);
-  } else {
-    source = injectedBlock + source;
-  }
-
-  if (!source.includes("return preferExcelSyntheticFacts({")) {
-    source = source.replace(
-      /return\s+\{\s*\n\s*enrollment,/,
-      "return preferExcelSyntheticFacts({\n    enrollment,"
-    );
-
-    source = source.replace(
-      /meta:\s*\{\s*generatedAt:\s*new Date\(\)\.toISOString\(\)\s*\},\s*\n\s*\};\s*\n\}/,
-      "meta: { generatedAt: new Date().toISOString() },\n  });\n}"
-    );
-  }
-
-  fs.writeFileSync(`${MOCK_DATA_PATH}.bak`, fs.readFileSync(MOCK_DATA_PATH));
-  fs.writeFileSync(MOCK_DATA_PATH, source, "utf8");
-
-  console.log("Updated only this file:");
-  console.log(MOCK_DATA_PATH);
-  console.log("");
-  console.log("Backup saved as:");
-  console.log(`${MOCK_DATA_PATH}.bak`);
+  console.log("Generated workbook facts module:");
+  console.log(WORKBOOK_FACTS_PATH);
   console.log("");
   console.log("Rows added:");
-  console.table(Object.fromEntries(Object.entries(facts).map(([key, rows]) => [key, rows.length])));
+  console.table(
+    Object.fromEntries(
+      FACT_KEYS.map((key) => [key, Array.isArray(facts[key]) ? facts[key].length : 0]),
+    ),
+  );
 }
 
 if (!fs.existsSync(EXCEL_PATH)) {
@@ -635,4 +760,4 @@ if (!fs.existsSync(EXCEL_PATH)) {
 
 const workbook = XLSX.readFile(EXCEL_PATH, { cellDates: true });
 const facts = buildFacts(workbook);
-injectIntoMockData(facts);
+writeWorkbookFactsModule(facts);

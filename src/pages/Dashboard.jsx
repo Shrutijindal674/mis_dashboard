@@ -1879,7 +1879,7 @@ export default function Dashboard({
   }
 
   const dashboardInterpretation = useMemo(() => {
-    if (!breakdown.length) return "Select a metric to analyse.";
+    if (!breakdown.length) return "Select the module to analyze.";
     const top = breakdown[0];
     const next = breakdown[1];
     const parts = [
@@ -3262,8 +3262,8 @@ export default function Dashboard({
                     isFacultyStaffSheetActive
                       ? facultyStaffDrillCarouselOpen
                         ? "Select a category to analyse."
-                        : "Select the metric to analyze. Choose Faculty and Staff to reveal its mapped drill paths below the carousel."
-                      : "Select the metric to analyze."
+                        : "Select the module to analyze. Choose Faculty and Staff to reveal its mapped drill paths below the carousel."
+                      : "Select the module to analyze."
                   }
                 />
               </div>
@@ -3616,7 +3616,7 @@ export default function Dashboard({
                 accent={accent}
                 soft={soft}
                 title="Categories"
-                helper="Select a metric to analyse."
+                helper="Select the module to analyze."
                 compact
               />
               {facultyStaffNestedCarouselChildren.length ? (

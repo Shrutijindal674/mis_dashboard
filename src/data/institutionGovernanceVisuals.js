@@ -3,17 +3,7 @@ const IG_MODULE_ID = "Institution & Governance";
 const CATEGORY_CONFIG = {
   "institutional-profile": {
     profile: [
-      {
-        id: "overview-kpis",
-        label: "Overview KPIs",
-        defaultView: "cards",
-        allowedViews: ["cards", "table"],
-        xLabel: "Metric",
-        yLabel: "Metric value",
-        format: "number",
-        allowPercent: false,
-        emptyMessage: "No profile metrics available for the selected institute/year.",
-      },
+     
       {
         id: "rank-trend",
         label: "Rank Trend",
@@ -862,8 +852,8 @@ export function buildInstitutionGovernanceVisual({
   const filteredByDrill = (rows) => filterDetailFocus(applyDrill(rows, category.levels ?? [], drillPath), detailFocus);
 
   if (category.id === "overview-kpis") {
-    const first = latestProfile[0];
-    const degreeTotal = sum(latestProfile, "DegreeCount");
+    const first = latestProfile[0] ?? {};
+    const degreeTotal = latestProfile.length ? sum(latestProfile, "DegreeCount") : "N/A";
     return finalize(category, {
       visualKind: "cards",
       cards: first
@@ -872,7 +862,7 @@ export function buildInstitutionGovernanceVisual({
             { label: "NIRF Engineering", value: first.NIRFEngineeringRank ? `#${first.NIRFEngineeringRank}` : "—", note: "Lower rank is stronger" },
             { label: "Academic units", value: first.AcademicUnits ?? "—", note: "Departments, schools, centres" },
             { label: "States/UTs covered", value: first.StatesUTsCovered ?? "—", note: "Institutional coverage" },
-            { label: "Degree categories", value: latestProfile.length, note: "Structured portfolio buckets" },
+            { label: "Degree categories", value: latestProfile.length || "N/A", note: "Structured portfolio buckets" },
             { label: "Total degree count", value: degreeTotal, note: "Sum of portfolio buckets" },
           ]
         : [],

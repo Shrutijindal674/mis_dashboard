@@ -284,9 +284,8 @@ export const KPI_DEFS = [
     module: "People & Student Life",
     label: "Entrance Exam",
     fact: "entranceExam",
-    kind: "avg_weighted",
-    valueField: "RankScore",
-    weightField: "RecordWeight",
+    kind: "sum",
+    valueField: "StudentCount",
     levels: [
       { label: "Exam Name", field: "ExamName" },
       { label: "Reservation Category", field: "ReservationCategory" },

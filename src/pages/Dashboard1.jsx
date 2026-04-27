@@ -1303,7 +1303,7 @@ export default function Dashboard({
   };
 
   const dashboardInterpretation = useMemo(() => {
-    if (!breakdown.length) return "Select a metric to analyse.";
+    if (!breakdown.length) return "Select the module to analyze.";
     const top = breakdown[0];
     const next = breakdown[1];
     const parts = [
@@ -2243,7 +2243,7 @@ export default function Dashboard({
                   accent={accent}
                   soft={soft}
                   title={currentSubsection.label}
-                  helper="Select the metric to analyze."
+                  helper="Select the module to analyze."
                 />
               </div>
               <div
