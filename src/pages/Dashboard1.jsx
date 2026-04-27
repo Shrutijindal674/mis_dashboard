@@ -36,6 +36,22 @@ import {
   kpiValue,
   scopeRowsForKpi,
 } from "../data/kpiDefs";
+import {
+  FACULTY_STAFF_HIERARCHY_GROUPS,
+  getFacultyStaffPathwayShortLabel,
+} from "../data/hierarchyMap";
+import {
+  FACULTY_STAFF_FIELD_LABELS,
+  buildFacultyStaffRowsForPathway,
+  getFacultyStaffRootValue,
+} from "../data/facultyStaffSheetData";
+import {
+  IG_MODULE_ID,
+  buildInstitutionGovernanceVisual,
+  getDefaultInstitutionGovernanceCategoryId,
+  getInstitutionGovernanceCategories,
+  isInstitutionGovernanceSubsection,
+} from "../data/institutionGovernanceVisuals";
 
 import Select from "../components/ui/Select";
 import SubKpiCarousel from "../components/ui/SubKpiCarousel";
@@ -62,9 +78,190 @@ const IIT_HOME_LOGOS = {
 };
 
 const LEGACY_COMPARE_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
+const DEFAULT_FACULTY_STAFF_VIEW_ID = "faculty-staff-summary";
+const DEFAULT_FACULTY_STAFF_HIERARCHY_KEY = "workforce-composition";
+const DEFAULT_FACULTY_STAFF_PATHWAY_NO = 4;
+const VISUAL_VIEW_ORDER = ["cards", "bar", "donut", "trend", "table", "empty"];
+const VISUAL_VIEW_ORDER_RANK = Object.fromEntries(
+  VISUAL_VIEW_ORDER.map((viewId, index) => [viewId, index]),
+);
+
+function orderVisualViewIds(viewIds = []) {
+  const unique = viewIds.filter(
+    (viewId, index) => viewId && viewIds.indexOf(viewId) === index,
+  );
+  return unique.sort(
+    (left, right) =>
+      (VISUAL_VIEW_ORDER_RANK[left] ?? VISUAL_VIEW_ORDER.length) -
+      (VISUAL_VIEW_ORDER_RANK[right] ?? VISUAL_VIEW_ORDER.length),
+  );
+}
+
+function firstOrderedVisualView(viewIds = [], fallback = "bar") {
+  return orderVisualViewIds(viewIds)[0] ?? fallback;
+}
+
+function facultyStaffFieldLabel(fieldKey) {
+  return FACULTY_STAFF_FIELD_LABELS[fieldKey] ?? String(fieldKey ?? "").replaceAll("_", " ");
+}
+
+function facultyStaffFieldIsNonCountMetric(fieldKey) {
+  const key = String(fieldKey ?? "").trim().toLowerCase();
+  return key.includes("percent") || key.includes("ratio") || key.includes("experience");
+}
+
+function blendHexColor(baseHex, targetHex, amount) {
+  const normalizedBase = String(baseHex ?? "").trim();
+  const normalizedTarget = String(targetHex ?? "").trim();
+  const blendAmount = Math.min(1, Math.max(0, Number(amount) || 0));
+
+  const toRgb = (hex) => {
+    const clean = hex.replace("#", "");
+    if (!/^[0-9a-fA-F]{6}$/.test(clean)) return null;
+    return {
+      r: Number.parseInt(clean.slice(0, 2), 16),
+      g: Number.parseInt(clean.slice(2, 4), 16),
+      b: Number.parseInt(clean.slice(4, 6), 16),
+    };
+  };
+
+  const base = toRgb(normalizedBase);
+  const target = toRgb(normalizedTarget);
+  if (!base || !target) return normalizedBase || normalizedTarget || "#2563eb";
+
+  const blendChannel = (from, to) => Math.round(from + (to - from) * blendAmount);
+  const toHex = (value) => value.toString(16).padStart(2, "0");
+
+  return `#${toHex(blendChannel(base.r, target.r))}${toHex(blendChannel(base.g, target.g))}${toHex(blendChannel(base.b, target.b))}`;
+}
+
+const FACULTY_STAFF_CATEGORY_CONFIG = [
+  { id: "faculty-staff-category-age", label: "Age", type: "pathway", pathwayNo: 4 },
+  {
+    id: "faculty-staff-category-qualification-experience",
+    label: "Qualification / Experience",
+    type: "pathway",
+    pathwayNo: 5,
+  },
+  {
+    id: "faculty-staff-category-visiting-adjunct-type",
+    label: "Visiting / Adjunct Type",
+    type: "pathway",
+    pathwayNo: 7,
+  },
+  {
+    id: "faculty-staff-category-staff-category",
+    label: "Staff Category",
+    type: "pathway",
+    pathwayNo: 10,
+  },
+  {
+    id: "faculty-staff-category-social-category",
+    label: "Social Category",
+    type: "group",
+    childPathwayNos: [2, 8, 12],
+    childTitle: "Social Category",
+  },
+  {
+    id: "faculty-staff-category-gender",
+    label: "Gender",
+    type: "group",
+    childPathwayNos: [3, 6, 9],
+    childTitle: "Gender",
+  },
+  {
+    id: "faculty-staff-category-faculty-vacancy-staffing",
+    label: "Faculty Vacancy / Staffing",
+    type: "pathway",
+    pathwayNo: 1,
+  },
+  {
+    id: "faculty-staff-category-staff-vacancy-staffing",
+    label: "Staff Vacancy / Staffing",
+    type: "pathway",
+    pathwayNo: 11,
+  },
+  {
+    id: "faculty-staff-category-faculty-awards",
+    label: "Faculty Awards",
+    type: "pathway",
+    pathwayNo: 13,
+  },
+];
+
+const FACULTY_STAFF_CHILD_LABELS = {
+  2: "Faculty Social Category",
+  3: "Faculty Gender",
+  6: "International Faculty Gender",
+  8: "Adjunct Social Category",
+  9: "Adjunct Gender",
+  12: "Staff Social Category",
+};
+
+function findFacultyStaffCategoryForPathway(pathwayNo) {
+  const normalized = Number(pathwayNo);
+  return (
+    FACULTY_STAFF_CATEGORY_CONFIG.find(
+      (item) => item.type === "pathway" && Number(item.pathwayNo) === normalized,
+    ) ??
+    FACULTY_STAFF_CATEGORY_CONFIG.find(
+      (item) => item.type === "group" && item.childPathwayNos?.includes(normalized),
+    ) ??
+    null
+  );
+}
 
 function dedupeList(values) {
   return Array.from(new Set((values ?? []).filter(Boolean)));
+}
+
+function buildDashboardSearchResults(query) {
+  const normalizedQuery = String(query ?? "").trim().toLowerCase();
+  if (!normalizedQuery) return [];
+
+  const results = [];
+  for (const domain of DOMAIN_DEFS) {
+    if (String(domain.id ?? "").toLowerCase().includes(normalizedQuery)) {
+      results.push({
+        key: `module-${domain.id}`,
+        type: "module",
+        label: domain.id,
+        subtitle: `${domain.children.length} sub-modules`,
+        domainId: domain.id,
+      });
+    }
+
+    for (const subsection of domain.children) {
+      const subsectionText = `${domain.id} ${subsection.label}`.toLowerCase();
+      if (subsectionText.includes(normalizedQuery)) {
+        results.push({
+          key: `submodule-${subsection.id}`,
+          type: "submodule",
+          label: subsection.label,
+          subtitle: domain.id,
+          domainId: domain.id,
+          subsectionId: subsection.id,
+        });
+      }
+
+      for (const worksheet of SUBSECTION_VIEW_OPTIONS[subsection.id] ?? []) {
+        const worksheetText = `${domain.id} ${subsection.label} ${worksheet.label} ${worksheet.helper ?? ""}`.toLowerCase();
+        if (worksheetText.includes(normalizedQuery)) {
+          results.push({
+            key: `worksheet-${worksheet.id}-${subsection.id}`,
+            type: "worksheet",
+            label: worksheet.label,
+            subtitle: `${domain.id} > ${subsection.label}`,
+            domainId: domain.id,
+            subsectionId: subsection.id,
+            viewId: worksheet.id,
+          });
+        }
+      }
+    }
+  }
+
+  return results.slice(0, 8);
 }
 
 function iconSvg(kind, active = false, tone = null) {
@@ -509,22 +706,6 @@ function resolveSubsectionKpiId(subsectionId, viewState) {
   return options.find((item) => item.id === selectedId)?.kpiId ?? options[0].kpiId;
 }
 
-function resolveSubsectionViewId(subsectionId, viewState) {
-  const options = SUBSECTION_VIEW_OPTIONS[subsectionId] ?? [];
-  if (!options.length) return null;
-  return viewState?.[subsectionId] ?? options[0].id;
-}
-
-function dashboardSnapshotKey(snapshot) {
-  if (!snapshot) return "";
-  return [
-    snapshot.section,
-    snapshot.module,
-    snapshot.selectedSubsectionId,
-    snapshot.viewId ?? "",
-  ].join("::");
-}
-
 function buildMonthlyAverage(rows, year) {
   const bucket = new Map();
   for (const row of rows) {
@@ -595,6 +776,10 @@ export default function Dashboard({
   const [speedDialOpen, setSpeedDialOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailFocus, setDetailFocus] = useState(null);
+  const [selectedFacultyStaffHierarchyKey, setSelectedFacultyStaffHierarchyKey] = useState(DEFAULT_FACULTY_STAFF_HIERARCHY_KEY);
+  const [selectedFacultyStaffPathwayNo, setSelectedFacultyStaffPathwayNo] = useState(DEFAULT_FACULTY_STAFF_PATHWAY_NO);
+  const [facultyStaffDrillCarouselOpen, setFacultyStaffDrillCarouselOpen] = useState(false);
+  const [facultyStaffExpandedCategoryId, setFacultyStaffExpandedCategoryId] = useState(null);
   const [shareEmbedOpen, setShareEmbedOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -602,16 +787,23 @@ export default function Dashboard({
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterContext, setFilterContext] = useState(null);
   const [filterDraft, setFilterDraft] = useState(null);
+  const [institutionGovernanceCategoryByView, setInstitutionGovernanceCategoryByView] = useState({});
   const [reportAutoOpenKey, setReportAutoOpenKey] = useState(0);
   const [homeSearch, setHomeSearch] = useState("");
+  const [homeSearchOpen, setHomeSearchOpen] = useState(false);
   const [recent, setRecent] = useState([]);
   const [notice, setNotice] = useState("");
   const [lastDownloadedAt, setLastDownloadedAt] = useState(null);
   const [subsectionViews, setSubsectionViews] = useState(DEFAULT_SUBSECTION_VIEWS);
 
+  const homeSearchRef = useRef(null);
   const profileRef = useRef(null);
   const headerSearchRef = useRef(null);
-  const navigationHistoryRef = useRef([]);
+  const dashboardHistoryRef = useRef([]);
+  const latestNavigationSnapshotRef = useRef(null);
+  const navigationRestoringRef = useRef(false);
+  const navigationReadyRef = useRef(false);
+  const navigationKeyRef = useRef("");
   const [headerSearch, setHeaderSearch] = useState("");
   const [headerSearchOpen, setHeaderSearchOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -659,6 +851,9 @@ export default function Dashboard({
 
   useEffect(() => {
     function onDocClick(event) {
+      if (homeSearchRef.current && !homeSearchRef.current.contains(event.target)) {
+        setHomeSearchOpen(false);
+      }
       if (profileRef.current && !profileRef.current.contains(event.target)) {
         setProfileOpen(false);
       }
@@ -778,15 +973,50 @@ export default function Dashboard({
     return results.slice(0, 8);
   }, [headerSearch]);
 
-  function handleHeaderSearchSelect(result) {
+  const homeSearchResults = useMemo(
+    () => buildDashboardSearchResults(homeSearch),
+    [homeSearch],
+  );
+
+  function navigateFromSearchResult(result) {
     if (!result) return;
     if (result.type === "module") {
       openDomain(result.domainId);
     } else {
       openSubsection(result.domainId, result.subsectionId, result.viewId ?? null);
     }
+  }
+
+  function handleHeaderSearchSelect(result) {
+    if (!result) return;
+    navigateFromSearchResult(result);
     setHeaderSearch(result.label);
     setHeaderSearchOpen(false);
+  }
+
+  function handleHeaderSearchSubmit() {
+    if (headerSearchResults[0]) {
+      handleHeaderSearchSelect(headerSearchResults[0]);
+      return;
+    }
+    setHeaderSearchOpen(Boolean(headerSearch.trim()));
+  }
+
+  function handleHomeSearchSelect(result) {
+    if (!result) return;
+    navigateFromSearchResult(result);
+    setHomeSearch(result.label);
+    setHeaderSearch(result.label);
+    setHomeSearchOpen(false);
+    setHeaderSearchOpen(false);
+  }
+
+  function handleHomeSearchSubmit() {
+    if (homeSearchResults[0]) {
+      handleHomeSearchSelect(homeSearchResults[0]);
+      return;
+    }
+    setHomeSearchOpen(Boolean(homeSearch.trim()));
   }
 
   useEffect(() => {
@@ -796,12 +1026,14 @@ export default function Dashboard({
       setSelectedSubsectionId(fallback.id);
       setSelectedKpiId(resolveSubsectionKpiId(fallback.id, subsectionViews));
       setDrillPath([]);
+      setDetailFocus(null);
       return;
     }
     const targetKpiId = resolveSubsectionKpiId(selectedSubsectionId, subsectionViews);
     if (targetKpiId !== selectedKpiId) {
       setSelectedKpiId(targetKpiId);
       setDrillPath([]);
+      setDetailFocus(null);
     }
   }, [activeDomainDef, selectedSubsectionId, selectedKpiId, subsectionViews]);
 
@@ -816,62 +1048,49 @@ export default function Dashboard({
   const currentIgViewOptions = SUBSECTION_VIEW_OPTIONS[selectedSubsectionId] ?? [];
   const currentIgViewId = subsectionViews[selectedSubsectionId] ?? currentIgViewOptions[0]?.id;
   const currentIgViewMeta = currentIgViewOptions.find((item) => item.id === currentIgViewId) ?? null;
+  const isInstitutionGovernanceActive =
+    MODULES.includes(section) &&
+    activeDomain === IG_MODULE_ID &&
+    isInstitutionGovernanceSubsection(selectedSubsectionId);
+  const institutionGovernanceCategoryViewKey = `${selectedSubsectionId}:${currentIgViewId ?? ""}`;
+  const institutionGovernanceCategoryItems = useMemo(() => {
+    if (!isInstitutionGovernanceActive) return [];
+    return getInstitutionGovernanceCategories(selectedSubsectionId, currentIgViewId).map((item) => ({
+      id: item.id,
+      label: item.label,
+      tooltip: `${IG_MODULE_ID} > ${currentSubsection?.label ?? ""} > ${currentIgViewMeta?.label ?? ""} > ${item.label}`,
+    }));
+  }, [isInstitutionGovernanceActive, selectedSubsectionId, currentIgViewId, currentSubsection?.label, currentIgViewMeta?.label]);
+  const currentInstitutionGovernanceCategoryId =
+    institutionGovernanceCategoryByView[institutionGovernanceCategoryViewKey] ??
+    getDefaultInstitutionGovernanceCategoryId(selectedSubsectionId, currentIgViewId);
+  const currentInstitutionGovernanceCategory =
+    getInstitutionGovernanceCategories(selectedSubsectionId, currentIgViewId).find(
+      (item) => item.id === currentInstitutionGovernanceCategoryId,
+    ) ?? institutionGovernanceCategoryItems[0] ?? null;
   const currentViewLabel = currentIgViewMeta?.label ?? currentSubsection?.label ?? selectedKpi?.label;
-
-  function buildDashboardSnapshot() {
-    return {
+  const currentNavigationKey = useMemo(
+    () => [
       section,
       module,
       selectedSubsectionId,
-      viewId: resolveSubsectionViewId(selectedSubsectionId, subsectionViews),
-    };
-  }
-
-  function rememberCurrentLocation() {
-    const snapshot = buildDashboardSnapshot();
-    const previous = navigationHistoryRef.current[navigationHistoryRef.current.length - 1];
-    if (dashboardSnapshotKey(previous) === dashboardSnapshotKey(snapshot)) return;
-    navigationHistoryRef.current.push(snapshot);
-  }
-
-  function restoreDashboardSnapshot(snapshot) {
-    if (!snapshot) return;
-
-    const nextViews =
-      snapshot.viewId && (SUBSECTION_VIEW_OPTIONS[snapshot.selectedSubsectionId] ?? []).length
-        ? { ...subsectionViews, [snapshot.selectedSubsectionId]: snapshot.viewId }
-        : subsectionViews;
-
-    if (snapshot.viewId && (SUBSECTION_VIEW_OPTIONS[snapshot.selectedSubsectionId] ?? []).length) {
-      setSubsectionViews((prev) => ({
-        ...prev,
-        [snapshot.selectedSubsectionId]: snapshot.viewId,
-      }));
-    }
-
-    setSection(snapshot.section);
-    setModule(snapshot.module);
-    setExpandedDomains(
-      Object.fromEntries(
-        DOMAIN_DEFS.map((item) => [item.id, item.id === snapshot.module]),
-      ),
-    );
-    setSelectedSubsectionId(snapshot.selectedSubsectionId);
-    setSelectedKpiId(resolveSubsectionKpiId(snapshot.selectedSubsectionId, nextViews));
-    setDrillPath([]);
-    setDetailFocus(null);
-    setKpiView("bar");
-    setSpeedDialOpen(false);
-  }
-
-  function goBack() {
-    const previousSnapshot = navigationHistoryRef.current.pop();
-    if (previousSnapshot) {
-      restoreDashboardSnapshot(previousSnapshot);
-      return;
-    }
-    onBack?.();
-  }
+      currentIgViewId ?? "",
+      currentInstitutionGovernanceCategoryId ?? "",
+      selectedFacultyStaffHierarchyKey,
+      selectedFacultyStaffPathwayNo,
+      facultyStaffDrillCarouselOpen ? "open" : "closed",
+    ].join("::"),
+    [
+      section,
+      module,
+      selectedSubsectionId,
+      currentIgViewId,
+      currentInstitutionGovernanceCategoryId,
+      selectedFacultyStaffHierarchyKey,
+      selectedFacultyStaffPathwayNo,
+      facultyStaffDrillCarouselOpen,
+    ],
+  );
 
   const compareSeedMetricIds = useMemo(() => {
     const worksheetOptions = (currentIgViewOptions.length
@@ -889,12 +1108,6 @@ export default function Dashboard({
       ...(activeInstituteId && !LEGACY_COMPARE_IITS.includes(activeInstituteId) ? [activeInstituteId] : []),
     ]);
   }, [activeInstituteId]);
-
-  function openCompareFromCurrentContext() {
-    rememberCurrentLocation();
-    setCompareCfg(buildCompareDefaults({ autoApply: true }));
-    setSection("Compare");
-  }
 
   function buildCompareDefaults({ autoApply = true } = {}) {
     return {
@@ -1097,10 +1310,212 @@ export default function Dashboard({
     }));
   }, [breakdown, valueMode, selectedKpi.format]);
 
+  const isFacultyStaffSheetActive =
+    selectedSubsectionId === "faculty-staff" &&
+    selectedKpiId === "kpi_psl_faculty_staff";
+
+  const isFacultyStaffHierarchyView =
+    isFacultyStaffSheetActive && facultyStaffDrillCarouselOpen;
+
+  const institutionGovernanceVisual = useMemo(() => {
+    if (!isInstitutionGovernanceActive || !currentInstitutionGovernanceCategoryId) return null;
+    return buildInstitutionGovernanceVisual({
+      facts,
+      subsectionId: selectedSubsectionId,
+      viewId: currentIgViewId,
+      categoryId: currentInstitutionGovernanceCategoryId,
+      instituteId: activeInstituteId,
+      yearRange,
+      drillPath,
+      detailFocus,
+    });
+  }, [
+    isInstitutionGovernanceActive,
+    currentInstitutionGovernanceCategoryId,
+    facts,
+    selectedSubsectionId,
+    currentIgViewId,
+    activeInstituteId,
+    yearRange,
+    drillPath,
+    detailFocus,
+  ]);
+
+  const isInstitutionGovernanceVisualActive = Boolean(
+    isInstitutionGovernanceActive && institutionGovernanceVisual,
+  );
+
+  const institutionGovernanceDisplayBreakdown = useMemo(() => {
+    const rows = institutionGovernanceVisual?.breakdown ?? [];
+    if (!isInstitutionGovernanceVisualActive) return rows;
+    if (
+      valueMode !== "percent" ||
+      !institutionGovernanceVisual?.allowPercent ||
+      institutionGovernanceVisual?.format === "pct"
+    ) {
+      return rows;
+    }
+    const total = rows.reduce((sum, item) => sum + Number(item.value ?? 0), 0) || 1;
+    return rows.map((item) => ({
+      ...item,
+      value: Number(item.value ?? 0) / total,
+    }));
+  }, [institutionGovernanceVisual, isInstitutionGovernanceVisualActive, valueMode]);
+
+
+  const allFacultyStaffMappedPathways = useMemo(
+    () => FACULTY_STAFF_HIERARCHY_GROUPS.flatMap((group) =>
+      group.pathways.map((pathway) => ({
+        ...pathway,
+        hierarchyKey: group.key,
+        hierarchyLabel: group.label,
+        hierarchyShortLabel: group.shortLabel,
+        hierarchyColor: group.color,
+        hierarchyBg: group.bg,
+      })),
+    ),
+    [],
+  );
+
+  const selectedFacultyStaffCarouselId = `faculty-staff-pathway-${selectedFacultyStaffPathwayNo}`;
+
+  const activeFacultyStaffHierarchy = useMemo(() => {
+    return (
+      FACULTY_STAFF_HIERARCHY_GROUPS.find(
+        (group) => group.key === selectedFacultyStaffHierarchyKey,
+      ) ?? FACULTY_STAFF_HIERARCHY_GROUPS[0]
+    );
+  }, [selectedFacultyStaffHierarchyKey]);
+
+  const facultyStaffPathways = isFacultyStaffHierarchyView
+    ? allFacultyStaffMappedPathways
+    : [];
+
+  const activeFacultyStaffPathway = useMemo(() => {
+    if (!isFacultyStaffHierarchyView || !facultyStaffPathways.length) return null;
+    return (
+      facultyStaffPathways.find(
+        (pathway) => Number(pathway.pathwayNo) === Number(selectedFacultyStaffPathwayNo),
+      ) ?? facultyStaffPathways[0]
+    );
+  }, [isFacultyStaffHierarchyView, facultyStaffPathways, selectedFacultyStaffPathwayNo]);
+
+  useEffect(() => {
+    if (!isFacultyStaffHierarchyView || !activeFacultyStaffPathway) return;
+    setSelectedFacultyStaffHierarchyKey(activeFacultyStaffPathway.hierarchyKey ?? "workforce-composition");
+  }, [isFacultyStaffHierarchyView, activeFacultyStaffPathway]);
+
+  useEffect(() => {
+    if (!isFacultyStaffSheetActive) {
+      setFacultyStaffDrillCarouselOpen(false);
+      setFacultyStaffExpandedCategoryId(null);
+    }
+  }, [isFacultyStaffSheetActive]);
+
+  useEffect(() => {
+    if (!facultyStaffDrillCarouselOpen) {
+      setFacultyStaffExpandedCategoryId(null);
+    }
+  }, [facultyStaffDrillCarouselOpen]);
+
+  const facultyStaffRawRowsByPathway = useMemo(() => {
+    if (!isFacultyStaffHierarchyView) return {};
+    const out = {};
+    for (const group of FACULTY_STAFF_HIERARCHY_GROUPS) {
+      for (const pathway of group.pathways) {
+        const rows = buildFacultyStaffRowsForPathway(pathway)
+          .filter(
+            (row) =>
+              row.InstituteId === activeInstituteId &&
+              Number(row.Year ?? 0) === Number(yearRange.to),
+          )
+          .map((row) => ({
+            name: row.Breakdown ?? "Not available",
+            value: Number(row.Value ?? 0),
+            rawValue: Number(row.Value ?? 0),
+            fieldKey: row.FieldKey,
+            isPercentField: Boolean(row.IsPercentField),
+            pathwayNo: pathway.pathwayNo,
+            metricKey: pathway.metricKey,
+            breadcrumb: row.Breadcrumb,
+          }));
+        out[pathway.pathwayNo] = rows;
+      }
+    }
+    return out;
+  }, [isFacultyStaffHierarchyView, activeInstituteId, yearRange.to]);
+
+  const facultyStaffDisplayRowsByPathway = useMemo(() => {
+    if (!isFacultyStaffHierarchyView) return {};
+    const out = {};
+    for (const [pathwayNo, rows] of Object.entries(facultyStaffRawRowsByPathway)) {
+      if (valueMode !== "percent") {
+        out[pathwayNo] = rows;
+        continue;
+      }
+      const countRows = rows.filter((item) => !item.isPercentField);
+      const total = countRows.reduce((sum, item) => sum + Number(item.value ?? 0), 0) || 1;
+      out[pathwayNo] = rows.map((item) => ({
+        ...item,
+        value: item.isPercentField ? Number(item.rawValue ?? 0) / 100 : Number(item.rawValue ?? 0) / total,
+      }));
+    }
+    return out;
+  }, [isFacultyStaffHierarchyView, facultyStaffRawRowsByPathway, valueMode]);
+
+  const facultyStaffRootValues = useMemo(() => {
+    if (!isFacultyStaffHierarchyView) return {};
+    const allPathways = FACULTY_STAFF_HIERARCHY_GROUPS.flatMap((group) => group.pathways);
+    return Object.fromEntries(
+      allPathways.map((pathway) => [
+        pathway.pathwayNo,
+        getFacultyStaffRootValue(pathway, activeInstituteId, yearRange.to),
+      ]),
+    );
+  }, [isFacultyStaffHierarchyView, activeInstituteId, yearRange.to]);
+
+  const facultyStaffDisplayBreakdown = activeFacultyStaffPathway
+    ? facultyStaffDisplayRowsByPathway[activeFacultyStaffPathway.pathwayNo] ?? []
+    : [];
+
+  const facultyStaffChartBreakdown = facultyStaffDisplayBreakdown;
+
+  const visibleBreakdown = isFacultyStaffHierarchyView
+    ? facultyStaffDisplayBreakdown
+    : isInstitutionGovernanceVisualActive
+      ? institutionGovernanceDisplayBreakdown
+      : displayBreakdown;
+
+  const visibleChartBreakdown = isFacultyStaffHierarchyView
+    ? facultyStaffChartBreakdown
+    : isInstitutionGovernanceVisualActive
+      ? institutionGovernanceDisplayBreakdown
+      : displayBreakdown;
+
   const trendSeries = useMemo(() => {
     const years = YEARS.filter(
       (year) => year >= yearRange.from && year <= yearRange.to,
     );
+
+    if (isInstitutionGovernanceVisualActive) {
+      return institutionGovernanceVisual?.trend ?? [];
+    }
+
+    if (isFacultyStaffHierarchyView && activeFacultyStaffPathway) {
+      const allRows = buildFacultyStaffRowsForPathway(activeFacultyStaffPathway);
+      return years.map((year) => {
+        const rows = allRows.filter(
+          (row) =>
+            row.InstituteId === activeInstituteId &&
+            Number(row.Year ?? 0) === Number(year),
+        );
+        return {
+          name: String(year),
+          value: rows.reduce((sum, row) => sum + Number(row.Value ?? 0), 0),
+        };
+      });
+    }
+
     return years.map((year) => {
       let rows = facts?.[selectedKpi.fact] ?? [];
       rows = scopeRowsForKpi(selectedKpi, rows);
@@ -1113,10 +1528,33 @@ export default function Dashboard({
         value: kpiValue(selectedKpi, rows) ?? 0,
       };
     });
-  }, [facts, selectedKpi, activeInstituteId, yearRange]);
+  }, [
+    facts,
+    selectedKpi,
+    activeInstituteId,
+    yearRange,
+    isFacultyStaffHierarchyView,
+    activeFacultyStaffPathway,
+    isInstitutionGovernanceVisualActive,
+    institutionGovernanceVisual,
+  ]);
+
+  const activeVisualLevels = isInstitutionGovernanceVisualActive
+    ? institutionGovernanceVisual?.levels ?? []
+    : selectedKpi.levels ?? [];
+
+  const canShowTimeSeries =
+    Number(yearRange.to) > Number(yearRange.from) &&
+    trendSeries.length > 1 &&
+    (!isInstitutionGovernanceVisualActive ||
+      institutionGovernanceVisual?.allowedViews?.includes("trend"));
 
   const noFurtherDrill =
-    drillPath.length >= ((selectedKpi.levels?.length ?? 1) - 1);
+    drillPath.length >= ((activeVisualLevels.length || 1) - 1);
+
+  const canDrillChart = isInstitutionGovernanceVisualActive
+    ? Boolean(institutionGovernanceVisual?.drillable) && !noFurtherDrill
+    : !isFacultyStaffHierarchyView && Boolean(selectedKpi.drillable) && !noFurtherDrill;
 
   const headline = useMemo(() => {
     const rows = scopeRowsForKpi(selectedKpi, scopedFacts.thisIIT[selectedKpi.fact] ?? []);
@@ -1183,7 +1621,6 @@ export default function Dashboard({
         label: "UG students",
         note: "Student Profile",
         color: "#1d4ed8",
-        onClick: () => openSubsection("People & Student Life", "student-profile", "student-profile-sheet"),
       },
       {
         id: "pg",
@@ -1191,7 +1628,6 @@ export default function Dashboard({
         label: "PG students",
         note: "Student Profile",
         color: "#ec4899",
-        onClick: () => openSubsection("People & Student Life", "student-profile", "student-profile-sheet"),
       },
       {
         id: "phd",
@@ -1199,7 +1635,6 @@ export default function Dashboard({
         label: "PhD students",
         note: "Student Profile",
         color: "#f97316",
-        onClick: () => openSubsection("People & Student Life", "student-profile", "student-profile-sheet"),
       },
       {
         id: "faculty",
@@ -1207,7 +1642,6 @@ export default function Dashboard({
         label: "Faculty in position",
         note: "Faculty & Staff",
         color: "#7c3aed",
-        onClick: () => openSubsection("People & Student Life", "faculty-staff", "faculty-staff-summary"),
       },
       {
         id: "intl",
@@ -1215,7 +1649,6 @@ export default function Dashboard({
         label: "International students",
         note: "International Students",
         color: "#16a34a",
-        onClick: () => openSubsection("People & Student Life", "student-profile", "international-students"),
       },
       {
         id: "programmes",
@@ -1223,7 +1656,6 @@ export default function Dashboard({
         label: "Programmes",
         note: "Academic Programs",
         color: "#eab308",
-        onClick: () => openSubsection("Institution & Governance", "institutional-profile", "programs"),
       },
     ],
     [homeSnapshot],
@@ -1283,24 +1715,168 @@ export default function Dashboard({
     [homeSnapshot, yearRange.to],
   );
 
-  const openReportsForKpis = (kpiIds, focusKpiId = null) => {
-    rememberCurrentLocation();
-    const nextIds = kpiIds?.length ? Array.from(new Set(kpiIds)) : [];
-    setReportsCfg((prev) => ({
-      ...prev,
-      KpiIds: nextIds,
-      InstituteId:
-        role === "iit"
-          ? [activeInstituteId || IITs[0].id]
-          : prev.InstituteId?.length
-            ? prev.InstituteId
-            : [activeInstituteId || IITs[0].id],
-      YearRange: { from: yearRange.from, to: yearRange.to },
-    }));
-    if (focusKpiId) setSelectedKpiId(focusKpiId);
-    setReportAutoOpenKey((value) => value + 1);
-    setSection("Reports");
-  };
+  const homeDashboardCards = useMemo(
+    () => [
+      ...homeModuleCards.map((card) => ({
+        ...card,
+        displayValue: formatCompact(card.value),
+      })),
+      ...homeReportCards.map((card) => ({
+        ...card,
+        displayValue: card.value,
+      })),
+    ],
+    [homeModuleCards, homeReportCards],
+  );
+
+  const currentNavigationSnapshot = useMemo(
+    () => ({
+      key: currentNavigationKey,
+      section,
+      module,
+      selectedSubsectionId,
+      selectedKpiId,
+      drillPath: [...drillPath],
+      yearRange: { ...yearRange },
+      kpiView,
+      detailFocus: detailFocus ? { ...detailFocus } : null,
+      subsectionViews: { ...subsectionViews },
+      expandedDomains: { ...expandedDomains },
+      selectedFacultyStaffHierarchyKey,
+      selectedFacultyStaffPathwayNo,
+      facultyStaffDrillCarouselOpen,
+      compareCfg: {
+        ...compareCfg,
+        CompareMetricIds: [...(compareCfg.CompareMetricIds ?? [])],
+        InstituteId: [...(compareCfg.InstituteId ?? [])],
+        YearRange: { ...(compareCfg.YearRange ?? {}) },
+      },
+      reportsCfg: {
+        ...reportsCfg,
+        KpiIds: [...(reportsCfg.KpiIds ?? [])],
+        InstituteId: [...(reportsCfg.InstituteId ?? [])],
+        YearRange: { ...(reportsCfg.YearRange ?? {}) },
+      },
+    }),
+    [
+      currentNavigationKey,
+      section,
+      module,
+      selectedSubsectionId,
+      selectedKpiId,
+      drillPath,
+      yearRange,
+      kpiView,
+      detailFocus,
+      subsectionViews,
+      expandedDomains,
+      selectedFacultyStaffHierarchyKey,
+      selectedFacultyStaffPathwayNo,
+      facultyStaffDrillCarouselOpen,
+      compareCfg,
+      reportsCfg,
+    ],
+  );
+
+  useEffect(() => {
+    const previousKey = navigationKeyRef.current;
+    const previousSnapshot = latestNavigationSnapshotRef.current;
+
+    if (!navigationReadyRef.current) {
+      navigationReadyRef.current = true;
+      navigationKeyRef.current = currentNavigationKey;
+      latestNavigationSnapshotRef.current = currentNavigationSnapshot;
+      return;
+    }
+
+    if (navigationRestoringRef.current) {
+      navigationRestoringRef.current = false;
+      navigationKeyRef.current = currentNavigationKey;
+      latestNavigationSnapshotRef.current = currentNavigationSnapshot;
+      return;
+    }
+
+    if (previousKey && previousKey !== currentNavigationKey && previousSnapshot) {
+      const lastSnapshot = dashboardHistoryRef.current[dashboardHistoryRef.current.length - 1];
+      if (lastSnapshot?.key !== previousKey) {
+        dashboardHistoryRef.current.push(previousSnapshot);
+      }
+    }
+
+    navigationKeyRef.current = currentNavigationKey;
+    latestNavigationSnapshotRef.current = currentNavigationSnapshot;
+  }, [currentNavigationKey, currentNavigationSnapshot]);
+
+  function restoreNavigationSnapshot(snapshot) {
+    if (!snapshot) return false;
+
+    navigationRestoringRef.current = true;
+    setSection(snapshot.section ?? "Home");
+    setModule(snapshot.module ?? initialDomain);
+    setSelectedSubsectionId(snapshot.selectedSubsectionId ?? initialChild.id);
+    setSelectedKpiId(
+      snapshot.selectedKpiId
+      ?? resolveSubsectionKpiId(
+        snapshot.selectedSubsectionId ?? initialChild.id,
+        snapshot.subsectionViews ?? DEFAULT_SUBSECTION_VIEWS,
+      ),
+    );
+    setDrillPath([...(snapshot.drillPath ?? [])]);
+    setYearRange({
+      from: snapshot.yearRange?.from ?? YEARS[0],
+      to: snapshot.yearRange?.to ?? YEARS[YEARS.length - 1],
+    });
+    setKpiView(snapshot.kpiView ?? "bar");
+    setDetailFocus(snapshot.detailFocus ? { ...snapshot.detailFocus } : null);
+    setSubsectionViews(snapshot.subsectionViews ? { ...snapshot.subsectionViews } : DEFAULT_SUBSECTION_VIEWS);
+    setExpandedDomains(
+      snapshot.expandedDomains
+        ? { ...snapshot.expandedDomains }
+        : Object.fromEntries(DOMAIN_DEFS.map((item) => [item.id, item.id === (snapshot.module ?? initialDomain)])),
+    );
+    setSelectedFacultyStaffHierarchyKey(snapshot.selectedFacultyStaffHierarchyKey ?? "vacancy-staffing");
+    setSelectedFacultyStaffPathwayNo(snapshot.selectedFacultyStaffPathwayNo ?? 1);
+    setFacultyStaffDrillCarouselOpen(Boolean(snapshot.facultyStaffDrillCarouselOpen));
+    if (snapshot.compareCfg) {
+      setCompareCfg({
+        ...snapshot.compareCfg,
+        CompareMetricIds: [...(snapshot.compareCfg.CompareMetricIds ?? [])],
+        InstituteId: [...(snapshot.compareCfg.InstituteId ?? [])],
+        YearRange: { ...(snapshot.compareCfg.YearRange ?? {}) },
+      });
+    }
+    if (snapshot.reportsCfg) {
+      setReportsCfg({
+        ...snapshot.reportsCfg,
+        KpiIds: [...(snapshot.reportsCfg.KpiIds ?? [])],
+        InstituteId: [...(snapshot.reportsCfg.InstituteId ?? [])],
+        YearRange: { ...(snapshot.reportsCfg.YearRange ?? {}) },
+      });
+    }
+    setProfileOpen(false);
+    setHeaderSearchOpen(false);
+    setHomeSearchOpen(false);
+    setSpeedDialOpen(false);
+    setDetailsOpen(false);
+    return true;
+  }
+
+  function handleDashboardBack() {
+    const previousSnapshot = dashboardHistoryRef.current.pop();
+    if (previousSnapshot) {
+      restoreNavigationSnapshot(previousSnapshot);
+      return;
+    }
+
+    if (typeof onBack === "function") {
+      onBack();
+      return;
+    }
+
+    if (section !== "Home") {
+      setSection("Home");
+    }
+  }
 
   const dashboardInterpretation = useMemo(() => {
     if (!breakdown.length) return "Select the module to analyze.";
@@ -1329,12 +1905,45 @@ export default function Dashboard({
     headline.delta,
   ]);
 
-  const currentBreakdownField =
-    selectedKpi.levels?.[drillPath.length]?.field ?? null;
-  const currentBreakdownLabel =
-    selectedKpi.levels?.[drillPath.length]?.label ?? "Breakdown";
+  const currentBreakdownField = isInstitutionGovernanceVisualActive
+    ? institutionGovernanceVisual?.levels?.[drillPath.length]?.field ?? null
+    : selectedKpi.levels?.[drillPath.length]?.field ?? null;
+  const currentBreakdownLabel = isInstitutionGovernanceVisualActive
+    ? institutionGovernanceVisual?.levels?.[drillPath.length]?.label ?? institutionGovernanceVisual?.xLabel ?? "Breakdown"
+    : selectedKpi.levels?.[drillPath.length]?.label ?? "Breakdown";
 
   const detailTable = useMemo(() => {
+    if (isInstitutionGovernanceVisualActive && institutionGovernanceVisual) {
+      return {
+        columns: institutionGovernanceVisual.detailColumns?.length
+          ? institutionGovernanceVisual.detailColumns
+          : institutionGovernanceVisual.tableColumns ?? [],
+        rows: (institutionGovernanceVisual.detailRows ?? institutionGovernanceVisual.tableRows ?? []).slice(0, 250),
+      };
+    }
+
+    if (isFacultyStaffHierarchyView && activeFacultyStaffPathway) {
+      let scoped = buildFacultyStaffRowsForPathway(activeFacultyStaffPathway).filter(
+        (row) =>
+          row.InstituteId === activeInstituteId &&
+          Number(row.Year ?? 0) === Number(yearRange.to),
+      );
+      if (detailFocus?.field === "Breakdown") {
+        scoped = scoped.filter((row) => String(row.Breakdown ?? "") === String(detailFocus.value));
+      }
+      return {
+        columns: [
+          { key: "Year", label: "Year" },
+          { key: "RootLabel", label: "Total node" },
+          { key: "RootValue", label: "Total value", format: formatCompact },
+          { key: "Breakdown", label: "Part node" },
+          { key: "Value", label: activeFacultyStaffPathway.valueLabel, format: formatCompact },
+          { key: "Breadcrumb", label: "Breadcrumb" },
+        ],
+        rows: scoped.slice(0, 250),
+      };
+    }
+
     const rows = scopeRowsForKpi(selectedKpi, scopedFacts.thisIIT[selectedKpi.fact] ?? []);
     let scoped = applyDrill(rows, drillPath, selectedKpi.levels ?? []);
     if (detailFocus?.field) {
@@ -1366,28 +1975,117 @@ export default function Dashboard({
       .slice(0, 10)
       .map((key) => ({ key, label: key }));
     return { columns, rows: scoped.slice(0, 250) };
-  }, [scopedFacts, selectedKpi, drillPath, detailFocus]);
-  const rootBreakdownLabel =
-    selectedKpi.levels?.[0]?.label ?? currentBreakdownLabel;
+  }, [
+    scopedFacts,
+    selectedKpi,
+    drillPath,
+    detailFocus,
+    isFacultyStaffHierarchyView,
+    activeFacultyStaffPathway,
+    activeInstituteId,
+    yearRange.to,
+    isInstitutionGovernanceVisualActive,
+    institutionGovernanceVisual,
+  ]);
+  const rootBreakdownLabel = isInstitutionGovernanceVisualActive
+    ? institutionGovernanceVisual?.levels?.[0]?.label ?? institutionGovernanceVisual?.category?.label ?? currentBreakdownLabel
+    : selectedKpi.levels?.[0]?.label ?? currentBreakdownLabel;
   const displayBaseBreakdownLabel =
     String(rootBreakdownLabel || "").trim().toLowerCase() === "category"
       ? null
       : rootBreakdownLabel;
-  const currentValueLabel =
-    valueMode === "percent" && selectedKpi.format !== "pct"
+  const activeChartFormat = isInstitutionGovernanceVisualActive
+    ? (valueMode === "percent" && institutionGovernanceVisual?.allowPercent
+        ? "pct"
+        : institutionGovernanceVisual?.format ?? "number")
+    : (valueMode === "percent" && selectedKpi.format !== "pct" ? "pct" : selectedKpi.format);
+  const canUsePercentMode = !isInstitutionGovernanceVisualActive || Boolean(institutionGovernanceVisual?.allowPercent);
+  const currentValueLabel = isInstitutionGovernanceVisualActive
+    ? (valueMode === "percent" && institutionGovernanceVisual?.allowPercent
+        ? "Share"
+        : institutionGovernanceVisual?.yLabel ?? currentViewLabel)
+    : valueMode === "percent" && selectedKpi.format !== "pct"
       ? `${currentViewLabel}`
       : currentViewLabel;
+  const activeFacultyStaffPathwayLabel = isFacultyStaffHierarchyView
+    ? getFacultyStaffPathwayShortLabel(activeFacultyStaffPathway)
+    : null;
 
-  // Added for SVG download Chart with Title and breadcrumbs
+  const facultyStaffBreadcrumbPath = isFacultyStaffHierarchyView
+    ? [activeFacultyStaffPathwayLabel].filter(Boolean)
+    : [];
+
+  const facultyStaffValueAxisLabel = isFacultyStaffHierarchyView
+    ? valueMode === "percent"
+      ? "Share"
+      : (activeFacultyStaffPathway?.children ?? []).some(facultyStaffFieldIsNonCountMetric)
+        ? "Metric value"
+        : "Total number"
+    : currentValueLabel;
+
+  const visibleCurrentBreakdownLabel = isFacultyStaffHierarchyView
+    ? activeFacultyStaffPathwayLabel ?? "Breakdown"
+    : currentBreakdownLabel;
+
+  const visibleCurrentValueLabel = isFacultyStaffHierarchyView
+    ? facultyStaffValueAxisLabel
+    : currentValueLabel;
+
+  const visibleBaseBreakdownLabel = isFacultyStaffHierarchyView
+    ? null
+    : displayBaseBreakdownLabel;
+
+  const chartIsInteractive =
+    isFacultyStaffHierarchyView ||
+    (isInstitutionGovernanceVisualActive
+      ? Boolean(institutionGovernanceVisual?.drillable) && !noFurtherDrill
+      : selectedKpi.drillable && !noFurtherDrill);
+
+  const nonDrillCategoryLabel = isFacultyStaffHierarchyView
+    ? activeFacultyStaffPathwayLabel ?? currentViewLabel
+    : isInstitutionGovernanceVisualActive
+      ? currentInstitutionGovernanceCategory?.label ?? currentViewLabel
+      : detailFocus?.value ?? currentViewLabel;
+
+  const chartDrillHint =
+    kpiView !== "bar" && kpiView !== "donut"
+      ? ""
+      : isFacultyStaffHierarchyView
+        ? ""
+        : chartIsInteractive
+          ? "Click to drill down."
+          : "";
+
+  // Used for SVG / PDF exports and for the chart header context line.
   const breadcrumbText = useMemo(() => {
+    const activeDrillable = isInstitutionGovernanceVisualActive
+      ? Boolean(institutionGovernanceVisual?.drillable)
+      : Boolean(selectedKpi.drillable);
+    if (isFacultyStaffHierarchyView || !activeDrillable) {
+      return nonDrillCategoryLabel;
+    }
     return [displayBaseBreakdownLabel, ...drillPath].filter(Boolean).join(" > ");
-  }, [displayBaseBreakdownLabel, drillPath]);
+  }, [
+    displayBaseBreakdownLabel,
+    drillPath,
+    isFacultyStaffHierarchyView,
+    isInstitutionGovernanceVisualActive,
+    nonDrillCategoryLabel,
+    selectedKpi.drillable,
+    institutionGovernanceVisual?.drillable,
+  ]);
+
+  useEffect(() => {
+    if (isInstitutionGovernanceVisualActive && !institutionGovernanceVisual?.allowPercent && valueMode === "percent") {
+      setValueMode("value");
+    }
+  }, [isInstitutionGovernanceVisualActive, institutionGovernanceVisual?.allowPercent, valueMode]);
 
   useEffect(() => {
     if (!visualToolbarItems.some((item) => item.id === kpiView)) {
-      setKpiView("bar");
+      setKpiView(visualToolbarItems[0]?.id ?? "bar");
     }
-  }, [kpiView]);
+  }, [kpiView, canShowTimeSeries, currentInstitutionGovernanceCategoryId, currentIgViewId, isInstitutionGovernanceVisualActive]);
 
   function popDrillTo(depth) {
     setDetailFocus(null);
@@ -1395,7 +2093,6 @@ export default function Dashboard({
   }
 
   function openDomain(domainId) {
-    rememberCurrentLocation();
     setSection(domainId);
     setModule(domainId);
     setExpandedDomains(Object.fromEntries(DOMAIN_DEFS.map((item) => [item.id, item.id === domainId])));
@@ -1409,12 +2106,23 @@ export default function Dashboard({
     }
   }
 
+  function activateDefaultFacultyStaffHierarchy() {
+    setSelectedFacultyStaffHierarchyKey(DEFAULT_FACULTY_STAFF_HIERARCHY_KEY);
+    setSelectedFacultyStaffPathwayNo(DEFAULT_FACULTY_STAFF_PATHWAY_NO);
+    setFacultyStaffExpandedCategoryId(null);
+    setFacultyStaffDrillCarouselOpen(true);
+  }
+
   function openSubsection(domainId, subsectionId, viewId = null) {
-    rememberCurrentLocation();
     const nextViews =
       viewId && (SUBSECTION_VIEW_OPTIONS[subsectionId] ?? []).length
         ? { ...subsectionViews, [subsectionId]: viewId }
         : subsectionViews;
+    const resolvedViewId =
+      nextViews[subsectionId] ??
+      viewId ??
+      SUBSECTION_VIEW_OPTIONS[subsectionId]?.[0]?.id ??
+      null;
     if (viewId && (SUBSECTION_VIEW_OPTIONS[subsectionId] ?? []).length) {
       setSubsectionViews((prev) => ({ ...prev, [subsectionId]: viewId }));
     }
@@ -1427,12 +2135,16 @@ export default function Dashboard({
     setDetailFocus(null);
     setKpiView("bar");
     setSpeedDialOpen(false);
+
+    if (
+      subsectionId === "faculty-staff" &&
+      resolvedViewId === DEFAULT_FACULTY_STAFF_VIEW_ID
+    ) {
+      activateDefaultFacultyStaffHierarchy();
+    }
   }
 
   function handleSubviewChange(subsectionId, nextViewId) {
-    const currentViewId = resolveSubsectionViewId(subsectionId, subsectionViews);
-    if (currentViewId === nextViewId) return;
-    rememberCurrentLocation();
     setSubsectionViews((prev) => {
       const next = { ...prev, [subsectionId]: nextViewId };
       setSelectedKpiId(resolveSubsectionKpiId(subsectionId, next));
@@ -1441,6 +2153,13 @@ export default function Dashboard({
     setDrillPath([]);
     setDetailFocus(null);
     setKpiView("bar");
+
+    if (
+      subsectionId === "faculty-staff" &&
+      nextViewId === DEFAULT_FACULTY_STAFF_VIEW_ID
+    ) {
+      activateDefaultFacultyStaffHierarchy();
+    }
   }
 
   function toggleDomain(domainId) {
@@ -1486,7 +2205,42 @@ export default function Dashboard({
     setDetailsOpen(true);
   }
 
+  function selectFacultyStaffBreakdown(name) {
+    setDetailFocus({
+      field: "Breakdown",
+      value: name,
+      label: activeFacultyStaffPathwayLabel ?? "Part node",
+    });
+    setNotice(`${name} selected. Use Details to view the worksheet-derived records.`);
+  }
+
+  function onFacultyStaffChartDrill(name) {
+    selectFacultyStaffBreakdown(name);
+  }
+
   function onDrillNext(name) {
+    if (isFacultyStaffHierarchyView) {
+      selectFacultyStaffBreakdown(name);
+      return;
+    }
+
+    if (isInstitutionGovernanceVisualActive) {
+      const lastIndex = (institutionGovernanceVisual?.levels?.length ?? 1) - 1;
+      if (!institutionGovernanceVisual?.drillable) {
+        setFocusedSelection(name);
+        setNotice(`Selection applied for ${name}. Use Details to open the filtered records.`);
+        return;
+      }
+      if (drillPath.length >= lastIndex) {
+        setFocusedSelection(name);
+        setNotice(`Last drill level reached for ${name}. Use Details to view the filtered records.`);
+        return;
+      }
+      setDetailFocus(null);
+      setDrillPath((prev) => [...prev, name]);
+      return;
+    }
+
     const lastIndex = (selectedKpi.levels?.length ?? 1) - 1;
     if (!selectedKpi.drillable) {
       setFocusedSelection(name);
@@ -1555,23 +2309,26 @@ export default function Dashboard({
     };
 
     if (kpiView === "table") {
-      const tableColumns = [
-        { key: "name", label: currentBreakdownLabel },
-        {
-          key: "value",
-          label: currentValueLabel,
-          format: (value) =>
-            valueMode === "percent" && selectedKpi.format !== "pct"
-              ? formatPct(value)
-              : selectedKpi.format === "pct"
-                ? formatPct(value)
-                : formatCompact(value),
-        },
-      ];
+      const tableColumns = isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.tableColumns?.length
+        ? institutionGovernanceVisual.tableColumns
+        : [
+            { key: "name", label: visibleCurrentBreakdownLabel },
+            {
+              key: "value",
+              label: visibleCurrentValueLabel,
+              format: (value) =>
+                activeChartFormat === "pct" ? formatPct(value) : formatCompact(value),
+            },
+          ];
+      const tableRows = isInstitutionGovernanceVisualActive
+        ? institutionGovernanceVisual?.tableRows?.length
+          ? institutionGovernanceVisual.tableRows
+          : institutionGovernanceVisual?.detailRows ?? []
+        : visibleBreakdown;
       downloadTableSvg(
-        `${selectedKpi.id}_${yearRange.to}.svg`,
+        `${isInstitutionGovernanceVisualActive ? currentInstitutionGovernanceCategoryId : selectedKpi.id}_${yearRange.to}.svg`,
         tableColumns,
-        displayBreakdown,
+        tableRows,
         exportMeta,
       );
       markDownloaded("SVG downloaded.", downloadStamp);
@@ -1606,7 +2363,8 @@ export default function Dashboard({
       action: () => {
         setSpeedDialOpen(false);
         if (isFullscreen) setIsFullscreen(false);
-        openCompareFromCurrentContext();
+        setCompareCfg(buildCompareDefaults({ autoApply: true }));
+        setSection("Compare");
       },
     },
     {
@@ -1639,35 +2397,56 @@ export default function Dashboard({
     },
   ];
 
-  const visualToolbarItems = [
-    { id: "bar", label: "Bar", icon: "📊" },
-    { id: "trend", label: "Time series", icon: "↗" },
-    { id: "donut", label: "Donut", icon: "◔" },
-    { id: "table", label: "Table", icon: "▦" },
-  ];
+  const visualToolbarItems = useMemo(() => {
+    const itemById = {
+      bar: { id: "bar", label: "Bar", icon: "📊" },
+      trend: { id: "trend", label: "Time series", icon: "↗" },
+      donut: { id: "donut", label: "Donut", icon: "◔" },
+      table: { id: "table", label: "Table", icon: "▦" },
+      cards: { id: "cards", label: "Cards", icon: "▤" },
+      empty: { id: "empty", label: "Unavailable", icon: "—" },
+    };
 
-  const visualItemCount = displayBreakdown.length;
-  const fullscreenBarHeight =
-    visualItemCount > 7
-      ? Math.max(
-          Math.max(360, Math.min(460, viewportHeight - 320)),
-          Math.min(visualItemCount * 54 + 140, 1800),
-        )
-      : Math.max(360, Math.min(460, viewportHeight - 320));
-  const fullscreenDonutHeight =
-    visualItemCount > 8
-      ? Math.max(
-          Math.max(360, Math.min(460, viewportHeight - 320)),
-          Math.min(visualItemCount * 34 + 240, 1200),
-        )
-      : Math.max(360, Math.min(460, viewportHeight - 320));
+    if (isInstitutionGovernanceVisualActive) {
+      const allowed = institutionGovernanceVisual?.allowedViews?.length
+        ? institutionGovernanceVisual.allowedViews
+        : [institutionGovernanceVisual?.defaultView ?? "bar", "table"];
+      return orderVisualViewIds(allowed)
+        .filter((id) => id !== "trend" || canShowTimeSeries)
+        .map((id) => itemById[id])
+        .filter(Boolean);
+    }
+
+    return orderVisualViewIds([
+      "bar",
+      "donut",
+      ...(canShowTimeSeries ? ["trend"] : []),
+      "table",
+    ]).map((id) => itemById[id]);
+  }, [canShowTimeSeries, isInstitutionGovernanceVisualActive, institutionGovernanceVisual]);
+
+  const fullscreenChartReserve = isFacultyStaffHierarchyView ? 360 : 300;
+  const fullscreenBarHeight = Math.max(
+    250,
+    Math.min(420, viewportHeight - fullscreenChartReserve),
+  );
+  const fullscreenDonutHeight = Math.max(
+    240,
+    Math.min(390, viewportHeight - fullscreenChartReserve),
+  );
   const chartCanvasHeight = isFullscreen
-    ? kpiView === "table"
-      ? Math.max(320, Math.min(430, viewportHeight - 360))
+    ? ["table", "cards", "empty"].includes(kpiView)
+      ? Math.max(
+          280,
+          Math.min(
+            400,
+            viewportHeight - (isFacultyStaffHierarchyView ? 340 : 300),
+          ),
+        )
       : kpiView === "bar" || kpiView === "trend"
         ? fullscreenBarHeight
         : fullscreenDonutHeight
-    : kpiView === "table"
+    : ["table", "cards", "empty"].includes(kpiView)
       ? 420
       : kpiView === "bar" || kpiView === "trend"
         ? 380
@@ -1676,15 +2455,255 @@ export default function Dashboard({
     ? "w-full max-w-[1020px]"
     : "w-full max-w-[980px]";
   const visualChartBodyStyle =
-    !isFullscreen || kpiView === "table"
+    !isFullscreen || ["table", "cards", "empty"].includes(kpiView)
       ? undefined
       : {
-          height: "calc(100dvh - 180px)",
-          overflowY: "auto",
+          overflowY: "hidden",
           overflowX: "hidden",
         };
 
   const canShowFilters = section === "Compare" || section === "Reports";
+
+  const facultyStaffBreadcrumbForSheet = (sheetLabel) =>
+    `People & Student Life > Faculty & Staff > ${sheetLabel}`;
+
+  const facultyStaffWorksheetCarouselItems = useMemo(() => {
+    const decorateSheetItem = (item) => {
+      return {
+        id: item.id,
+        label: item.label,
+        tooltip: facultyStaffBreadcrumbForSheet(item.label),
+      };
+    };
+
+    return currentIgViewOptions.length
+      ? currentIgViewOptions.map(decorateSheetItem)
+      : [decorateSheetItem({ id: selectedSubsectionId, label: currentSubsection.label })];
+  }, [
+    currentIgViewOptions,
+    selectedSubsectionId,
+    currentSubsection.label,
+  ]);
+
+  const facultyStaffPathwayByNo = useMemo(
+    () =>
+      Object.fromEntries(
+        allFacultyStaffMappedPathways.map((pathway) => [Number(pathway.pathwayNo), pathway]),
+      ),
+    [allFacultyStaffMappedPathways],
+  );
+
+  const facultyStaffNestedCarouselItems = useMemo(() => {
+    if (!isFacultyStaffSheetActive || !facultyStaffDrillCarouselOpen) return [];
+
+    return FACULTY_STAFF_CATEGORY_CONFIG.map((item) => {
+      if (item.type === "group") {
+        return {
+          id: item.id,
+          label: item.label,
+          tooltip: `People & Student Life > Faculty & Staff > Faculty and Staff > ${item.label}`,
+          variant: "nested-parent-toggle",
+          expanded: facultyStaffExpandedCategoryId === item.id,
+          accent,
+          soft,
+        };
+      }
+
+      const pathway = facultyStaffPathwayByNo[Number(item.pathwayNo)];
+      const shortLabel = pathway ? getFacultyStaffPathwayShortLabel(pathway) : item.label;
+      return {
+        id: item.id,
+        label: item.label,
+        tooltip: pathway
+          ? `People & Student Life > Faculty & Staff > Faculty and Staff > ${shortLabel} > ${facultyStaffFieldLabel(pathway.rootField)}${pathway.children?.length ? ` > ${pathway.children.map(facultyStaffFieldLabel).join(" > ")}` : ""}`
+          : `People & Student Life > Faculty & Staff > Faculty and Staff > ${item.label}`,
+        variant: "mapped-drill",
+        accent,
+        soft: blendHexColor(accent, "#ffffff", 0.82),
+      };
+    });
+  }, [
+    isFacultyStaffSheetActive,
+    facultyStaffDrillCarouselOpen,
+    facultyStaffExpandedCategoryId,
+    facultyStaffPathwayByNo,
+    accent,
+    soft,
+  ]);
+
+  const activeFacultyStaffCategory = useMemo(() => {
+    if (facultyStaffExpandedCategoryId) {
+      return FACULTY_STAFF_CATEGORY_CONFIG.find((item) => item.id === facultyStaffExpandedCategoryId) ?? null;
+    }
+    return findFacultyStaffCategoryForPathway(selectedFacultyStaffPathwayNo);
+  }, [facultyStaffExpandedCategoryId, selectedFacultyStaffPathwayNo]);
+
+  const facultyStaffNestedCarouselChildren = useMemo(() => {
+    const expandedCategory = FACULTY_STAFF_CATEGORY_CONFIG.find(
+      (item) => item.id === facultyStaffExpandedCategoryId && item.type === "group",
+    );
+    if (!expandedCategory) return [];
+
+    return expandedCategory.childPathwayNos.map((pathwayNo) => {
+      const pathway = facultyStaffPathwayByNo[Number(pathwayNo)];
+      const childLabel =
+        FACULTY_STAFF_CHILD_LABELS[Number(pathwayNo)] ??
+        (pathway ? getFacultyStaffPathwayShortLabel(pathway) : `Pathway ${pathwayNo}`);
+      return {
+        id: `faculty-staff-pathway-${pathwayNo}`,
+        label: childLabel,
+        tooltip: pathway
+          ? `People & Student Life > Faculty & Staff > Faculty and Staff > ${expandedCategory.label} > ${childLabel} > ${facultyStaffFieldLabel(pathway.rootField)}${pathway.children?.length ? ` > ${pathway.children.map(facultyStaffFieldLabel).join(" > ")}` : ""}`
+          : `People & Student Life > Faculty & Staff > Faculty and Staff > ${expandedCategory.label} > ${childLabel}`,
+        variant: "mapped-drill",
+        accent,
+        soft: blendHexColor(accent, "#ffffff", 0.88),
+      };
+    });
+  }, [facultyStaffExpandedCategoryId, facultyStaffPathwayByNo, accent]);
+
+  const facultyStaffCarouselActiveId =
+    currentIgViewOptions.length ? currentIgViewId : selectedSubsectionId;
+
+  const facultyStaffNestedCarouselActiveId =
+    isFacultyStaffSheetActive && facultyStaffDrillCarouselOpen
+      ? activeFacultyStaffCategory?.id ?? null
+      : null;
+
+  const facultyStaffCarouselScrollTargetId = null;
+
+  const facultyStaffNestedCarouselScrollTargetId =
+    isFacultyStaffSheetActive && facultyStaffDrillCarouselOpen
+      ? activeFacultyStaffCategory?.id ?? null
+      : null;
+
+  const facultyStaffNestedChildCarouselActiveId =
+    isFacultyStaffSheetActive && facultyStaffDrillCarouselOpen && facultyStaffExpandedCategoryId
+      ? facultyStaffNestedCarouselChildren.some(
+          (item) => item.id === selectedFacultyStaffCarouselId,
+        )
+        ? selectedFacultyStaffCarouselId
+        : null
+      : null;
+
+  const facultyStaffNestedChildCarouselScrollTargetId =
+    isFacultyStaffSheetActive && facultyStaffDrillCarouselOpen && facultyStaffExpandedCategoryId
+      ? facultyStaffNestedChildCarouselActiveId
+      : null;
+
+  const facultyStaffWorksheetCarouselActiveId = currentIgViewOptions.length
+    ? currentIgViewId
+    : selectedSubsectionId;
+
+  function pickInstitutionGovernanceCategory(categoryId) {
+    const category = getInstitutionGovernanceCategories(selectedSubsectionId, currentIgViewId).find(
+      (item) => item.id === categoryId,
+    );
+    if (!category) return;
+
+    setInstitutionGovernanceCategoryByView((prev) => ({
+      ...prev,
+      [institutionGovernanceCategoryViewKey]: categoryId,
+    }));
+    setDrillPath([]);
+    setDetailFocus(null);
+    setKpiView(firstOrderedVisualView(category.allowedViews ?? [category.defaultView], category.defaultView ?? "bar"));
+    setChartRenderNonce((value) => value + 1);
+  }
+
+  function pickFacultyStaffCarouselItem(itemId) {
+    if (itemId === "faculty-staff-summary") {
+      if (isFacultyStaffSheetActive && currentIgViewId === "faculty-staff-summary") {
+        activateDefaultFacultyStaffHierarchy();
+      } else {
+        handleSubviewChange("faculty-staff", "faculty-staff-summary");
+        activateDefaultFacultyStaffHierarchy();
+      }
+      setDrillPath([]);
+      setDetailFocus(null);
+      setKpiView("bar");
+      setChartRenderNonce((value) => value + 1);
+      return;
+    }
+
+    const categoryConfig = FACULTY_STAFF_CATEGORY_CONFIG.find((item) => item.id === itemId);
+    if (categoryConfig) {
+      if (categoryConfig.type === "group") {
+        setFacultyStaffExpandedCategoryId((value) =>
+          value === itemId ? null : itemId,
+        );
+        setFacultyStaffDrillCarouselOpen(true);
+        setChartRenderNonce((value) => value + 1);
+        return;
+      }
+
+      const pathway = facultyStaffPathwayByNo[Number(categoryConfig.pathwayNo)];
+      if (pathway) {
+        setSelectedFacultyStaffPathwayNo(pathway.pathwayNo);
+        setSelectedFacultyStaffHierarchyKey(pathway.hierarchyKey);
+        setFacultyStaffExpandedCategoryId(null);
+        setFacultyStaffDrillCarouselOpen(true);
+        setDrillPath([]);
+        setDetailFocus(null);
+        setChartRenderNonce((value) => value + 1);
+      }
+      return;
+    }
+
+    if (itemId?.startsWith("faculty-staff-pathway-")) {
+      const pathwayNo = Number(itemId.replace("faculty-staff-pathway-", ""));
+      const pathway = allFacultyStaffMappedPathways.find((item) => Number(item.pathwayNo) === pathwayNo);
+      if (pathway) {
+        const parentCategory = findFacultyStaffCategoryForPathway(pathway.pathwayNo);
+        setSelectedFacultyStaffPathwayNo(pathway.pathwayNo);
+        setSelectedFacultyStaffHierarchyKey(pathway.hierarchyKey);
+        setFacultyStaffExpandedCategoryId(parentCategory?.type === "group" ? parentCategory.id : null);
+        setFacultyStaffDrillCarouselOpen(true);
+        setDrillPath([]);
+        setDetailFocus(null);
+        setChartRenderNonce((value) => value + 1);
+      }
+      return;
+    }
+
+    handleSubviewChange(selectedSubsectionId, itemId);
+    setFacultyStaffDrillCarouselOpen(false);
+    setFacultyStaffExpandedCategoryId(null);
+  }
+
+  function navigateFacultyStaffBreadcrumb(levelIndex) {
+    if (!isFacultyStaffHierarchyView) return;
+
+    if (levelIndex === 0) {
+      const moduleDefaultSubsectionId = activeDomainDef?.children?.[0]?.id;
+      if (moduleDefaultSubsectionId) {
+        openSubsection(activeDomain, moduleDefaultSubsectionId);
+      }
+      return;
+    }
+
+    if (levelIndex === 1) {
+      openSubsection(activeDomain, "faculty-staff", "faculty-staff-summary");
+      setFacultyStaffDrillCarouselOpen(false);
+      setChartRenderNonce((value) => value + 1);
+      return;
+    }
+
+    if (levelIndex === 2) {
+      openSubsection(activeDomain, "faculty-staff", "faculty-staff-summary");
+      setFacultyStaffDrillCarouselOpen(true);
+      setChartRenderNonce((value) => value + 1);
+      return;
+    }
+
+    if (levelIndex === 3 && activeFacultyStaffPathway) {
+      openSubsection(activeDomain, "faculty-staff", "faculty-staff-summary");
+      setSelectedFacultyStaffPathwayNo(activeFacultyStaffPathway.pathwayNo);
+      setSelectedFacultyStaffHierarchyKey(activeFacultyStaffPathway.hierarchyKey);
+      setFacultyStaffDrillCarouselOpen(true);
+      setChartRenderNonce((value) => value + 1);
+    }
+  }
 
   return (
     <div
@@ -1805,7 +2824,7 @@ export default function Dashboard({
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={goBack}
+              onClick={handleDashboardBack}
               className="grid h-9 w-9 place-items-center rounded-2xl bg-white shadow-sm"
               style={{ border: "1px solid rgba(59,130,246,0.15)", color: "#1252a0" }}
               title="Go back"
@@ -1827,14 +2846,15 @@ export default function Dashboard({
                 </svg>
                 <input
                   value={headerSearch}
-                  onFocus={() => setHeaderSearchOpen(Boolean(headerSearchResults.length))}
+                  onFocus={() => setHeaderSearchOpen(Boolean(headerSearch.trim()))}
                   onChange={(event) => {
                     setHeaderSearch(event.target.value);
                     setHeaderSearchOpen(true);
                   }}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" && headerSearchResults[0]) {
-                      handleHeaderSearchSelect(headerSearchResults[0]);
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      handleHeaderSearchSubmit();
                     }
                   }}
                   placeholder="Search module, sub-module, or worksheet"
@@ -2006,11 +3026,7 @@ export default function Dashboard({
           <div className="mt-4">
             <button
               type="button"
-              onClick={() => {
-                if (section === "Home") return;
-                rememberCurrentLocation();
-                setSection("Home");
-              }}
+              onClick={() => setSection("Home")}
               className={`flex w-full items-center gap-3 rounded-[24px] px-3 py-3 text-left transition ${sidebarCollapsed ? "justify-center" : ""}`}
               style={
                 section === "Home"
@@ -2189,8 +3205,6 @@ export default function Dashboard({
                     key={item.id}
                     type="button"
                     onClick={() => {
-                      if (section === item.id) return;
-                      rememberCurrentLocation();
                       if (item.id === "Compare") {
                         setCompareCfg(buildCompareDefaults({ autoApply: true }));
                       }
@@ -2230,20 +3244,27 @@ export default function Dashboard({
             <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-3">
                 <SubKpiCarousel
-                  kpis={
-                    currentIgViewOptions.length
-                      ? currentIgViewOptions.map((item) => ({ id: item.id, label: item.label }))
-                      : [{ id: selectedSubsectionId, label: currentSubsection.label }]
-                  }
-                  activeId={currentIgViewOptions.length ? currentIgViewId : selectedSubsectionId}
+                  kpis={facultyStaffWorksheetCarouselItems}
+                  activeId={facultyStaffWorksheetCarouselActiveId}
                   onPick={(itemId) => {
-                    if (currentIgViewOptions.length) handleSubviewChange(selectedSubsectionId, itemId);
-                    else openSubsection(activeDomain, itemId);
+                    if (selectedSubsectionId === "faculty-staff") {
+                      pickFacultyStaffCarouselItem(itemId);
+                    } else if (currentIgViewOptions.length) {
+                      handleSubviewChange(selectedSubsectionId, itemId);
+                    } else {
+                      openSubsection(activeDomain, itemId);
+                    }
                   }}
                   accent={accent}
                   soft={soft}
                   title={currentSubsection.label}
-                  helper="Select the module to analyze."
+                  helper={
+                    isFacultyStaffSheetActive
+                      ? facultyStaffDrillCarouselOpen
+                        ? "Select a category to analyse."
+                        : "Select the module to analyze. Choose Faculty and Staff to reveal its mapped drill paths below the carousel."
+                      : "Select the module to analyze."
+                  }
                 />
               </div>
               <div
@@ -2299,164 +3320,159 @@ export default function Dashboard({
                   border: "1px solid rgba(59,130,246,0.15)",
                 }}
               >
-                <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-                  <div>
-                  <div className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "#64748b" }}>
-                    Institute snapshot · AY {yearRange.from}–{yearRange.to}
-                  </div>
-                  <div className="mt-3 text-5xl font-black leading-none" style={{ color: "#0f2a5e" }}>
-                    {currentInstitute.name}
-                  </div>
-                  <div className="mt-3 max-w-3xl text-sm" style={{ color: "#475569" }}>
-                    Quick links to modules and institute reports.
-                  </div>
-
-                  <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                    <input
-                      value={homeSearch}
-                      onChange={(event) => setHomeSearch(event.target.value)}
-                      placeholder="Search reports, rankings, student data"
-                      className="h-12 flex-1 rounded-[18px] px-4 outline-none"
-                      style={{
-                        border: "1px solid rgba(59,130,246,0.16)",
-                        background: "#ffffff",
-                        color: "#0f172a",
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openReportsForKpis(
-                          homeReportCards.map((item) => item.kpiId),
-                          homeReportCards[0]?.kpiId,
-                        )
-                      }
-                      className="h-12 rounded-[18px] px-6 text-sm font-bold text-white"
-                      style={{ background: accent }}
-                    >
-                      Search
-                    </button>
-                  </div>
-
-                  <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {homeModuleCards.map((card) => (
-                      <button
-                        key={card.id}
-                        type="button"
-                        onClick={card.onClick}
-                        className="rounded-[24px] px-4 py-4 text-left transition hover:-translate-y-0.5"
+                <div className="space-y-6">
+                  <div className="flex min-w-0 items-center gap-4">
+                    {currentInstituteLogo ? (
+                      <img
+                        src={currentInstituteLogo}
+                        alt={`${currentInstitute.name} logo`}
+                        className="h-12 w-12 shrink-0 object-contain"
+                      />
+                    ) : (
+                      <div
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border text-[11px] font-extrabold uppercase tracking-[0.12em]"
                         style={{
+                          borderColor: "rgba(59,130,246,0.18)",
+                          color: "#0f2a5e",
                           background: "rgba(248,250,252,0.82)",
-                          border: "1px solid rgba(59,130,246,0.12)",
                         }}
                       >
-                        <div className="flex items-start gap-3">
-                          <span className="mt-1 h-14 w-1.5 rounded-full" style={{ background: card.color }} />
-                          <span className="block min-w-0">
-                            <span className="block text-3xl font-extrabold leading-none" style={{ color: "#0f172a" }}>
-                              {formatCompact(card.value)}
-                            </span>
-                            <span className="mt-2 block text-[1.02rem] font-semibold leading-tight" style={{ color: "#0f2a5e" }}>
-                              {card.label}
-                            </span>
-                            <span className="mt-1 block text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: "#64748b" }}>
-                              {card.note}
-                            </span>
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {homeReportCards.map((card) => (
-                      <button
-                        key={card.id}
-                        type="button"
-                        onClick={() => openReportsForKpis([card.kpiId], card.kpiId)}
-                        className="rounded-[24px] px-4 py-4 text-left transition hover:-translate-y-0.5"
-                        style={{
-                          background: "rgba(248,250,252,0.82)",
-                          border: "1px solid rgba(59,130,246,0.12)",
-                        }}
+                        {currentInstitute.id}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div
+                        className="truncate text-4xl font-black leading-none sm:text-5xl"
+                        style={{ color: "#0f2a5e" }}
                       >
-                        <div className="flex items-start gap-3">
-                          <span className="mt-1 h-14 w-1.5 rounded-full" style={{ background: card.color }} />
-                          <span className="block min-w-0">
-                            <span className="block text-3xl font-extrabold leading-none" style={{ color: "#0f172a" }}>
-                              {card.value}
-                            </span>
-                            <span className="mt-2 block text-[1.02rem] font-semibold leading-tight" style={{ color: "#0f2a5e" }}>
-                              {card.label}
-                            </span>
-                            <span className="mt-1 block text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: "#64748b" }}>
-                              {card.note}
-                            </span>
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="mt-5 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openReportsForKpis(
-                          homeReportCards.map((item) => item.kpiId),
-                          homeReportCards[0]?.kpiId,
-                        )
-                      }
-                      className="rounded-2xl px-4 py-2.5 text-sm font-bold text-white"
-                      style={{ background: accent }}
-                    >
-                      Explore institute reports
-                    </button>
-                    <button
-                      type="button"
-                      onClick={openCompareFromCurrentContext}
-                      className="rounded-2xl px-4 py-2.5 text-sm font-bold"
-                      style={{
-                        color: "#1252a0",
-                        border: "1px solid rgba(59,130,246,0.18)",
-                        background: "#ffffff",
-                      }}
-                    >
-                      Compare IITs
-                    </button>
-                  </div>
-                  </div>
-
-                  <div
-                    className="flex h-full items-center justify-center rounded-[28px] p-5"
-                    style={{
-                      background: "rgba(238,245,255,0.52)",
-                      border: "1px solid rgba(59,130,246,0.12)",
-                    }}
-                  >
-                    <div
-                      className="flex min-h-[320px] w-full items-center justify-center rounded-[24px] bg-white p-6"
-                      style={{ border: "1px solid rgba(59,130,246,0.12)" }}
-                    >
-                      {currentInstituteLogo ? (
-                        <img
-                          src={currentInstituteLogo}
-                          alt={`${currentInstitute.name} logo`}
-                          className="max-h-[280px] w-auto object-contain"
-                        />
-                      ) : (
-                        <div
-                          className="flex h-40 w-40 items-center justify-center rounded-full border text-center text-lg font-extrabold uppercase tracking-[0.18em]"
-                          style={{
-                            borderColor: "rgba(59,130,246,0.18)",
-                            color: "#0f2a5e",
-                            background: "rgba(248,250,252,0.82)",
-                          }}
-                        >
-                          {currentInstitute.id}
-                        </div>
-                      )}
+                        {currentInstitute.name}
+                      </div>
                     </div>
+                  </div>
+
+                  <div ref={homeSearchRef} className="relative max-w-4xl">
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <div
+                        className="flex h-12 flex-1 items-center gap-2 rounded-[18px] bg-white px-3 shadow-sm"
+                        style={{ border: "1px solid rgba(59,130,246,0.15)" }}
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          className="h-4 w-4 shrink-0"
+                          fill="none"
+                          stroke="#64748b"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <circle cx="11" cy="11" r="7" />
+                          <path d="m20 20-3.5-3.5" />
+                        </svg>
+                        <input
+                          value={homeSearch}
+                          onFocus={() => setHomeSearchOpen(Boolean(homeSearch.trim()))}
+                          onChange={(event) => {
+                            setHomeSearch(event.target.value);
+                            setHomeSearchOpen(true);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              handleHomeSearchSubmit();
+                            }
+                          }}
+                          placeholder="Search module, sub-module, or worksheet"
+                          className="h-full min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none"
+                        />
+                        {homeSearch ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setHomeSearch("");
+                              setHomeSearchOpen(false);
+                            }}
+                            className="grid h-6 w-6 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-500"
+                            aria-label="Clear search"
+                          >
+                            x
+                          </button>
+                        ) : null}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleHomeSearchSubmit}
+                        className="h-12 rounded-[18px] px-6 text-sm font-bold text-white"
+                        style={{ background: accent }}
+                      >
+                        Search
+                      </button>
+                    </div>
+
+                    {homeSearchOpen ? (
+                      <div
+                        className="absolute inset-x-0 top-full z-[150] mt-2 overflow-hidden rounded-[22px] bg-white shadow-xl"
+                        style={{ border: "1px solid rgba(59,130,246,0.14)" }}
+                      >
+                        {homeSearchResults.length ? (
+                          <div className="max-h-[320px] overflow-auto py-2">
+                            {homeSearchResults.map((result) => (
+                              <button
+                                key={result.key}
+                                type="button"
+                                onClick={() => handleHomeSearchSelect(result)}
+                                className="flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-slate-50"
+                              >
+                                <span
+                                  className="mt-1 h-2.5 w-2.5 rounded-full"
+                                  style={{ background: accent }}
+                                />
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm font-semibold text-slate-800">
+                                    {result.label}
+                                  </span>
+                                  <span className="mt-0.5 block text-xs text-slate-500">
+                                    {result.subtitle}
+                                  </span>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : homeSearch.trim() ? (
+                          <div className="px-4 py-4 text-sm text-slate-500">
+                            No matching module, sub-module, or worksheet found.
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="grid auto-rows-fr gap-5 md:grid-cols-2 lg:grid-cols-4">
+                    {homeDashboardCards.map((card) => (
+                      <div
+                        key={card.id}
+                        className="min-h-[188px] rounded-[28px] px-6 py-5 shadow-sm"
+                        style={{
+                          background: "rgba(248,250,252,0.82)",
+                          border: "1px solid rgba(59,130,246,0.12)",
+                        }}
+                      >
+                        <div className="flex h-full items-start gap-4">
+                          <span className="mt-1 h-[72px] w-1.5 rounded-full" style={{ background: card.color }} />
+                          <span className="block min-w-0 pr-1">
+                            <span className="block text-[2.25rem] font-extrabold leading-none" style={{ color: "#0f172a" }}>
+                              {card.displayValue}
+                            </span>
+                            <span className="mt-3 block text-[1.1rem] font-semibold leading-tight" style={{ color: "#0f2a5e" }}>
+                              {card.label}
+                            </span>
+                            <span className="mt-2 block text-[10.5px] font-semibold uppercase tracking-[0.12em]" style={{ color: "#64748b" }}>
+                              {card.note}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -2471,9 +3487,8 @@ export default function Dashboard({
               role={role}
               onConfigChange={setCompareCfg}
               onOpenFilters={() => openFilterFor("compare")}
-              onBack={goBack}
+              onBack={handleDashboardBack}
               onViewReports={(metricIds) => {
-                rememberCurrentLocation();
                 setReportsCfg((prev) => ({ ...prev, KpiIds: metricIds }));
                 setSection("Reports");
               }}
@@ -2490,7 +3505,7 @@ export default function Dashboard({
               onOpenFilters={() => openFilterFor("reports")}
               onOpenSource={() => setSourceOpen(true)}
               onOpenInstructions={() => setInstructionsOpen(true)}
-              onBack={goBack}
+              onBack={handleDashboardBack}
               focusKpiId={selectedKpiId}
               autoOpenKey={reportAutoOpenKey}
             />
@@ -2591,6 +3606,50 @@ export default function Dashboard({
             </div>
           ) : null}
 
+          {MODULES.includes(section) && isFacultyStaffSheetActive && facultyStaffDrillCarouselOpen && facultyStaffNestedCarouselItems.length ? (
+            <div className="mt-3 space-y-3">
+              <SubKpiCarousel
+                kpis={facultyStaffNestedCarouselItems}
+                activeId={facultyStaffNestedCarouselActiveId}
+                autoScrollTargetId={facultyStaffNestedCarouselScrollTargetId}
+                onPick={pickFacultyStaffCarouselItem}
+                accent={accent}
+                soft={soft}
+                title="Categories"
+                helper="Select the module to analyze."
+                compact
+              />
+              {facultyStaffNestedCarouselChildren.length ? (
+                <SubKpiCarousel
+                  kpis={facultyStaffNestedCarouselChildren}
+                  activeId={facultyStaffNestedChildCarouselActiveId}
+                  autoScrollTargetId={facultyStaffNestedChildCarouselScrollTargetId}
+                  onPick={pickFacultyStaffCarouselItem}
+                  accent={accent}
+                  soft={blendHexColor(accent, "#ffffff", 0.9)}
+                  title={activeFacultyStaffCategory?.childTitle ?? "Sub-categories"}
+                  helper="Select a sub-category to analyse."
+                  compact
+                />
+              ) : null}
+            </div>
+          ) : null}
+
+          {MODULES.includes(section) && isInstitutionGovernanceActive && institutionGovernanceCategoryItems.length ? (
+            <div className="mt-3">
+              <SubKpiCarousel
+                kpis={institutionGovernanceCategoryItems}
+                activeId={currentInstitutionGovernanceCategoryId}
+                onPick={pickInstitutionGovernanceCategory}
+                accent={accent}
+                soft={soft}
+                title="Categories"
+                helper="Select a category to analyse."
+                compact
+              />
+            </div>
+          ) : null}
+
           {MODULES.includes(section) ? (
             <div
               className="rounded-[30px] p-4 shadow-sm"
@@ -2661,19 +3720,21 @@ export default function Dashboard({
                     >
                       Raw
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setValueMode("percent")}
-                      className="rounded-full px-3 py-1.5 text-xs font-bold"
-                      style={{
-                        background:
-                          valueMode === "percent" ? `${accent}15` : "white",
-                        border: `1px solid ${valueMode === "percent" ? accent : "rgba(148,163,184,0.22)"}`,
-                        color: valueMode === "percent" ? accent : "#475569",
-                      }}
-                    >
-                      Percent
-                    </button>
+                    {canUsePercentMode ? (
+                      <button
+                        type="button"
+                        onClick={() => setValueMode("percent")}
+                        className="rounded-full px-3 py-1.5 text-xs font-bold"
+                        style={{
+                          background:
+                            valueMode === "percent" ? `${accent}15` : "white",
+                          border: `1px solid ${valueMode === "percent" ? accent : "rgba(148,163,184,0.22)"}`,
+                          color: valueMode === "percent" ? accent : "#475569",
+                        }}
+                      >
+                        Percent
+                      </button>
+                    ) : null}
                   </div>
 
                   <div className="min-w-0 flex-1 px-12 text-center">
@@ -2684,12 +3745,26 @@ export default function Dashboard({
                       {currentViewLabel}
                     </div>
                     <div className="mt-2 flex justify-center">
-                      <Breadcrumbs
-                        base={displayBaseBreakdownLabel}
-                        levels={selectedKpi.levels ?? []}
-                        drillPath={drillPath}
-                        onPopTo={popDrillTo}
-                      />
+                      {(isInstitutionGovernanceVisualActive
+                        ? institutionGovernanceVisual?.drillable
+                        : selectedKpi.drillable) && !isFacultyStaffHierarchyView ? (
+                        <Breadcrumbs
+                          base={visibleBaseBreakdownLabel}
+                          levels={activeVisualLevels}
+                          drillPath={drillPath}
+                          onPopTo={popDrillTo}
+                        />
+                      ) : (
+                        <div
+                          className="rounded-lg px-2.5 py-1.5 text-[13px] font-bold"
+                          style={{
+                            background: "rgba(25,117,190,0.08)",
+                            color: "#1252a0",
+                          }}
+                        >
+                          {nonDrillCategoryLabel}
+                        </div>
+                      )}
                     </div>
                     <div
                       className="mt-2.5 text-[13px] font-semibold"
@@ -2716,77 +3791,97 @@ export default function Dashboard({
                 </div>
 
                 <div
-                  key={`${kpiView}-${isFullscreen ? "fs" : "std"}-${chartRenderNonce}-${selectedKpi.id}-${drillPath.join("-")}`}
+                  key={`${kpiView}-${isFullscreen ? "fs" : "std"}-${chartRenderNonce}-${selectedKpi.id}-${currentInstitutionGovernanceCategoryId ?? ""}-${drillPath.join("-")}-${selectedFacultyStaffHierarchyKey}-${selectedFacultyStaffPathwayNo}`}
                   ref={chartOnlyRef}
-                  className={`dashboard-chart-body min-w-0 ${isFullscreen ? (kpiView === "table" ? "flex flex-1 min-h-0 items-center justify-center overflow-hidden pt-24 pb-14" : "flex flex-1 min-h-0 items-start justify-center pt-24 pb-14" ) : "flex min-h-[460px] items-center justify-center pt-24 pb-10"}`}
+                  className={`dashboard-chart-body min-w-0 ${isFullscreen ? (["table", "cards", "empty"].includes(kpiView) ? "flex flex-1 min-h-0 items-center justify-center overflow-hidden pt-24 pb-14" : "flex flex-1 min-h-0 items-start justify-center pt-24 pb-14" ) : "flex min-h-[460px] items-center justify-center pt-24 pb-10"}`}
                   style={{
                     ...visualChartBodyStyle,
                     ...(isFullscreen ? {} : { transform: "translateY(12px)" }),
                   }}
                 >
                   <div className={`${chartPanelWidthClass} mx-auto`}>
-                    {kpiView === "bar" ? (
+                    {kpiView === "empty" || (isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.isEmpty) ? (
+                      <div className="mx-auto flex min-h-[260px] max-w-[620px] flex-col items-center justify-center rounded-[28px] border border-dashed px-8 py-10 text-center" style={{ background: "rgba(248,250,252,0.78)", borderColor: "rgba(59,130,246,0.22)" }}>
+                        <div className="grid h-14 w-14 place-items-center rounded-2xl text-2xl font-black" style={{ background: `${accent}12`, color: accent }}>
+                          —
+                        </div>
+                        <div className="mt-4 text-lg font-extrabold" style={{ color: "#0f172a" }}>
+                          {institutionGovernanceVisual?.emptyTitle ?? "Visual unavailable"}
+                        </div>
+                        <p className="mt-2 max-w-[520px] text-sm font-semibold leading-6" style={{ color: "#64748b" }}>
+                          {institutionGovernanceVisual?.emptyMessage ?? "Visual for this metric is not available here."}
+                        </p>
+                      </div>
+                    ) : kpiView === "cards" && isInstitutionGovernanceVisualActive ? (
+                      <div className="mx-auto grid w-full max-w-[860px] gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        {(institutionGovernanceVisual?.cards ?? []).map((card) => (
+                          <div key={card.label} className="rounded-[26px] px-5 py-4 shadow-sm" style={{ background: "rgba(248,250,252,0.86)", border: "1px solid rgba(59,130,246,0.14)" }}>
+                            <div className="text-[11px] font-extrabold uppercase tracking-[0.12em]" style={{ color: "#64748b" }}>
+                              {card.label}
+                            </div>
+                            <div className="mt-3 text-3xl font-black leading-none" style={{ color: "#0f172a" }}>
+                              {typeof card.value === "number" ? (card.format === "pct" ? formatPct(card.value) : formatCompact(card.value)) : String(card.value ?? "—")}
+                            </div>
+                            {card.note ? (
+                              <div className="mt-2 text-xs font-semibold" style={{ color: "#64748b" }}>
+                                {card.note}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : kpiView === "bar" ? (
                       <BreakdownBar
-                        data={displayBreakdown}
-                        format={
-                          valueMode === "percent" && selectedKpi.format !== "pct"
-                            ? "pct"
-                            : selectedKpi.format
-                        }
-                        onBarClick={selectedKpi.drillable ? onDrillNext : undefined}
-                        accent={accent}
-                        xLabel={currentBreakdownLabel}
-                        yLabel={currentValueLabel}
+                        data={visibleChartBreakdown}
+                        format={activeChartFormat}
+                        onBarClick={chartIsInteractive ? (isFacultyStaffHierarchyView ? onFacultyStaffChartDrill : onDrillNext) : undefined}
+                        accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
+                        xLabel={visibleCurrentBreakdownLabel}
+                        yLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
-                        interactive={selectedKpi.drillable}
+                        interactive={chartIsInteractive}
+                        drillHint={chartDrillHint}
                       />
                     ) : kpiView === "trend" ? (
                       <BreakdownLine
                         data={trendSeries}
-                        format={
-                          valueMode === "percent" && selectedKpi.format !== "pct"
-                            ? "pct"
-                            : selectedKpi.format
-                        }
+                        format={activeChartFormat}
                         accent={accent}
-                        yLabel={currentValueLabel}
+                        yLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
                       />
                     ) : kpiView === "donut" ? (
                       <BreakdownDonut
-                        data={displayBreakdown}
-                        format={
-                          valueMode === "percent" && selectedKpi.format !== "pct"
-                            ? "pct"
-                            : selectedKpi.format
-                        }
-                        onSliceClick={selectedKpi.drillable ? onDrillNext : undefined}
-                        accent={accent}
+                        data={visibleChartBreakdown}
+                        format={activeChartFormat}
+                        onSliceClick={chartIsInteractive ? (isFacultyStaffHierarchyView ? onFacultyStaffChartDrill : onDrillNext) : undefined}
+                        accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
                         soft={soft}
-                        metricLabel={currentValueLabel}
+                        metricLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
-                        interactive={selectedKpi.drillable}
+                        interactive={chartIsInteractive}
+                        drillHint={chartDrillHint}
                       />
                     ) : (
                       <div className="w-full pt-4">
                         <DataTable
-                          columns={[
-                            { key: "name", label: currentBreakdownLabel },
-                            {
-                              key: "value",
-                              label: currentValueLabel,
-                              format: (value) =>
-                                valueMode === "percent" &&
-                                selectedKpi.format !== "pct"
-                                  ? formatPct(value)
-                                  : selectedKpi.format === "pct"
-                                    ? formatPct(value)
-                                    : formatCompact(value),
-                            },
-                          ]}
-                          rows={displayBreakdown}
+                          columns={isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.tableColumns?.length
+                            ? institutionGovernanceVisual.tableColumns
+                            : [
+                                { key: "name", label: visibleCurrentBreakdownLabel },
+                                {
+                                  key: "value",
+                                  label: visibleCurrentValueLabel,
+                                  format: (value) => activeChartFormat === "pct" ? formatPct(value) : formatCompact(value),
+                                },
+                              ]}
+                          rows={isInstitutionGovernanceVisualActive
+                            ? institutionGovernanceVisual?.tableRows?.length
+                              ? institutionGovernanceVisual.tableRows
+                              : institutionGovernanceVisual?.detailRows ?? []
+                            : visibleBreakdown}
                           maxHeight={500}
-                          onRowClick={selectedKpi.drillable ? (row) => onDrillNext(row.name) : undefined}
+                          onRowClick={!isInstitutionGovernanceVisualActive && canDrillChart ? (row) => onDrillNext(row.name) : undefined}
                         />
                       </div>
                     )}

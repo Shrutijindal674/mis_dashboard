@@ -101,6 +101,19 @@ function firstOrderedVisualView(viewIds = [], fallback = "bar") {
   return orderVisualViewIds(viewIds)[0] ?? fallback;
 }
 
+function preferredVisualViewForCategory(category, fallback = "bar") {
+  const allowedViews = category?.allowedViews ?? [category?.defaultView ?? fallback];
+  if (category?.defaultView && allowedViews.includes(category.defaultView)) {
+    return category.defaultView;
+  }
+  return firstOrderedVisualView(allowedViews, category?.defaultView ?? fallback);
+}
+
+function preferredInstitutionGovernanceView(subsectionId, viewId, fallback = "bar") {
+  const category = getInstitutionGovernanceCategories(subsectionId, viewId)?.[0];
+  return preferredVisualViewForCategory(category, fallback);
+}
+
 function facultyStaffFieldLabel(fieldKey) {
   return FACULTY_STAFF_FIELD_LABELS[fieldKey] ?? String(fieldKey ?? "").replaceAll("_", " ");
 }
@@ -2081,12 +2094,6 @@ export default function Dashboard({
     }
   }, [isInstitutionGovernanceVisualActive, institutionGovernanceVisual?.allowPercent, valueMode]);
 
-  useEffect(() => {
-    if (!visualToolbarItems.some((item) => item.id === kpiView)) {
-      setKpiView(visualToolbarItems[0]?.id ?? "bar");
-    }
-  }, [kpiView, canShowTimeSeries, currentInstitutionGovernanceCategoryId, currentIgViewId, isInstitutionGovernanceVisualActive]);
-
   function popDrillTo(depth) {
     setDetailFocus(null);
     setDrillPath((prev) => prev.slice(0, depth));
@@ -2099,10 +2106,11 @@ export default function Dashboard({
     setDetailFocus(null);
     const fallback = DOMAIN_BY_ID[domainId]?.children?.[0];
     if (fallback) {
+      const resolvedViewId = subsectionViews[fallback.id] ?? SUBSECTION_VIEW_OPTIONS[fallback.id]?.[0]?.id ?? null;
       setSelectedSubsectionId(fallback.id);
       setSelectedKpiId(resolveSubsectionKpiId(fallback.id, subsectionViews));
       setDrillPath([]);
-      setKpiView("bar");
+      setKpiView(domainId === IG_MODULE_ID ? preferredInstitutionGovernanceView(fallback.id, resolvedViewId) : "bar");
     }
   }
 
@@ -2133,7 +2141,7 @@ export default function Dashboard({
     setSelectedKpiId(resolveSubsectionKpiId(subsectionId, nextViews));
     setDrillPath([]);
     setDetailFocus(null);
-    setKpiView("bar");
+    setKpiView(domainId === IG_MODULE_ID ? preferredInstitutionGovernanceView(subsectionId, resolvedViewId) : "bar");
     setSpeedDialOpen(false);
 
     if (
@@ -2152,7 +2160,7 @@ export default function Dashboard({
     });
     setDrillPath([]);
     setDetailFocus(null);
-    setKpiView("bar");
+    setKpiView(preferredInstitutionGovernanceView(subsectionId, nextViewId));
 
     if (
       subsectionId === "faculty-staff" &&
@@ -2425,6 +2433,15 @@ export default function Dashboard({
     ]).map((id) => itemById[id]);
   }, [canShowTimeSeries, isInstitutionGovernanceVisualActive, institutionGovernanceVisual]);
 
+  useEffect(() => {
+    if (!visualToolbarItems.some((item) => item.id === kpiView)) {
+      const preferred = isInstitutionGovernanceVisualActive && visualToolbarItems.some((item) => item.id === institutionGovernanceVisual?.defaultView)
+        ? institutionGovernanceVisual.defaultView
+        : visualToolbarItems[0]?.id ?? "bar";
+      setKpiView(preferred);
+    }
+  }, [kpiView, canShowTimeSeries, currentInstitutionGovernanceCategoryId, currentIgViewId, isInstitutionGovernanceVisualActive, institutionGovernanceVisual?.defaultView, visualToolbarItems]);
+
   const fullscreenChartReserve = isFacultyStaffHierarchyView ? 360 : 300;
   const fullscreenBarHeight = Math.max(
     250,
@@ -2607,7 +2624,7 @@ export default function Dashboard({
     }));
     setDrillPath([]);
     setDetailFocus(null);
-    setKpiView(firstOrderedVisualView(category.allowedViews ?? [category.defaultView], category.defaultView ?? "bar"));
+    setKpiView(preferredVisualViewForCategory(category));
     setChartRenderNonce((value) => value + 1);
   }
 

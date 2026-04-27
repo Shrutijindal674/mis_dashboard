@@ -169,11 +169,9 @@ export default function BreakdownBar({
               <>
                 <XAxis
                   type="number"
-                  domain={isPct ? [0, 1] : [0, "dataMax"]}
-                  ticks={isPct ? [0, 0.25, 0.5, 0.75, 1] : undefined}
                   tick={{ fontSize: 12, fontWeight: 600, fill: "#334155" }}
                   tickFormatter={(v) =>
-                    isPct ? formatPct(Number(v)) : formatCompact(v)
+                    isPct ? `${Math.round(v * 100)}%` : formatCompact(v)
                   }
                 >
                   <Label
@@ -215,11 +213,9 @@ export default function BreakdownBar({
                 </XAxis>
                 <YAxis
                   width={84}
-                  domain={isPct ? [0, 1] : [0, "dataMax"]}
-                  ticks={isPct ? [0, 0.25, 0.5, 0.75, 1] : undefined}
                   tick={{ fontSize: 12, fontWeight: 600, fill: "#334155" }}
                   tickFormatter={(v) =>
-                    isPct ? formatPct(Number(v)) : formatCompact(v)
+                    isPct ? `${Math.round(v * 100)}%` : formatCompact(v)
                   }
                 >
                   <Label content={<WrappedAxisLabel value={yAxisLabel} />} />

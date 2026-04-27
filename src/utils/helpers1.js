@@ -30,17 +30,11 @@ export function clamp(n, lo, hi) {
 
 export function formatCompact(n) {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
-  const value = Number(n);
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`;
-  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  if (Number.isInteger(value)) return `${value}`;
-  if (abs >= 100) return `${value.toFixed(1)}`;
-  if (abs >= 10) return `${value.toFixed(1)}`;
-  if (abs >= 1) return `${value.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}`;
-  if (abs === 0) return "0";
-  return `${value.toFixed(abs < 0.01 ? 3 : 2)}`;
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return `${Math.round(n)}`;
 }
 
 export function formatPct(x) {
