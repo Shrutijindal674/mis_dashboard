@@ -55,6 +55,7 @@ import {
 
 import Select from "../components/ui/Select";
 import SubKpiCarousel from "../components/ui/SubKpiCarousel";
+import CombinedKpiSelector from "../components/ui/CombinedKpiSelector";
 import Drawer from "../components/ui/Drawer";
 import Modal from "../components/ui/Modal";
 import DataTable from "../components/ui/DataTable";
@@ -79,6 +80,15 @@ const IIT_HOME_LOGOS = {
 
 const LEGACY_COMPARE_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
 const DEFAULT_FACULTY_STAFF_VIEW_ID = "faculty-staff-summary";
+const LATEST_YEAR = YEARS[YEARS.length - 1];
+const EARLIEST_YEAR = YEARS[0];
+const DEFAULT_YEAR_RANGE = { from: LATEST_YEAR, to: LATEST_YEAR };
+const DEFAULT_MULTI_YEAR_FROM = YEARS[Math.max(0, YEARS.length - 5)] ?? EARLIEST_YEAR;
+const YEAR_FILTER_MODES = [
+  { id: "single", label: "Select Year" },
+  { id: "range", label: "Select Year Range" },
+  { id: "advanced", label: "Advanced Filters" },
+];
 const DEFAULT_FACULTY_STAFF_HIERARCHY_KEY = "workforce-composition";
 const DEFAULT_FACULTY_STAFF_PATHWAY_NO = 4;
 const VISUAL_VIEW_ORDER = ["cards", "bar", "donut", "trend", "table", "empty"];
@@ -773,7 +783,8 @@ export default function Dashboard({
   );
   const [selectedKpiId, setSelectedKpiId] = useState(initialChild.kpiId);
   const [drillPath, setDrillPath] = useState([]);
-  const [yearRange, setYearRange] = useState({ from: 2022, to: 2024 });
+  const [yearRange, setYearRange] = useState(DEFAULT_YEAR_RANGE);
+  const [yearFilterMode, setYearFilterMode] = useState("single");
   const [kpiView, setKpiView] = useState("bar");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedDomains, setExpandedDomains] = useState(
@@ -827,6 +838,7 @@ export default function Dashboard({
   const kpiChartRef = useRef(null);
   const chartOnlyRef = useRef(null);
   const chartExportRef = useRef(null);
+  const pendingRangeTrendRef = useRef(false);
   const lastUpdated = useMemo(
     () => facts?.meta?.generatedAt ?? new Date().toISOString(),
     [facts],
@@ -838,6 +850,23 @@ export default function Dashboard({
     return IITs.find((item) => item.id === activeInstituteId) ?? IITs[0];
   }, [activeInstituteId]);
   const currentInstituteLogo = IIT_HOME_LOGOS[activeInstituteId] ?? null;
+  const selectedYears = useMemo(
+    () => YEARS.filter((year) => Number(year) >= Number(yearRange.from) && Number(year) <= Number(yearRange.to)),
+    [yearRange.from, yearRange.to],
+  );
+  const isMultiYearSelection = selectedYears.length > 1;
+  const selectedYearSet = useMemo(() => new Set(selectedYears.map(Number)), [selectedYears]);
+  const yearContextLabel =
+    Number(yearRange.from) === Number(yearRange.to)
+      ? String(yearRange.to)
+      : `${yearRange.from}\u2013${yearRange.to}`;
+  const chartContextSubtitle = isMultiYearSelection
+    ? `Year-wise values, ${yearContextLabel} \u00b7 ${currentInstitute.name}`
+    : `${yearContextLabel} \u00b7 ${currentInstitute.name}`;
+  const yearFileLabel =
+    Number(yearRange.from) === Number(yearRange.to)
+      ? String(yearRange.to)
+      : `${yearRange.from}_${yearRange.to}`;
 
   const activeSectionTheme =
     THEME_COLORS[MODULES.includes(section) ? section : module] ??
@@ -1493,30 +1522,26 @@ export default function Dashboard({
 
   const facultyStaffChartBreakdown = facultyStaffDisplayBreakdown;
 
-  const visibleBreakdown = isFacultyStaffHierarchyView
+  const baseVisibleBreakdown = isFacultyStaffHierarchyView
     ? facultyStaffDisplayBreakdown
     : isInstitutionGovernanceVisualActive
       ? institutionGovernanceDisplayBreakdown
       : displayBreakdown;
 
-  const visibleChartBreakdown = isFacultyStaffHierarchyView
+  const baseVisibleChartBreakdown = isFacultyStaffHierarchyView
     ? facultyStaffChartBreakdown
     : isInstitutionGovernanceVisualActive
       ? institutionGovernanceDisplayBreakdown
       : displayBreakdown;
 
   const trendSeries = useMemo(() => {
-    const years = YEARS.filter(
-      (year) => year >= yearRange.from && year <= yearRange.to,
-    );
-
     if (isInstitutionGovernanceVisualActive) {
       return institutionGovernanceVisual?.trend ?? [];
     }
 
     if (isFacultyStaffHierarchyView && activeFacultyStaffPathway) {
       const allRows = buildFacultyStaffRowsForPathway(activeFacultyStaffPathway);
-      return years.map((year) => {
+      return selectedYears.map((year) => {
         const rows = allRows.filter(
           (row) =>
             row.InstituteId === activeInstituteId &&
@@ -1529,7 +1554,7 @@ export default function Dashboard({
       });
     }
 
-    return years.map((year) => {
+    return selectedYears.map((year) => {
       let rows = facts?.[selectedKpi.fact] ?? [];
       rows = scopeRowsForKpi(selectedKpi, rows);
       rows = rows.filter((row) => Number(row.Year ?? 0) === Number(year));
@@ -1545,12 +1570,34 @@ export default function Dashboard({
     facts,
     selectedKpi,
     activeInstituteId,
-    yearRange,
+    selectedYears,
     isFacultyStaffHierarchyView,
     activeFacultyStaffPathway,
     isInstitutionGovernanceVisualActive,
     institutionGovernanceVisual,
   ]);
+
+  const standardYearWiseBreakdown = useMemo(() => {
+    if (!isMultiYearSelection || isInstitutionGovernanceVisualActive) return [];
+    return trendSeries.map((item) => ({
+      ...item,
+      Year: item.name,
+      name: item.name,
+      value: Number(item.value ?? 0),
+    }));
+  }, [isMultiYearSelection, isInstitutionGovernanceVisualActive, trendSeries]);
+
+  const chartShowsYearWiseBreakdown =
+    isMultiYearSelection && !isInstitutionGovernanceVisualActive && kpiView !== "trend";
+  const chartShowsYearWiseBars = chartShowsYearWiseBreakdown && kpiView === "bar";
+  const visibleBreakdown =
+    isMultiYearSelection && !isInstitutionGovernanceVisualActive
+      ? standardYearWiseBreakdown
+      : baseVisibleBreakdown;
+  const visibleChartBreakdown =
+    chartShowsYearWiseBreakdown
+      ? standardYearWiseBreakdown
+      : baseVisibleChartBreakdown;
 
   const activeVisualLevels = isInstitutionGovernanceVisualActive
     ? institutionGovernanceVisual?.levels ?? []
@@ -1561,6 +1608,52 @@ export default function Dashboard({
     trendSeries.length > 1 &&
     (!isInstitutionGovernanceVisualActive ||
       institutionGovernanceVisual?.allowedViews?.includes("trend"));
+
+  function setSingleYearFilter(year) {
+    const nextYear = Number(year);
+    pendingRangeTrendRef.current = false;
+    setYearFilterMode("single");
+    setYearRange({ from: nextYear, to: nextYear });
+  }
+
+  function setInclusiveYearRange(nextRange) {
+    const from = Number(nextRange.from);
+    const to = Number(nextRange.to);
+    const normalizedRange = {
+      from: Math.min(from, to),
+      to: Math.max(from, to),
+    };
+    pendingRangeTrendRef.current = normalizedRange.to > normalizedRange.from;
+    setYearRange(normalizedRange);
+  }
+
+  function chooseYearFilterMode(nextMode) {
+    setYearFilterMode(nextMode);
+    if (nextMode === "single") {
+      setSingleYearFilter(yearRange.to);
+      return;
+    }
+
+    const from =
+      yearRange.from === yearRange.to
+        ? Math.min(yearRange.to, DEFAULT_MULTI_YEAR_FROM)
+        : yearRange.from;
+    setInclusiveYearRange({ from, to: yearRange.to });
+  }
+
+  useEffect(() => {
+    if (!pendingRangeTrendRef.current) return;
+    if (Number(yearRange.to) <= Number(yearRange.from)) {
+      pendingRangeTrendRef.current = false;
+      return;
+    }
+    if (canShowTimeSeries) {
+      setKpiView("trend");
+      pendingRangeTrendRef.current = false;
+      return;
+    }
+    pendingRangeTrendRef.current = false;
+  }, [yearRange.from, yearRange.to, canShowTimeSeries]);
 
   const noFurtherDrill =
     drillPath.length >= ((activeVisualLevels.length || 1) - 1);
@@ -1751,6 +1844,7 @@ export default function Dashboard({
       selectedKpiId,
       drillPath: [...drillPath],
       yearRange: { ...yearRange },
+      yearFilterMode,
       kpiView,
       detailFocus: detailFocus ? { ...detailFocus } : null,
       subsectionViews: { ...subsectionViews },
@@ -1779,6 +1873,7 @@ export default function Dashboard({
       selectedKpiId,
       drillPath,
       yearRange,
+      yearFilterMode,
       kpiView,
       detailFocus,
       subsectionViews,
@@ -1836,9 +1931,10 @@ export default function Dashboard({
     );
     setDrillPath([...(snapshot.drillPath ?? [])]);
     setYearRange({
-      from: snapshot.yearRange?.from ?? YEARS[0],
-      to: snapshot.yearRange?.to ?? YEARS[YEARS.length - 1],
+      from: snapshot.yearRange?.from ?? DEFAULT_YEAR_RANGE.from,
+      to: snapshot.yearRange?.to ?? DEFAULT_YEAR_RANGE.to,
     });
+    setYearFilterMode(snapshot.yearFilterMode ?? "single");
     setKpiView(snapshot.kpiView ?? "bar");
     setDetailFocus(snapshot.detailFocus ? { ...snapshot.detailFocus } : null);
     setSubsectionViews(snapshot.subsectionViews ? { ...snapshot.subsectionViews } : DEFAULT_SUBSECTION_VIEWS);
@@ -1892,28 +1988,32 @@ export default function Dashboard({
   }
 
   const dashboardInterpretation = useMemo(() => {
-    if (!breakdown.length) return "Select the module to analyze.";
-    const top = breakdown[0];
-    const next = breakdown[1];
+    if (!visibleBreakdown.length) return "Select the module to analyze.";
+    const top = visibleBreakdown[0];
+    const next = visibleBreakdown[1];
     const parts = [
-      `${currentViewLabel} is open for ${currentInstitute.name} for ${yearRange.from}–${yearRange.to}.`,
-      top
+      `${currentViewLabel} is open for ${currentInstitute.name} for ${yearContextLabel}.`,
+      isMultiYearSelection && !isInstitutionGovernanceVisualActive
+        ? `This view keeps each selected year separate; no average, cumulative total, or normalised value is being applied.`
+        : top
         ? `${top.name} is the strongest visible contributor at ${selectedKpi.format === "pct" ? formatPct(top.value) : formatCompact(top.value)}.`
         : null,
-      next
+      !isMultiYearSelection && next
         ? `${next.name} follows next, so the distribution is not concentrated in a single bucket.`
         : null,
-      headline.delta != null
+      !isMultiYearSelection && headline.delta != null
         ? `Compared with the previous year, the overall figure is ${headline.delta >= 0 ? "moving up" : "moving down"}.`
         : null,
       `Use the chart or the detail drawer to drill deeper into this section.`,
     ].filter(Boolean);
     return parts.join(" ");
   }, [
-    breakdown,
+    visibleBreakdown,
     currentInstitute.name,
     currentViewLabel,
-    yearRange,
+    isMultiYearSelection,
+    isInstitutionGovernanceVisualActive,
+    yearContextLabel,
     selectedKpi.format,
     headline.delta,
   ]);
@@ -1939,7 +2039,7 @@ export default function Dashboard({
       let scoped = buildFacultyStaffRowsForPathway(activeFacultyStaffPathway).filter(
         (row) =>
           row.InstituteId === activeInstituteId &&
-          Number(row.Year ?? 0) === Number(yearRange.to),
+          selectedYearSet.has(Number(row.Year ?? 0)),
       );
       if (detailFocus?.field === "Breakdown") {
         scoped = scoped.filter((row) => String(row.Breakdown ?? "") === String(detailFocus.value));
@@ -1957,7 +2057,11 @@ export default function Dashboard({
       };
     }
 
-    const rows = scopeRowsForKpi(selectedKpi, scopedFacts.thisIIT[selectedKpi.fact] ?? []);
+    const rows = scopeRowsForKpi(selectedKpi, facts?.[selectedKpi.fact] ?? []).filter(
+      (row) =>
+        (!activeInstituteId || row.InstituteId === activeInstituteId) &&
+        selectedYearSet.has(Number(row.Year ?? 0)),
+    );
     let scoped = applyDrill(rows, drillPath, selectedKpi.levels ?? []);
     if (detailFocus?.field) {
       scoped = scoped.filter(
@@ -1996,9 +2100,10 @@ export default function Dashboard({
     isFacultyStaffHierarchyView,
     activeFacultyStaffPathway,
     activeInstituteId,
-    yearRange.to,
+    selectedYearSet,
     isInstitutionGovernanceVisualActive,
     institutionGovernanceVisual,
+    facts,
   ]);
   const rootBreakdownLabel = isInstitutionGovernanceVisualActive
     ? institutionGovernanceVisual?.levels?.[0]?.label ?? institutionGovernanceVisual?.category?.label ?? currentBreakdownLabel
@@ -2044,15 +2149,45 @@ export default function Dashboard({
     ? facultyStaffValueAxisLabel
     : currentValueLabel;
 
+  const mainTableColumns =
+    isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.tableColumns?.length
+      ? institutionGovernanceVisual.tableColumns
+      : isMultiYearSelection && !isInstitutionGovernanceVisualActive
+        ? [
+            { key: "Year", label: "Year" },
+            {
+              key: "value",
+              label: visibleCurrentValueLabel,
+              format: (value) => activeChartFormat === "pct" ? formatPct(value) : formatCompact(value),
+            },
+          ]
+        : [
+            { key: "name", label: visibleCurrentBreakdownLabel },
+            {
+              key: "value",
+              label: visibleCurrentValueLabel,
+              format: (value) => activeChartFormat === "pct" ? formatPct(value) : formatCompact(value),
+            },
+          ];
+  const mainTableRows = isInstitutionGovernanceVisualActive
+    ? institutionGovernanceVisual?.tableRows?.length
+      ? institutionGovernanceVisual.tableRows
+      : institutionGovernanceVisual?.detailRows ?? []
+    : isMultiYearSelection
+      ? standardYearWiseBreakdown
+      : visibleBreakdown;
+
   const visibleBaseBreakdownLabel = isFacultyStaffHierarchyView
     ? null
     : displayBaseBreakdownLabel;
 
   const chartIsInteractive =
-    isFacultyStaffHierarchyView ||
-    (isInstitutionGovernanceVisualActive
-      ? Boolean(institutionGovernanceVisual?.drillable) && !noFurtherDrill
-      : selectedKpi.drillable && !noFurtherDrill);
+    chartShowsYearWiseBreakdown
+      ? false
+      : isFacultyStaffHierarchyView ||
+        (isInstitutionGovernanceVisualActive
+          ? Boolean(institutionGovernanceVisual?.drillable) && !noFurtherDrill
+          : selectedKpi.drillable && !noFurtherDrill);
 
   const nonDrillCategoryLabel = isFacultyStaffHierarchyView
     ? activeFacultyStaffPathwayLabel ?? currentViewLabel
@@ -2288,7 +2423,7 @@ export default function Dashboard({
   }, [kpiView, isFullscreen, chartRenderNonce, valueMode, selectedKpiId, drillPath.join("|"), section]);
 
   async function handleShare() {
-    const message = `IITMIS Dashboard — ${currentViewLabel}\n${currentInstitute.name} • ${yearRange.to}`;
+    const message = `IITMIS Dashboard — ${currentViewLabel}\n${chartContextSubtitle}`;
     if (navigator.share) {
       try {
         await navigator.share({
@@ -2311,32 +2446,16 @@ export default function Dashboard({
     const exportMeta = {
       title: currentViewLabel,
       breadcrumb: breadcrumbText,
-      subtitle: `${yearRange.from}–${yearRange.to} · ${currentInstitute.name}`,
+      subtitle: chartContextSubtitle,
       lastUpdatedAt: lastUpdated,
       lastDownloadedAt: downloadStamp,
     };
 
     if (kpiView === "table") {
-      const tableColumns = isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.tableColumns?.length
-        ? institutionGovernanceVisual.tableColumns
-        : [
-            { key: "name", label: visibleCurrentBreakdownLabel },
-            {
-              key: "value",
-              label: visibleCurrentValueLabel,
-              format: (value) =>
-                activeChartFormat === "pct" ? formatPct(value) : formatCompact(value),
-            },
-          ];
-      const tableRows = isInstitutionGovernanceVisualActive
-        ? institutionGovernanceVisual?.tableRows?.length
-          ? institutionGovernanceVisual.tableRows
-          : institutionGovernanceVisual?.detailRows ?? []
-        : visibleBreakdown;
       downloadTableSvg(
-        `${isInstitutionGovernanceVisualActive ? currentInstitutionGovernanceCategoryId : selectedKpi.id}_${yearRange.to}.svg`,
-        tableColumns,
-        tableRows,
+        `${isInstitutionGovernanceVisualActive ? currentInstitutionGovernanceCategoryId : selectedKpi.id}_${yearFileLabel}.svg`,
+        mainTableColumns,
+        mainTableRows,
         exportMeta,
       );
       markDownloaded("SVG downloaded.", downloadStamp);
@@ -2345,7 +2464,7 @@ export default function Dashboard({
 
     await downloadElementSvg(
       chartOnlyRef.current || chartExportRef.current || kpiChartRef.current,
-      `${selectedKpi.id}_${yearRange.to}.svg`,
+      `${selectedKpi.id}_${yearFileLabel}.svg`,
       exportMeta,
     );
     markDownloaded("SVG downloaded.", downloadStamp);
@@ -2419,10 +2538,26 @@ export default function Dashboard({
       const allowed = institutionGovernanceVisual?.allowedViews?.length
         ? institutionGovernanceVisual.allowedViews
         : [institutionGovernanceVisual?.defaultView ?? "bar", "table"];
+      if (isMultiYearSelection) {
+        return [
+          ...(allowed.includes("trend") && canShowTimeSeries ? ["trend"] : []),
+          "table",
+        ]
+          .map((id) => itemById[id])
+          .filter(Boolean);
+      }
       return orderVisualViewIds(allowed)
         .filter((id) => id !== "trend" || canShowTimeSeries)
         .map((id) => itemById[id])
         .filter(Boolean);
+    }
+
+    if (isMultiYearSelection) {
+      return [
+        ...(canShowTimeSeries ? ["trend"] : []),
+        "bar",
+        "table",
+      ].map((id) => itemById[id]);
     }
 
     return orderVisualViewIds([
@@ -2431,7 +2566,7 @@ export default function Dashboard({
       ...(canShowTimeSeries ? ["trend"] : []),
       "table",
     ]).map((id) => itemById[id]);
-  }, [canShowTimeSeries, isInstitutionGovernanceVisualActive, institutionGovernanceVisual]);
+  }, [canShowTimeSeries, isInstitutionGovernanceVisualActive, institutionGovernanceVisual, isMultiYearSelection]);
 
   useEffect(() => {
     if (!visualToolbarItems.some((item) => item.id === kpiView)) {
@@ -2611,6 +2746,27 @@ export default function Dashboard({
   const facultyStaffWorksheetCarouselActiveId = currentIgViewOptions.length
     ? currentIgViewId
     : selectedSubsectionId;
+
+  const showFacultyStaffCategoryCarousel =
+    isFacultyStaffSheetActive && facultyStaffDrillCarouselOpen && facultyStaffNestedCarouselItems.length > 0;
+  const showFacultyStaffSubCategoryCarousel =
+    showFacultyStaffCategoryCarousel && facultyStaffNestedCarouselChildren.length > 0;
+  const showInstitutionGovernanceCategoryCarousel =
+    isInstitutionGovernanceActive && institutionGovernanceCategoryItems.length > 0;
+  const hasCombinedKpiSelector =
+    showFacultyStaffCategoryCarousel || showInstitutionGovernanceCategoryCarousel;
+  const categorySelectorAccent = blendHexColor(accent, "#ffffff", 0.32);
+  const categorySelectorSoft = blendHexColor(accent, "#ffffff", 0.9);
+
+  function pickWorksheetCarouselItem(itemId) {
+    if (selectedSubsectionId === "faculty-staff") {
+      pickFacultyStaffCarouselItem(itemId);
+    } else if (currentIgViewOptions.length) {
+      handleSubviewChange(selectedSubsectionId, itemId);
+    } else {
+      openSubsection(activeDomain, itemId);
+    }
+  }
 
   function pickInstitutionGovernanceCategory(categoryId) {
     const category = getInstitutionGovernanceCategories(selectedSubsectionId, currentIgViewId).find(
@@ -3259,30 +3415,85 @@ export default function Dashboard({
         <main className="min-w-0 space-y-2">
           {MODULES.includes(section) ? (
             <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              <div className="space-y-3">
-                <SubKpiCarousel
-                  kpis={facultyStaffWorksheetCarouselItems}
-                  activeId={facultyStaffWorksheetCarouselActiveId}
-                  onPick={(itemId) => {
-                    if (selectedSubsectionId === "faculty-staff") {
-                      pickFacultyStaffCarouselItem(itemId);
-                    } else if (currentIgViewOptions.length) {
-                      handleSubviewChange(selectedSubsectionId, itemId);
-                    } else {
-                      openSubsection(activeDomain, itemId);
+              <div className="min-w-0">
+                {hasCombinedKpiSelector ? (
+                  <CombinedKpiSelector
+                    title={currentSubsection.label}
+                    helper="Select the module and the category to analyse."
+                    accent={accent}
+                    soft={soft}
+                    rows={[
+                      {
+                        id: "worksheet",
+                        label: "Module",
+                        items: facultyStaffWorksheetCarouselItems,
+                        activeId: facultyStaffWorksheetCarouselActiveId,
+                        onPick: pickWorksheetCarouselItem,
+                      },
+                      ...(showFacultyStaffCategoryCarousel
+                        ? [
+                            {
+                              id: "faculty-staff-category",
+                              label: "Category",
+                              items: facultyStaffNestedCarouselItems.map((item) => ({
+                                ...item,
+                                accent: categorySelectorAccent,
+                                soft: categorySelectorSoft,
+                              })),
+                              activeId: facultyStaffNestedCarouselActiveId,
+                              autoScrollTargetId: facultyStaffNestedCarouselScrollTargetId,
+                              onPick: pickFacultyStaffCarouselItem,
+                              accent: categorySelectorAccent,
+                              soft: categorySelectorSoft,
+                            },
+                          ]
+                        : []),
+                      ...(showFacultyStaffSubCategoryCarousel
+                        ? [
+                            {
+                              id: "faculty-staff-detail-category",
+                              label: activeFacultyStaffCategory?.childTitle ?? "Details",
+                              items: facultyStaffNestedCarouselChildren,
+                              activeId: facultyStaffNestedChildCarouselActiveId,
+                              autoScrollTargetId: facultyStaffNestedChildCarouselScrollTargetId,
+                              onPick: pickFacultyStaffCarouselItem,
+                              accent: categorySelectorAccent,
+                              soft: categorySelectorSoft,
+                            },
+                          ]
+                        : []),
+                      ...(showInstitutionGovernanceCategoryCarousel
+                        ? [
+                            {
+                              id: "institution-governance-category",
+                              label: "Category",
+                              items: institutionGovernanceCategoryItems,
+                              activeId: currentInstitutionGovernanceCategoryId,
+                              onPick: pickInstitutionGovernanceCategory,
+                              accent: categorySelectorAccent,
+                              soft: categorySelectorSoft,
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
+                ) : (
+                  <SubKpiCarousel
+                    kpis={facultyStaffWorksheetCarouselItems}
+                    activeId={facultyStaffWorksheetCarouselActiveId}
+                    onPick={pickWorksheetCarouselItem}
+                    accent={accent}
+                    soft={soft}
+                    title={currentSubsection.label}
+                    helper={
+                      isFacultyStaffSheetActive
+                        ? facultyStaffDrillCarouselOpen
+                          ? "Select a category to analyse."
+                          : "Select the module to analyze. Choose Faculty and Staff to reveal its mapped drill paths below the carousel."
+                        : "Select the module to analyze."
                     }
-                  }}
-                  accent={accent}
-                  soft={soft}
-                  title={currentSubsection.label}
-                  helper={
-                    isFacultyStaffSheetActive
-                      ? facultyStaffDrillCarouselOpen
-                        ? "Select a category to analyse."
-                        : "Select the module to analyze. Choose Faculty and Staff to reveal its mapped drill paths below the carousel."
-                      : "Select the module to analyze."
-                  }
-                />
+                  />
+                )}
               </div>
               <div
                 className="flex h-full flex-col rounded-[28px] p-3 shadow-sm xl:max-w-none"
@@ -3294,35 +3505,76 @@ export default function Dashboard({
                 <div className="text-sm font-bold" style={{ color: "#0f172a" }}>
                   Filters
                 </div>
-                <div className="mt-3 grid flex-1 content-start gap-3 xl:grid-cols-1 2xl:grid-cols-2">
-                  <Select
-                    label="From"
-                    value={String(yearRange.from)}
-                    onChange={(value) =>
-                      setYearRange((prev) => ({
-                        ...prev,
-                        from: Math.min(Number(value), prev.to),
-                      }))
-                    }
-                    options={YEARS.map((value) => ({
-                      value: String(value),
-                      label: String(value),
-                    }))}
-                  />
-                  <Select
-                    label="To"
-                    value={String(yearRange.to)}
-                    onChange={(value) =>
-                      setYearRange((prev) => ({
-                        ...prev,
-                        to: Math.max(Number(value), prev.from),
-                      }))
-                    }
-                    options={YEARS.map((value) => ({
-                      value: String(value),
-                      label: String(value),
-                    }))}
-                  />
+                <div className="mt-3 grid flex-1 content-start gap-3">
+                  <div
+                    className="grid grid-cols-3 gap-1 rounded-2xl border p-1"
+                    style={{
+                      background: "rgba(248,250,252,0.78)",
+                      borderColor: "rgba(59,130,246,0.14)",
+                    }}
+                  >
+                    {YEAR_FILTER_MODES.map((mode) => {
+                      const active = yearFilterMode === mode.id;
+                      return (
+                        <button
+                          key={mode.id}
+                          type="button"
+                          onClick={() => chooseYearFilterMode(mode.id)}
+                          className="min-h-9 rounded-xl px-2 text-[11px] font-extrabold leading-tight transition"
+                          style={{
+                            background: active ? accent : "transparent",
+                            color: active ? "white" : "#475569",
+                          }}
+                        >
+                          {mode.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {yearFilterMode === "single" ? (
+                    <Select
+                      label="Year"
+                      value={String(yearRange.to)}
+                      onChange={setSingleYearFilter}
+                      options={YEARS.map((value) => ({
+                        value: String(value),
+                        label: String(value),
+                      }))}
+                    />
+                  ) : (
+                    <div className="grid gap-3 xl:grid-cols-1 2xl:grid-cols-2">
+                      <Select
+                        label="From"
+                        value={String(yearRange.from)}
+                        onChange={(value) =>
+                          setInclusiveYearRange({
+                            from: Number(value),
+                            to: yearRange.to,
+                          })
+                        }
+                        options={YEARS.map((value) => ({
+                          value: String(value),
+                          label: String(value),
+                        }))}
+                      />
+                      <Select
+                        label="To"
+                        value={String(yearRange.to)}
+                        onChange={(value) =>
+                          setInclusiveYearRange({
+                            from: yearRange.from,
+                            to: Number(value),
+                          })
+                        }
+                        options={YEARS.map((value) => ({
+                          value: String(value),
+                          label: String(value),
+                        }))}
+                      />
+                    </div>
+                  )}
+
                 </div>
               </div>
             </div>
@@ -3623,50 +3875,6 @@ export default function Dashboard({
             </div>
           ) : null}
 
-          {MODULES.includes(section) && isFacultyStaffSheetActive && facultyStaffDrillCarouselOpen && facultyStaffNestedCarouselItems.length ? (
-            <div className="mt-3 space-y-3">
-              <SubKpiCarousel
-                kpis={facultyStaffNestedCarouselItems}
-                activeId={facultyStaffNestedCarouselActiveId}
-                autoScrollTargetId={facultyStaffNestedCarouselScrollTargetId}
-                onPick={pickFacultyStaffCarouselItem}
-                accent={accent}
-                soft={soft}
-                title="Categories"
-                helper="Select the module to analyze."
-                compact
-              />
-              {facultyStaffNestedCarouselChildren.length ? (
-                <SubKpiCarousel
-                  kpis={facultyStaffNestedCarouselChildren}
-                  activeId={facultyStaffNestedChildCarouselActiveId}
-                  autoScrollTargetId={facultyStaffNestedChildCarouselScrollTargetId}
-                  onPick={pickFacultyStaffCarouselItem}
-                  accent={accent}
-                  soft={blendHexColor(accent, "#ffffff", 0.9)}
-                  title={activeFacultyStaffCategory?.childTitle ?? "Sub-categories"}
-                  helper="Select a sub-category to analyse."
-                  compact
-                />
-              ) : null}
-            </div>
-          ) : null}
-
-          {MODULES.includes(section) && isInstitutionGovernanceActive && institutionGovernanceCategoryItems.length ? (
-            <div className="mt-3">
-              <SubKpiCarousel
-                kpis={institutionGovernanceCategoryItems}
-                activeId={currentInstitutionGovernanceCategoryId}
-                onPick={pickInstitutionGovernanceCategory}
-                accent={accent}
-                soft={soft}
-                title="Categories"
-                helper="Select a category to analyse."
-                compact
-              />
-            </div>
-          ) : null}
-
           {MODULES.includes(section) ? (
             <div
               className="rounded-[30px] p-4 shadow-sm"
@@ -3787,7 +3995,7 @@ export default function Dashboard({
                       className="mt-2.5 text-[13px] font-semibold"
                       style={{ color: "#334155" }}
                     >
-                      {yearRange.from}–{yearRange.to} · {currentInstitute.name}
+                      {chartContextSubtitle}
                     </div>
                   </div>
 
@@ -3853,7 +4061,7 @@ export default function Dashboard({
                         format={activeChartFormat}
                         onBarClick={chartIsInteractive ? (isFacultyStaffHierarchyView ? onFacultyStaffChartDrill : onDrillNext) : undefined}
                         accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
-                        xLabel={visibleCurrentBreakdownLabel}
+                        xLabel={chartShowsYearWiseBars ? "Year" : visibleCurrentBreakdownLabel}
                         yLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
                         interactive={chartIsInteractive}
@@ -3882,23 +4090,10 @@ export default function Dashboard({
                     ) : (
                       <div className="w-full pt-4">
                         <DataTable
-                          columns={isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.tableColumns?.length
-                            ? institutionGovernanceVisual.tableColumns
-                            : [
-                                { key: "name", label: visibleCurrentBreakdownLabel },
-                                {
-                                  key: "value",
-                                  label: visibleCurrentValueLabel,
-                                  format: (value) => activeChartFormat === "pct" ? formatPct(value) : formatCompact(value),
-                                },
-                              ]}
-                          rows={isInstitutionGovernanceVisualActive
-                            ? institutionGovernanceVisual?.tableRows?.length
-                              ? institutionGovernanceVisual.tableRows
-                              : institutionGovernanceVisual?.detailRows ?? []
-                            : visibleBreakdown}
+                          columns={mainTableColumns}
+                          rows={mainTableRows}
                           maxHeight={500}
-                          onRowClick={!isInstitutionGovernanceVisualActive && canDrillChart ? (row) => onDrillNext(row.name) : undefined}
+                          onRowClick={!isMultiYearSelection && !isInstitutionGovernanceVisualActive && canDrillChart ? (row) => onDrillNext(row.name) : undefined}
                         />
                       </div>
                     )}
@@ -4007,7 +4202,7 @@ export default function Dashboard({
             type="button"
             onClick={() => {
               downloadText(
-                `${selectedKpi.id}_${yearRange.to}.csv`,
+                `${selectedKpi.id}_${yearFileLabel}.csv`,
                 toCsv(detailTable.rows, detailTable.columns),
               );
               markDownloaded("CSV downloaded.");
@@ -4026,13 +4221,13 @@ export default function Dashboard({
             onClick={async () => {
               const downloadStamp = new Date().toISOString();
               downloadTableSvg(
-                `${selectedKpi.id}_${yearRange.to}.svg`,
+                `${selectedKpi.id}_${yearFileLabel}.svg`,
                 detailTable.columns,
                 detailTable.rows,
                 {
                   title: `${currentViewLabel} Detail Report`,
                   breadcrumb: breadcrumbText,
-                  subtitle: `${yearRange.from}–${yearRange.to} · ${currentInstitute.name}`,
+                  subtitle: chartContextSubtitle,
                   lastUpdatedAt: lastUpdated,
                   lastDownloadedAt: downloadStamp,
                 },
@@ -4053,7 +4248,7 @@ export default function Dashboard({
             onClick={() => {
               downloadElementPdf(
                 kpiChartRef.current,
-                `${currentViewLabel} (${yearRange.to})`,
+                `${currentViewLabel} (${yearContextLabel})`,
               );
               markDownloaded("Print dialog opened.");
             }}
@@ -4092,7 +4287,7 @@ export default function Dashboard({
         onClose={() => setAiPanelOpen(false)}
       >
         <div className="text-sm" style={{ color: "#334155" }}>
-          Current context: {currentViewLabel} • {currentInstitute.name} • {yearRange.from}–{yearRange.to}
+          Current context: {currentViewLabel} • {chartContextSubtitle}
         </div>
         <div className="mt-2 text-xs" style={{ color: "#64748b" }}>
           Last updated: {lastUpdatedLabel} • Last downloaded: {lastDownloadedLabel}
@@ -4105,10 +4300,10 @@ export default function Dashboard({
             type="button"
             onClick={() => {
               downloadText(
-                `${selectedKpi.id}_${yearRange.to}_ai_interpretation.txt`,
+                `${selectedKpi.id}_${yearFileLabel}_ai_interpretation.txt`,
                 `AI interpretation
 
-${currentViewLabel} • ${currentInstitute.name} • ${yearRange.from}–${yearRange.to}
+${currentViewLabel} • ${chartContextSubtitle}
 
 ${String(dashboardInterpretation).replace(/<[^>]+>/g, " ")}`,
               );

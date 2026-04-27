@@ -18,6 +18,7 @@ export default function SubKpiCarousel({
   nestedTitle = "Sub-module",
   nestedHelper = "Choose the internal worksheet for the active submodule.",
   nestedInfoText = "",
+  attachedPosition = "single",
 }) {
   const [infoOpen, setInfoOpen] = useState(false);
   const [nestedInfoOpen, setNestedInfoOpen] = useState(false);
@@ -135,18 +136,27 @@ export default function SubKpiCarousel({
   };
 
   const controlBtnClass =
-    "grid h-7 w-7 place-items-center rounded-full border text-[13px] font-bold transition disabled:cursor-not-allowed";
+    "grid h-8 w-8 shrink-0 place-items-center rounded-full border text-[13px] font-bold transition disabled:cursor-not-allowed";
+  const attachedRadiusClass =
+    {
+      single: "rounded-[24px]",
+      top: "rounded-t-[24px] rounded-b-none",
+      middle: "rounded-none",
+      bottom: "rounded-b-[24px] rounded-t-none",
+    }[attachedPosition] ?? "rounded-[24px]";
+  const isAttached = attachedPosition !== "single";
 
   return (
     <div
       ref={popoverRef}
-      className={cx("rounded-[24px] px-3 py-3 shadow-sm", compact ? "" : "")}
+      className={cx(attachedRadiusClass, "px-3 py-3", isAttached ? "shadow-none" : "shadow-sm", compact ? "" : "")}
       style={{
         background: "rgba(255,255,255,0.94)",
         border: "1px solid rgba(59,130,246,0.15)",
+        borderTop: attachedPosition === "middle" || attachedPosition === "bottom" ? 0 : "1px solid rgba(59,130,246,0.15)",
       }}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 max-w-full">
           <div className="flex items-center gap-2">
             <div
@@ -233,56 +243,41 @@ export default function SubKpiCarousel({
             </div>
           ) : null}
 
-          <div
-            className="flex items-center gap-2 rounded-full border px-1.5 py-1"
-            style={{ background: "rgba(255,255,255,0.96)", borderColor: `${accent}20` }}
-          >
-            <button
-              type="button"
-              onClick={() => nudgeCarousel(-1)}
-              disabled={!canScrollLeft}
-              className={controlBtnClass}
-              style={{
-                color: accent,
-                borderColor: canScrollLeft ? `${accent}26` : "rgba(148,163,184,0.18)",
-                background: canScrollLeft ? `${soft}` : "transparent",
-                opacity: canScrollLeft ? 1 : 0.45,
-              }}
-              aria-label="Scroll carousel left"
-              title="Scroll left"
-            >
-              {"<"}
-            </button>
+          {pageCount > 1 ? (
             <div
-              className="min-w-[44px] text-center text-[11px] font-semibold tabular-nums"
-              style={{ color: "#64748b" }}
+              className="rounded-full border px-2 py-1 text-[11px] font-semibold tabular-nums"
+              style={{
+                background: "rgba(255,255,255,0.96)",
+                borderColor: `${accent}20`,
+                color: "#64748b",
+              }}
             >
               {currentPage} / {pageCount}
             </div>
-            <button
-              type="button"
-              onClick={() => nudgeCarousel(1)}
-              disabled={!canScrollRight}
-              className={controlBtnClass}
-              style={{
-                color: accent,
-                borderColor: canScrollRight ? `${accent}26` : "rgba(148,163,184,0.18)",
-                background: canScrollRight ? `${soft}` : "transparent",
-                opacity: canScrollRight ? 1 : 0.45,
-              }}
-              aria-label="Scroll carousel right"
-              title="Scroll right"
-            >
-              {">"}
-            </button>
-          </div>
+          ) : null}
         </div>
       </div>
 
-      <div className="mt-3">
+      <div className="mt-3 flex min-w-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={() => nudgeCarousel(-1)}
+          disabled={!canScrollLeft}
+          className={controlBtnClass}
+          style={{
+            color: accent,
+            borderColor: canScrollLeft ? `${accent}26` : "rgba(148,163,184,0.18)",
+            background: canScrollLeft ? `${soft}` : "rgba(255,255,255,0.82)",
+            opacity: canScrollLeft ? 1 : 0.45,
+          }}
+          aria-label="Scroll carousel left"
+          title="Scroll left"
+        >
+          {"<"}
+        </button>
         <div
           ref={scrollRef}
-          className="carousel-scroll-track overflow-x-auto pb-0"
+          className="carousel-scroll-track min-w-0 flex-1 overflow-x-auto pb-0"
           style={{
             scrollbarWidth: "none",
             msOverflowStyle: "none",
@@ -407,6 +402,22 @@ export default function SubKpiCarousel({
             })}
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => nudgeCarousel(1)}
+          disabled={!canScrollRight}
+          className={controlBtnClass}
+          style={{
+            color: accent,
+            borderColor: canScrollRight ? `${accent}26` : "rgba(148,163,184,0.18)",
+            background: canScrollRight ? `${soft}` : "rgba(255,255,255,0.82)",
+            opacity: canScrollRight ? 1 : 0.45,
+          }}
+          aria-label="Scroll carousel right"
+          title="Scroll right"
+        >
+          {">"}
+        </button>
       </div>
     </div>
   );
