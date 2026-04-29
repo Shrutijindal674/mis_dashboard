@@ -91,7 +91,7 @@ const YEAR_FILTER_MODES = [
 ];
 const DEFAULT_FACULTY_STAFF_HIERARCHY_KEY = "workforce-composition";
 const DEFAULT_FACULTY_STAFF_PATHWAY_NO = 4;
-const VISUAL_VIEW_ORDER = ["cards", "bar", "donut", "trend", "table", "empty"];
+const VISUAL_VIEW_ORDER = ["bar", "donut", "trend", "table", "empty"];
 const VISUAL_VIEW_ORDER_RANK = Object.fromEntries(
   VISUAL_VIEW_ORDER.map((viewId, index) => [viewId, index]),
 );
@@ -2176,6 +2176,9 @@ export default function Dashboard({
     : isMultiYearSelection
       ? standardYearWiseBreakdown
       : visibleBreakdown;
+  const isNoDataVisual =
+    kpiView === "empty" ||
+    (isInstitutionGovernanceVisualActive && Boolean(institutionGovernanceVisual?.isEmpty));
 
   const visibleBaseBreakdownLabel = isFacultyStaffHierarchyView
     ? null
@@ -2228,6 +2231,13 @@ export default function Dashboard({
       setValueMode("value");
     }
   }, [isInstitutionGovernanceVisualActive, institutionGovernanceVisual?.allowPercent, valueMode]);
+
+  useEffect(() => {
+    if (!isNoDataVisual) return;
+    if (speedDialOpen) setSpeedDialOpen(false);
+    if (detailsOpen) setDetailsOpen(false);
+    if (aiPanelOpen) setAiPanelOpen(false);
+  }, [isNoDataVisual, speedDialOpen, detailsOpen, aiPanelOpen]);
 
   function popDrillTo(depth) {
     setDetailFocus(null);
@@ -2442,6 +2452,11 @@ export default function Dashboard({
   }
 
   async function handleDownload() {
+    if (isNoDataVisual) {
+      setNotice("No Data Available.");
+      return;
+    }
+
     const downloadStamp = new Date().toISOString();
     const exportMeta = {
       title: currentViewLabel,
@@ -2525,12 +2540,13 @@ export default function Dashboard({
   ];
 
   const visualToolbarItems = useMemo(() => {
+    if (isNoDataVisual) return [];
+
     const itemById = {
       bar: { id: "bar", label: "Bar", icon: "📊" },
       trend: { id: "trend", label: "Time series", icon: "↗" },
       donut: { id: "donut", label: "Donut", icon: "◔" },
       table: { id: "table", label: "Table", icon: "▦" },
-      cards: { id: "cards", label: "Cards", icon: "▤" },
       empty: { id: "empty", label: "Unavailable", icon: "—" },
     };
 
@@ -2566,16 +2582,17 @@ export default function Dashboard({
       ...(canShowTimeSeries ? ["trend"] : []),
       "table",
     ]).map((id) => itemById[id]);
-  }, [canShowTimeSeries, isInstitutionGovernanceVisualActive, institutionGovernanceVisual, isMultiYearSelection]);
+  }, [canShowTimeSeries, isInstitutionGovernanceVisualActive, institutionGovernanceVisual, isMultiYearSelection, isNoDataVisual]);
 
   useEffect(() => {
+    if (isNoDataVisual) return;
     if (!visualToolbarItems.some((item) => item.id === kpiView)) {
       const preferred = isInstitutionGovernanceVisualActive && visualToolbarItems.some((item) => item.id === institutionGovernanceVisual?.defaultView)
         ? institutionGovernanceVisual.defaultView
         : visualToolbarItems[0]?.id ?? "bar";
       setKpiView(preferred);
     }
-  }, [kpiView, canShowTimeSeries, currentInstitutionGovernanceCategoryId, currentIgViewId, isInstitutionGovernanceVisualActive, institutionGovernanceVisual?.defaultView, visualToolbarItems]);
+  }, [kpiView, canShowTimeSeries, currentInstitutionGovernanceCategoryId, currentIgViewId, isInstitutionGovernanceVisualActive, institutionGovernanceVisual?.defaultView, visualToolbarItems, isNoDataVisual]);
 
   const fullscreenChartReserve = isFacultyStaffHierarchyView ? 360 : 300;
   const fullscreenBarHeight = Math.max(
@@ -2587,7 +2604,7 @@ export default function Dashboard({
     Math.min(390, viewportHeight - fullscreenChartReserve),
   );
   const chartCanvasHeight = isFullscreen
-    ? ["table", "cards", "empty"].includes(kpiView)
+    ? isNoDataVisual || ["table", "empty"].includes(kpiView)
       ? Math.max(
           280,
           Math.min(
@@ -2598,7 +2615,7 @@ export default function Dashboard({
       : kpiView === "bar" || kpiView === "trend"
         ? fullscreenBarHeight
         : fullscreenDonutHeight
-    : ["table", "cards", "empty"].includes(kpiView)
+    : isNoDataVisual || ["table", "empty"].includes(kpiView)
       ? 420
       : kpiView === "bar" || kpiView === "trend"
         ? 380
@@ -2607,7 +2624,7 @@ export default function Dashboard({
     ? "w-full max-w-[1020px]"
     : "w-full max-w-[980px]";
   const visualChartBodyStyle =
-    !isFullscreen || ["table", "cards", "empty"].includes(kpiView)
+    !isFullscreen || isNoDataVisual || ["table", "empty"].includes(kpiView)
       ? undefined
       : {
           overflowY: "hidden",
@@ -3931,36 +3948,38 @@ export default function Dashboard({
 
                 <div ref={chartExportRef} className="relative flex min-h-0 flex-1 flex-col">
                 <div className={`dashboard-chart-header absolute inset-x-5 z-10 flex items-start gap-3 pr-14 ${isFullscreen ? "top-5" : "top-5"}`}>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setValueMode("value")}
-                      className="rounded-full px-3 py-1.5 text-xs font-bold"
-                      style={{
-                        background:
-                          valueMode === "value" ? `${accent}15` : "white",
-                        border: `1px solid ${valueMode === "value" ? accent : "rgba(148,163,184,0.22)"}`,
-                        color: valueMode === "value" ? accent : "#475569",
-                      }}
-                    >
-                      Raw
-                    </button>
-                    {canUsePercentMode ? (
+                  {!isNoDataVisual ? (
+                    <div className="flex shrink-0 items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setValueMode("percent")}
+                        onClick={() => setValueMode("value")}
                         className="rounded-full px-3 py-1.5 text-xs font-bold"
                         style={{
                           background:
-                            valueMode === "percent" ? `${accent}15` : "white",
-                          border: `1px solid ${valueMode === "percent" ? accent : "rgba(148,163,184,0.22)"}`,
-                          color: valueMode === "percent" ? accent : "#475569",
+                            valueMode === "value" ? `${accent}15` : "white",
+                          border: `1px solid ${valueMode === "value" ? accent : "rgba(148,163,184,0.22)"}`,
+                          color: valueMode === "value" ? accent : "#475569",
                         }}
                       >
-                        Percent
+                        Raw
                       </button>
-                    ) : null}
-                  </div>
+                      {canUsePercentMode ? (
+                        <button
+                          type="button"
+                          onClick={() => setValueMode("percent")}
+                          className="rounded-full px-3 py-1.5 text-xs font-bold"
+                          style={{
+                            background:
+                              valueMode === "percent" ? `${accent}15` : "white",
+                            border: `1px solid ${valueMode === "percent" ? accent : "rgba(148,163,184,0.22)"}`,
+                            color: valueMode === "percent" ? accent : "#475569",
+                          }}
+                        >
+                          Percent
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   <div className="min-w-0 flex-1 px-12 text-center">
                     <div
@@ -3969,28 +3988,30 @@ export default function Dashboard({
                     >
                       {currentViewLabel}
                     </div>
-                    <div className="mt-2 flex justify-center">
-                      {(isInstitutionGovernanceVisualActive
-                        ? institutionGovernanceVisual?.drillable
-                        : selectedKpi.drillable) && !isFacultyStaffHierarchyView ? (
-                        <Breadcrumbs
-                          base={visibleBaseBreakdownLabel}
-                          levels={activeVisualLevels}
-                          drillPath={drillPath}
-                          onPopTo={popDrillTo}
-                        />
-                      ) : (
-                        <div
-                          className="rounded-lg px-2.5 py-1.5 text-[13px] font-bold"
-                          style={{
-                            background: "rgba(25,117,190,0.08)",
-                            color: "#1252a0",
-                          }}
-                        >
-                          {nonDrillCategoryLabel}
-                        </div>
-                      )}
-                    </div>
+                    {!isNoDataVisual ? (
+                      <div className="mt-2 flex justify-center">
+                        {(isInstitutionGovernanceVisualActive
+                          ? institutionGovernanceVisual?.drillable
+                          : selectedKpi.drillable) && !isFacultyStaffHierarchyView ? (
+                          <Breadcrumbs
+                            base={visibleBaseBreakdownLabel}
+                            levels={activeVisualLevels}
+                            drillPath={drillPath}
+                            onPopTo={popDrillTo}
+                          />
+                        ) : (
+                          <div
+                            className="rounded-lg px-2.5 py-1.5 text-[13px] font-bold"
+                            style={{
+                              background: "rgba(25,117,190,0.08)",
+                              color: "#1252a0",
+                            }}
+                          >
+                            {nonDrillCategoryLabel}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
                     <div
                       className="mt-2.5 text-[13px] font-semibold"
                       style={{ color: "#334155" }}
@@ -3999,43 +4020,39 @@ export default function Dashboard({
                     </div>
                   </div>
 
-                  <div className="absolute right-14 top-0 flex shrink-0 items-center" data-export-hide="true">
-                    <VisualToolbar
-                      items={visualToolbarItems}
-                      value={kpiView}
-                      exportHidden
-                      orientation="horizontal"
-                      className="shrink-0"
-                      style={{ position: "static", transform: "none" }}
-                      onChange={(nextView) => {
-                        setKpiView(nextView);
-                        setChartRenderNonce((value) => value + 1);
-                      }}
-                    />
-                  </div>
+                  {!isNoDataVisual && visualToolbarItems.length ? (
+                    <div className="absolute right-14 top-0 flex shrink-0 items-center" data-export-hide="true">
+                      <VisualToolbar
+                        items={visualToolbarItems}
+                        value={kpiView}
+                        exportHidden
+                        orientation="horizontal"
+                        className="shrink-0"
+                        style={{ position: "static", transform: "none" }}
+                        onChange={(nextView) => {
+                          setKpiView(nextView);
+                          setChartRenderNonce((value) => value + 1);
+                        }}
+                      />
+                    </div>
+                  ) : null}
                 </div>
 
                 <div
                   key={`${kpiView}-${isFullscreen ? "fs" : "std"}-${chartRenderNonce}-${selectedKpi.id}-${currentInstitutionGovernanceCategoryId ?? ""}-${drillPath.join("-")}-${selectedFacultyStaffHierarchyKey}-${selectedFacultyStaffPathwayNo}`}
                   ref={chartOnlyRef}
-                  className={`dashboard-chart-body min-w-0 ${isFullscreen ? (["table", "cards", "empty"].includes(kpiView) ? "flex flex-1 min-h-0 items-center justify-center overflow-hidden pt-24 pb-14" : "flex flex-1 min-h-0 items-start justify-center pt-24 pb-14" ) : "flex min-h-[460px] items-center justify-center pt-24 pb-10"}`}
+                  className={`dashboard-chart-body min-w-0 ${isFullscreen ? (isNoDataVisual || ["table", "empty"].includes(kpiView) ? "flex flex-1 min-h-0 items-center justify-center overflow-hidden pt-24 pb-14" : "flex flex-1 min-h-0 items-start justify-center pt-24 pb-14" ) : "flex min-h-[460px] items-center justify-center pt-24 pb-10"}`}
                   style={{
                     ...visualChartBodyStyle,
                     ...(isFullscreen ? {} : { transform: "translateY(12px)" }),
                   }}
                 >
                   <div className={`${chartPanelWidthClass} mx-auto`}>
-                    {kpiView === "empty" || (isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.isEmpty) ? (
-                      <div className="mx-auto flex min-h-[260px] max-w-[620px] flex-col items-center justify-center rounded-[28px] border border-dashed px-8 py-10 text-center" style={{ background: "rgba(248,250,252,0.78)", borderColor: "rgba(59,130,246,0.22)" }}>
-                        <div className="grid h-14 w-14 place-items-center rounded-2xl text-2xl font-black" style={{ background: `${accent}12`, color: accent }}>
-                          —
+                    {isNoDataVisual ? (
+                      <div className="mx-auto flex min-h-[260px] items-center justify-center px-8 text-center">
+                        <div className="text-lg font-extrabold" style={{ color: "#64748b" }}>
+                          No Data Available
                         </div>
-                        <div className="mt-4 text-lg font-extrabold" style={{ color: "#0f172a" }}>
-                          {institutionGovernanceVisual?.emptyTitle ?? "Visual unavailable"}
-                        </div>
-                        <p className="mt-2 max-w-[520px] text-sm font-semibold leading-6" style={{ color: "#64748b" }}>
-                          {institutionGovernanceVisual?.emptyMessage ?? "Visual for this metric is not available here."}
-                        </p>
                       </div>
                     ) : kpiView === "cards" && isInstitutionGovernanceVisualActive ? (
                       <div className="mx-auto grid w-full max-w-[860px] gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -4100,56 +4117,60 @@ export default function Dashboard({
                   </div>
                 </div>
 
-                <div
-                  className={`dashboard-chart-footer absolute left-1/2 -translate-x-1/2 text-center text-[10px] font-medium ${isFullscreen ? "bottom-3 inset-x-0" : "bottom-1 w-full max-w-[72%]"}`}
-                  style={{ color: "#64748b" }}
-                >
-                  Last updated: {lastUpdatedLabel} · Last downloaded: {lastDownloadedLabel}
-                </div>
-
-                </div>
-
-                <div
-                  data-export-hide="true"
-                  className={`${isFullscreen ? "fixed bottom-8 right-8 z-[340]" : "absolute bottom-4 right-4 z-20"} flex flex-col items-end gap-2`}
-                >
-                  {speedDialOpen
-                    ? speedDialItems.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => {
-                            item.action();
-                            setSpeedDialOpen(false);
-                          }}
-                          className="dashboard-speed-action group relative z-[141] grid h-11 w-11 place-items-center rounded-2xl bg-white shadow-lg transition hover:-translate-y-0.5"
-                          style={{ color: "#0f172a", border: "1px solid rgba(15,42,94,0.14)" }}
-                        >
-                          <span
-                            className="dashboard-speed-tooltip pointer-events-none absolute right-[calc(100%+10px)] top-1/2 z-[142] -translate-y-1/2 whitespace-nowrap rounded-xl border bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 opacity-0 shadow-sm transition"
-                          >
-                            {item.label}
-                          </span>
-                          <span>{iconSvg(item.icon, false, "#0f172a")}</span>
-                        </button>
-                      ))
-                    : null}
-                  <button
-                    type="button"
-                    onClick={() => setSpeedDialOpen((value) => !value)}
-                    className="dashboard-speed-action group relative z-[141] grid h-12 w-12 place-items-center rounded-2xl text-3xl text-white shadow-lg"
-                    style={{ background: "#1e6cc8", lineHeight: 1 }}
+                {!isNoDataVisual ? (
+                  <div
+                    className={`dashboard-chart-footer absolute left-1/2 -translate-x-1/2 text-center text-[10px] font-medium ${isFullscreen ? "bottom-3 inset-x-0" : "bottom-1 w-full max-w-[72%]"}`}
+                    style={{ color: "#64748b" }}
                   >
-                    <span
-                      className="dashboard-speed-tooltip pointer-events-none absolute right-[calc(100%+10px)] top-1/2 z-[142] -translate-y-1/2 whitespace-nowrap rounded-xl border bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 opacity-0 shadow-sm transition"
-                    >
-                      {speedDialOpen ? "Close actions" : "Open actions"}
-                    </span>
-                    <span style={{ transform: speedDialOpen ? "translateY(-1px)" : "translateY(-2px)" }}>
-                      {speedDialOpen ? "×" : "+"}
-                    </span>
-                  </button>
+                    Last updated: {lastUpdatedLabel} · Last downloaded: {lastDownloadedLabel}
+                  </div>
+                ) : null}
+
                 </div>
+
+                {!isNoDataVisual ? (
+                  <div
+                    data-export-hide="true"
+                    className={`${isFullscreen ? "fixed bottom-8 right-8 z-[340]" : "absolute bottom-4 right-4 z-20"} flex flex-col items-end gap-2`}
+                  >
+                    {speedDialOpen
+                      ? speedDialItems.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              item.action();
+                              setSpeedDialOpen(false);
+                            }}
+                            className="dashboard-speed-action group relative z-[141] grid h-11 w-11 place-items-center rounded-2xl bg-white shadow-lg transition hover:-translate-y-0.5"
+                            style={{ color: "#0f172a", border: "1px solid rgba(15,42,94,0.14)" }}
+                          >
+                            <span
+                              className="dashboard-speed-tooltip pointer-events-none absolute right-[calc(100%+10px)] top-1/2 z-[142] -translate-y-1/2 whitespace-nowrap rounded-xl border bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 opacity-0 shadow-sm transition"
+                            >
+                              {item.label}
+                            </span>
+                            <span>{iconSvg(item.icon, false, "#0f172a")}</span>
+                          </button>
+                        ))
+                      : null}
+                    <button
+                      type="button"
+                      onClick={() => setSpeedDialOpen((value) => !value)}
+                      className="dashboard-speed-action group relative z-[141] grid h-12 w-12 place-items-center rounded-2xl text-3xl text-white shadow-lg"
+                      style={{ background: "#1e6cc8", lineHeight: 1 }}
+                    >
+                      <span
+                        className="dashboard-speed-tooltip pointer-events-none absolute right-[calc(100%+10px)] top-1/2 z-[142] -translate-y-1/2 whitespace-nowrap rounded-xl border bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 opacity-0 shadow-sm transition"
+                      >
+                        {speedDialOpen ? "Close actions" : "Open actions"}
+                      </span>
+                      <span style={{ transform: speedDialOpen ? "translateY(-1px)" : "translateY(-2px)" }}>
+                        {speedDialOpen ? "×" : "+"}
+                      </span>
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
             </div>

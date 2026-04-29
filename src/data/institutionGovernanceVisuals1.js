@@ -8,7 +8,7 @@ const CATEGORY_CONFIG = {
         id: "rank-trend",
         label: "Rank Trend",
         defaultView: "trend",
-        allowedViews: ["trend", "bar", "donut", "table"],
+        allowedViews: ["trend", "bar", "table"],
         xLabel: "Academic Year",
         yLabel: "NIRF rank (lower is stronger)",
         format: "number",
@@ -19,7 +19,7 @@ const CATEGORY_CONFIG = {
         id: "degree-portfolio",
         label: "Degree Portfolio",
         defaultView: "bar",
-        allowedViews: ["bar", "donut", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Degree / discipline category",
         yLabel: "Number of degrees",
         format: "number",
@@ -76,7 +76,7 @@ const CATEGORY_CONFIG = {
         label: "Grievance Resolution",
         defaultView: "bar",
         allowedViews: ["bar", "donut", "table"],
-        xLabel: "Case bucket",
+        xLabel: "Resolution status",
         yLabel: "Number of cases",
         format: "number",
         allowPercent: true,
@@ -125,7 +125,7 @@ const CATEGORY_CONFIG = {
         id: "inclusion-metrics",
         label: "Inclusion Metrics",
         defaultView: "bar",
-        allowedViews: ["bar", "donut", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Inclusion metric",
         yLabel: "Percentage",
         format: "pct",
@@ -151,7 +151,7 @@ const CATEGORY_CONFIG = {
         id: "nirf-ranking",
         label: "NIRF Ranking",
         defaultView: "trend",
-        allowedViews: ["trend", "bar", "donut", "table"],
+        allowedViews: ["trend", "bar", "table"],
         xLabel: "Academic Year",
         yLabel: "NIRF rank (lower is stronger)",
         format: "number",
@@ -159,21 +159,54 @@ const CATEGORY_CONFIG = {
         emptyMessage: "No NIRF ranking data available for the selected institute/year range.",
       },
       {
-        id: "qs-the-ranking",
-        label: "QS & THE Ranking",
+        id: "qs-rank",
+        label: "QS Rank",
         defaultView: "trend",
-        allowedViews: ["trend", "bar", "donut", "table"],
+        allowedViews: ["trend", "bar", "table"],
         xLabel: "Academic Year",
-        yLabel: "Rank / score",
+        yLabel: "QS rank (lower is stronger)",
         format: "number",
         allowPercent: false,
-        emptyMessage: "QS/THE rank and score fields are not available for the selected institute/year range.",
+        emptyMessage: "QS rank data are not available for the selected institute/year range.",
+      },
+      {
+        id: "qs-score",
+        label: "QS Score",
+        defaultView: "trend",
+        allowedViews: ["trend", "bar", "table"],
+        xLabel: "Academic Year",
+        yLabel: "QS score",
+        format: "number",
+        allowPercent: false,
+        emptyMessage: "QS score data are not available for the selected institute/year range.",
+      },
+      {
+        id: "the-rank",
+        label: "THE Rank",
+        defaultView: "trend",
+        allowedViews: ["trend", "bar", "table"],
+        xLabel: "Academic Year",
+        yLabel: "THE rank / band lower bound (lower is stronger)",
+        format: "number",
+        allowPercent: false,
+        emptyMessage: "THE rank data are not available for the selected institute/year range.",
+      },
+      {
+        id: "the-score",
+        label: "THE Score",
+        defaultView: "trend",
+        allowedViews: ["trend", "bar", "table"],
+        xLabel: "Academic Year",
+        yLabel: "THE score",
+        format: "number",
+        allowPercent: false,
+        emptyMessage: "THE score data are not available for the selected institute/year range.",
       },
       {
         id: "nirf-score-areas",
         label: "NIRF Score Areas",
         defaultView: "bar",
-        allowedViews: ["bar", "donut", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Score area",
         yLabel: "Score",
         format: "number",
@@ -278,7 +311,7 @@ const CATEGORY_CONFIG = {
         id: "financial-impact",
         label: "Financial Impact",
         defaultView: "bar",
-        allowedViews: ["bar", "donut", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Department / Unit",
         yLabel: "Financial impact (Cr)",
         format: "number",
@@ -289,7 +322,7 @@ const CATEGORY_CONFIG = {
         id: "audit-timeline",
         label: "Audit Timeline",
         defaultView: "trend",
-        allowedViews: ["trend", "bar", "donut", "table"],
+        allowedViews: ["trend", "bar", "table"],
         xLabel: "Year of audit",
         yLabel: "Count of observations",
         format: "number",
@@ -389,7 +422,7 @@ const CATEGORY_CONFIG = {
         id: "financial-exposure",
         label: "Financial Exposure",
         defaultView: "bar",
-        allowedViews: ["bar", "donut", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Court name / case nature",
         yLabel: "Financial exposure (Cr)",
         format: "number",
@@ -474,7 +507,10 @@ function forInstitute(row, instituteId) {
 }
 
 function latestRows(rows, instituteId, yearRange) {
-  return rows.filter((row) => forInstitute(row, instituteId) && Number(row.Year) === Number(yearRange.to));
+  const scoped = rows.filter((row) => forInstitute(row, instituteId) && inRange(row, yearRange));
+  const latestYear = Math.max(...scoped.map((row) => Number(row.Year ?? 0)).filter(Number.isFinite));
+  if (!Number.isFinite(latestYear)) return [];
+  return scoped.filter((row) => Number(row.Year) === latestYear);
 }
 
 function rangeRows(rows, instituteId, yearRange) {
@@ -722,19 +758,20 @@ function uniqueViews(views) {
 }
 
 function deriveAllowedViews(category, state) {
-  const hasCards = Boolean(state.cards?.length);
   const hasBreakdown = Boolean(state.breakdown?.length);
   const hasTrend = Boolean(state.trend?.length);
   const hasTable = Boolean(state.tableRows?.length || state.detailRows?.length);
+  const requestedViews = Array.isArray(category.allowedViews) && category.allowedViews.length
+    ? category.allowedViews
+    : ["bar", "donut", "trend", "table"];
 
   const views = [];
-  if (hasCards) views.push("cards");
   if (hasBreakdown) views.push("bar");
   if (hasBreakdown) views.push("donut");
   if (hasTrend) views.push("trend");
   if (hasTable) views.push("table");
 
-  return uniqueViews(views);
+  return uniqueViews(views).filter((view) => requestedViews.includes(view));
 }
 
 function buildEmptyState(category, state = {}, emptyMessage = null) {
@@ -757,36 +794,38 @@ function buildEmptyState(category, state = {}, emptyMessage = null) {
     yLabel: category.yLabel,
     format: category.format ?? "number",
     allowPercent: false,
-    emptyTitle: category.label,
-    emptyMessage: emptyMessage ?? category.emptyMessage ?? "Visual for this category is not available.",
+    emptyTitle: "No Data Available",
+    emptyMessage: "No Data Available",
   };
 }
 
 function finalize(category, state) {
-  const hasCards = state.cards?.length;
-  const hasBreakdown = state.breakdown?.length;
-  const hasTrend = state.trend?.length;
-  const hasTable = state.tableRows?.length || state.detailRows?.length;
-  const hasVisual = hasCards || hasBreakdown || hasTrend;
-  const isEmpty = category.defaultView === "empty" || !hasVisual;
-  if (isEmpty) {
+  const hasCards = Boolean(state.cards?.length);
+  const hasBreakdown = Boolean(state.breakdown?.length);
+  const hasTrend = Boolean(state.trend?.length);
+  const hasTable = Boolean(state.tableRows?.length || state.detailRows?.length);
+  const views = deriveAllowedViews(category, state);
+  const hasView = views.length > 0;
+  const isForcedEmpty = category.defaultView === "empty";
+
+  if (isForcedEmpty || !hasView) {
     const tableOnlyMessage =
-      hasTable && !hasVisual
-        ? "Visual for this category is not available. Use Details to view the table records."
+      hasTable && !hasCards && !hasBreakdown && !hasTrend
+        ? "This worksheet is table-only because its fields are narrative, date-based, or validity-period records rather than additive chart measures."
         : null;
     return buildEmptyState(category, state, tableOnlyMessage);
   }
 
-  const views = deriveAllowedViews(category, state);
   const defaultView = views.includes(category.defaultView)
     ? category.defaultView
     : views[0] ?? state.visualKind ?? "table";
+  const visualKind = views.includes(state.visualKind) ? state.visualKind : defaultView;
 
   return {
     id: category.id,
     category,
     isEmpty: false,
-    visualKind: state.visualKind ?? defaultView,
+    visualKind,
     defaultView,
     allowedViews: views,
     cards: state.cards ?? [],
@@ -849,6 +888,14 @@ export function buildInstitutionGovernanceVisual({
   const latestAudit = latestRows(auditRows, instituteId, yearRange);
   const latestCourt = latestRows(courtRows, instituteId, yearRange);
 
+  const rangeProfile = rangeRows(profileRows, instituteId, yearRange);
+  const rangeAcademic = rangeRows(academicRows, instituteId, yearRange);
+  const rangeGovernance = rangeRows(governanceRows, instituteId, yearRange);
+  const rangeRankings = rangeRows(rankingRows, instituteId, yearRange);
+  const rangeAccreditation = rangeRows(accreditationRows, instituteId, yearRange);
+  const rangeAudit = rangeRows(auditRows, instituteId, yearRange);
+  const rangeCourt = rangeRows(courtRows, instituteId, yearRange);
+
   const filteredByDrill = (rows) => filterDetailFocus(applyDrill(rows, category.levels ?? [], drillPath), detailFocus);
 
   if (category.id === "overview-kpis") {
@@ -867,14 +914,14 @@ export function buildInstitutionGovernanceVisual({
           ]
         : [],
       tableColumns: IG_TABLE_COLUMNS.institutionalProfile,
-      tableRows: latestProfile,
+      tableRows: rangeProfile,
       detailColumns: IG_TABLE_COLUMNS.institutionalProfile,
-      detailRows: latestProfile,
+      detailRows: rangeProfile,
     });
   }
 
   if (category.id === "rank-trend") {
-    const scoped = rangeRows(profileRows, instituteId, yearRange);
+    const scoped = rangeProfile;
     const trend = buildTrendFromRows(scoped, yearRange, (rows) => rows[0]?.NIRFOverallRank ?? null);
     const breakdown = trend.map((item) => ({ name: item.name, value: item.value }));
     const tableRows = scoped.filter((row, index, arr) => arr.findIndex((x) => x.Year === row.Year) === index);
@@ -895,22 +942,23 @@ export function buildInstitutionGovernanceVisual({
       visualKind: "bar",
       breakdown,
       tableColumns: IG_TABLE_COLUMNS.institutionalProfile,
-      tableRows: latestProfile,
+      tableRows: rangeProfile,
       detailColumns: IG_TABLE_COLUMNS.institutionalProfile,
-      detailRows: latestProfile,
+      detailRows: rangeProfile,
     });
   }
 
   if (category.id === "academic-programs") {
     const scoped = applyDrill(latestAcademic, category.levels, drillPath);
+    const detailScoped = applyDrill(rangeAcademic, category.levels, drillPath);
     const breakdown = countByLevels(latestAcademic, category.levels, drillPath, "ProgramName");
     return finalize(category, {
       visualKind: "bar",
       breakdown,
       tableColumns: IG_TABLE_COLUMNS.academicPrograms,
-      tableRows: scoped,
+      tableRows: detailScoped,
       detailColumns: IG_TABLE_COLUMNS.academicPrograms,
-      detailRows: filterDetailFocus(scoped, detailFocus),
+      detailRows: filterDetailFocus(detailScoped, detailFocus),
     });
   }
 
@@ -920,37 +968,41 @@ export function buildInstitutionGovernanceVisual({
       visualKind: "donut",
       breakdown,
       tableColumns: IG_TABLE_COLUMNS.academicPrograms,
-      tableRows: latestAcademic,
+      tableRows: rangeAcademic,
       detailColumns: IG_TABLE_COLUMNS.academicPrograms,
-      detailRows: filterDetailFocus(latestAcademic, detailFocus),
+      detailRows: filterDetailFocus(rangeAcademic, detailFocus),
     });
   }
 
   if (category.id === "teaching-faculty") {
     const usable = latestAcademic.filter((row) => Number.isFinite(Number(row.FacultyCurrentlyTeaching)) && Number(row.FacultyCurrentlyTeaching) > 0);
+    const detailRows = rangeAcademic.filter((row) => Number.isFinite(Number(row.FacultyCurrentlyTeaching)) && Number(row.FacultyCurrentlyTeaching) > 0);
     const breakdown = groupValue(usable, "Department", "FacultyCurrentlyTeaching");
     return finalize(category, {
       visualKind: "bar",
       breakdown,
       tableColumns: IG_TABLE_COLUMNS.academicPrograms,
-      tableRows: usable,
+      tableRows: detailRows,
       detailColumns: IG_TABLE_COLUMNS.academicPrograms,
-      detailRows: filterDetailFocus(usable, detailFocus),
+      detailRows: filterDetailFocus(detailRows, detailFocus),
     });
   }
 
   if (category.id === "grievance-resolution") {
-    const rows = latestGovernance.filter((row) => row.Theme === "Anti-Ragging & Grievance");
-    const report = sum(rows, "CasesReported");
+    const rows = rangeGovernance.filter((row) => row.Theme === "Anti-Ragging & Grievance");
+    const reported = sum(rows, "CasesReported");
     const resolved = sum(rows, "CasesResolved");
-    const pending = sum(rows, "CasesPending");
-    const breakdown = report ? [
-      { name: "Reported", value: report },
+    const recordedPending = sum(rows, "CasesPending");
+    const pending = recordedPending || Math.max(0, reported - resolved);
+    const breakdown = reported || resolved || pending ? [
       { name: "Resolved", value: resolved },
       { name: "Pending", value: pending },
-    ] : [];
+    ].filter((item) => item.value !== 0) : [];
     return finalize(category, {
       visualKind: "bar",
+      cards: reported ? [
+        { label: "Reported cases", value: reported, note: `${yearRange.from}–${yearRange.to}; resolved and pending are the actionable split.` },
+      ] : [],
       breakdown,
       tableColumns: IG_TABLE_COLUMNS.governance,
       tableRows: rows,
@@ -960,13 +1012,13 @@ export function buildInstitutionGovernanceVisual({
   }
 
   if (category.id === "committees") {
-    const rows = latestGovernance.filter((row) => row.Theme === "Anti-Ragging & Grievance" && row.CommitteeMemberCount);
+    const rows = rangeGovernance.filter((row) => row.Theme === "Anti-Ragging & Grievance" && row.CommitteeMemberCount);
     const breakdown = groupValue(rows, "CommitteeType", "CommitteeMemberCount");
     return finalize(category, { visualKind: "bar", breakdown, tableColumns: IG_TABLE_COLUMNS.governance, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.governance, detailRows: filterDetailFocus(rows, detailFocus) });
   }
 
   if (category.id === "qa-reviews") {
-    const rows = latestGovernance.filter((row) => row.Theme === "Internal QA Mechanisms");
+    const rows = rangeGovernance.filter((row) => row.Theme === "Internal QA Mechanisms");
     const breakdown = rows.length ? [
       { name: "Academic audits", value: sum(rows, "AcademicAuditCount") },
       { name: "Feedback cycles", value: sum(rows, "FeedbackCycles") },
@@ -976,52 +1028,62 @@ export function buildInstitutionGovernanceVisual({
   }
 
   if (category.id === "governance-meetings") {
-    const rows = latestGovernance.filter((row) => row.Theme === "Institutional Governance Structure");
+    const rows = rangeGovernance.filter((row) => row.Theme === "Institutional Governance Structure");
     const breakdown = groupValue(rows, "GoverningBody", "MeetingCount");
     return finalize(category, { visualKind: "bar", breakdown, tableColumns: IG_TABLE_COLUMNS.governance, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.governance, detailRows: filterDetailFocus(rows, detailFocus) });
   }
 
   if (category.id === "inclusion-metrics") {
     const rows = latestGovernance.filter((row) => row.Theme === "Diversity & Inclusion" && row.Unit === "%");
+    const tableRows = rangeGovernance.filter((row) => row.Theme === "Diversity & Inclusion" && row.Unit === "%");
     const breakdown = normalizePercentRows(rows.map((row) => ({ name: row.Metric, value: row.Value })));
-    return finalize(category, { visualKind: "bar", breakdown, tableColumns: IG_TABLE_COLUMNS.governance, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.governance, detailRows: filterDetailFocus(rows, detailFocus) });
+    return finalize(category, { visualKind: "bar", breakdown, tableColumns: IG_TABLE_COLUMNS.governance, tableRows, detailColumns: IG_TABLE_COLUMNS.governance, detailRows: filterDetailFocus(tableRows, detailFocus) });
   }
 
   if (category.id === "policy-status") {
-    const rows = latestGovernance.filter((row) => row.Theme === "Diversity & Inclusion");
+    const rows = rangeGovernance.filter((row) => row.Theme === "Diversity & Inclusion");
     const breakdown = groupCount(rows, "Status");
     return finalize(category, { visualKind: "bar", breakdown, tableColumns: IG_TABLE_COLUMNS.governance, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.governance, detailRows: filterDetailFocus(rows, detailFocus) });
   }
 
   if (category.id === "nirf-ranking") {
-    const rows = rangeRows(rankingRows, instituteId, yearRange).filter((row) => row.Category === "Rankings" && /NIRF/i.test(row.Scheme ?? ""));
+    const rows = rangeRankings.filter((row) => row.Category === "Rankings" && /NIRF/i.test(row.Scheme ?? ""));
     const trend = buildTrendFromRows(rows.filter((row) => /Overall/i.test(row.Scheme ?? "")), yearRange, (yearRows) => yearRows[0]?.Score ?? null);
     const breakdown = trend.map((item) => ({ name: item.name, value: item.value }));
     return finalize(category, { visualKind: "trend", trend, breakdown, tableColumns: IG_TABLE_COLUMNS.rankings, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.rankings, detailRows: filterDetailFocus(rows, detailFocus) });
   }
 
-  if (category.id === "qs-the-ranking") {
-    const rows = rangeRows(rankingRows, instituteId, yearRange).filter((row) => /QS|THE/i.test(row.Scheme ?? ""));
-    const trend = buildTrendFromRows(rows.filter((row) => /QS Rank/i.test(row.Scheme ?? "")), yearRange, (yearRows) => yearRows[0]?.Score ?? null);
+  const rankingSchemePatterns = {
+    "qs-rank": /QS Rank/i,
+    "qs-score": /QS Score/i,
+    "the-rank": /THE Rank/i,
+    "the-score": /THE Score/i,
+  };
+
+  if (Object.prototype.hasOwnProperty.call(rankingSchemePatterns, category.id)) {
+    const pattern = rankingSchemePatterns[category.id];
+    const rows = rangeRankings.filter((row) => row.Category === "Rankings" && pattern.test(row.Scheme ?? ""));
+    const trend = buildTrendFromRows(rows, yearRange, (yearRows) => yearRows[0]?.Score ?? null);
     const breakdown = trend.map((item) => ({ name: item.name, value: item.value }));
     return finalize(category, { visualKind: "trend", trend, breakdown, tableColumns: IG_TABLE_COLUMNS.rankings, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.rankings, detailRows: filterDetailFocus(rows, detailFocus) });
   }
 
   if (category.id === "nirf-score-areas") {
     const rows = latestRankings.filter((row) => row.Category === "NIRF Score Areas");
+    const tableRows = rangeRankings.filter((row) => row.Category === "NIRF Score Areas");
     const breakdown = groupValue(rows, "Scheme", "Score");
-    return finalize(category, { visualKind: "bar", breakdown, tableColumns: IG_TABLE_COLUMNS.rankings, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.rankings, detailRows: filterDetailFocus(rows, detailFocus) });
+    return finalize(category, { visualKind: "bar", breakdown, tableColumns: IG_TABLE_COLUMNS.rankings, tableRows, detailColumns: IG_TABLE_COLUMNS.rankings, detailRows: filterDetailFocus(tableRows, detailFocus) });
   }
 
   if (category.id === "accreditation-status") {
     const rows = latestAccreditation;
-    const tableRows = rows.map((row) => ({ ...row, StatusKey: `${row.Body}: ${row.GradeOrStatus}` }));
-    const breakdown = groupCount(tableRows, "StatusKey");
-    return finalize(category, { visualKind: "bar", breakdown, tableColumns: IG_TABLE_COLUMNS.accreditation, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.accreditation, detailRows: filterDetailFocus(rows, detailFocus) });
+    const statusRows = rows.map((row) => ({ ...row, StatusKey: `${row.Body}: ${row.GradeOrStatus}` }));
+    const breakdown = groupCount(statusRows, "StatusKey");
+    return finalize(category, { visualKind: "bar", breakdown, tableColumns: IG_TABLE_COLUMNS.accreditation, tableRows: rangeAccreditation, detailColumns: IG_TABLE_COLUMNS.accreditation, detailRows: filterDetailFocus(rangeAccreditation, detailFocus) });
   }
 
   if (category.id === "validity-timeline") {
-    const rows = latestAccreditation;
+    const rows = rangeAccreditation;
     return finalize(category, { visualKind: "table", tableColumns: IG_TABLE_COLUMNS.accreditation, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.accreditation, detailRows: filterDetailFocus(rows, detailFocus) });
   }
 
@@ -1030,48 +1092,48 @@ export function buildInstitutionGovernanceVisual({
   }
 
   if (["audit-type", "audit-status", "department-audits"].includes(category.id)) {
-    const scoped = applyDrill(latestAudit, category.levels, drillPath);
-    const breakdown = countByLevels(latestAudit, category.levels, drillPath, "ObservationId");
+    const scoped = applyDrill(rangeAudit, category.levels, drillPath);
+    const breakdown = countByLevels(rangeAudit, category.levels, drillPath, "ObservationId");
     return finalize(category, { visualKind: category.defaultView, breakdown, tableColumns: IG_TABLE_COLUMNS.audit, tableRows: scoped, detailColumns: IG_TABLE_COLUMNS.audit, detailRows: filterDetailFocus(scoped, detailFocus) });
   }
 
   if (category.id === "financial-impact") {
-    const usable = latestAudit.filter((row) => Number.isFinite(Number(row.FinancialImpactCr)) && Number(row.FinancialImpactCr) > 0);
+    const usable = rangeAudit.filter((row) => Number.isFinite(Number(row.FinancialImpactCr)) && Number(row.FinancialImpactCr) > 0);
     const breakdown = groupValue(usable, "Department", "FinancialImpactCr");
     return finalize(category, { visualKind: "bar", breakdown, tableColumns: IG_TABLE_COLUMNS.audit, tableRows: usable, detailColumns: IG_TABLE_COLUMNS.audit, detailRows: filterDetailFocus(usable, detailFocus) });
   }
 
   if (category.id === "audit-timeline") {
-    const rows = rangeRows(auditRows, instituteId, yearRange);
+    const rows = rangeAudit;
     const trend = buildTrendFromRows(rows, yearRange, (yearRows) => yearRows.length);
     const breakdown = trend.map((item) => ({ name: item.name, value: item.value }));
     return finalize(category, { visualKind: "trend", trend, breakdown, tableColumns: IG_TABLE_COLUMNS.audit, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.audit, detailRows: filterDetailFocus(rows, detailFocus) });
   }
 
   if (category.id === "open-observations") {
-    const rows = latestAudit.filter((row) => /open|progress|pending/i.test(row.Status ?? ""));
+    const rows = rangeAudit.filter((row) => /open|progress|pending/i.test(row.Status ?? ""));
     return finalize(category, { visualKind: "table", tableColumns: IG_TABLE_COLUMNS.audit, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.audit, detailRows: filterDetailFocus(rows, detailFocus) });
   }
 
   if (["court-wise-cases", "case-nature", "case-status"].includes(category.id)) {
-    const scoped = applyDrill(latestCourt, category.levels, drillPath);
-    const breakdown = countByLevels(latestCourt, category.levels, drillPath, "CaseId");
+    const scoped = applyDrill(rangeCourt, category.levels, drillPath);
+    const breakdown = countByLevels(rangeCourt, category.levels, drillPath, "CaseId");
     return finalize(category, { visualKind: category.defaultView, breakdown, tableColumns: IG_TABLE_COLUMNS.court, tableRows: scoped, detailColumns: IG_TABLE_COLUMNS.court, detailRows: filterDetailFocus(scoped, detailFocus) });
   }
 
   if (category.id === "compliance-status") {
-    const usable = latestCourt.filter((row) => row.ComplianceStatus && !/^(kjnj|mlkmlk|jnn)$/i.test(row.ComplianceStatus));
+    const usable = rangeCourt.filter((row) => row.ComplianceStatus && !/^(kjnj|mlkmlk|jnn)$/i.test(row.ComplianceStatus));
     const breakdown = groupCount(usable, "ComplianceStatus", "CaseId");
     return finalize(category, { visualKind: "bar", breakdown, tableColumns: IG_TABLE_COLUMNS.court, tableRows: usable, detailColumns: IG_TABLE_COLUMNS.court, detailRows: filterDetailFocus(usable, detailFocus) });
   }
 
   if (category.id === "hearing-timeline") {
-    const rows = [...latestCourt].sort((a, b) => String(a.NextHearingDate).localeCompare(String(b.NextHearingDate)));
+    const rows = [...rangeCourt].sort((a, b) => String(a.NextHearingDate).localeCompare(String(b.NextHearingDate)));
     return finalize(category, { visualKind: "table", tableColumns: IG_TABLE_COLUMNS.court, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.court, detailRows: filterDetailFocus(rows, detailFocus) });
   }
 
   if (category.id === "financial-exposure") {
-    const usable = latestCourt.filter((row) => Number.isFinite(Number(row.FinancialExposureCr)) && Number(row.FinancialExposureCr) > 0);
+    const usable = rangeCourt.filter((row) => Number.isFinite(Number(row.FinancialExposureCr)) && Number(row.FinancialExposureCr) > 0);
     const breakdown = groupValue(usable, "CourtName", "FinancialExposureCr");
     return finalize(category, { visualKind: "bar", breakdown, tableColumns: IG_TABLE_COLUMNS.court, tableRows: usable, detailColumns: IG_TABLE_COLUMNS.court, detailRows: filterDetailFocus(usable, detailFocus) });
   }
