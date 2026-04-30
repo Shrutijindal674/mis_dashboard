@@ -2,7 +2,7 @@ import { cx } from "../../utils/helpers";
 
 export default function Drawer({ open, title, children, onClose }) {
   return (
-    <div className={cx("fixed inset-0 z-50", open ? "" : "pointer-events-none")}>
+    <div className={cx("fixed inset-0 z-[500]", open ? "" : "pointer-events-none")}>
       <div
         className={cx(
           "absolute inset-0 bg-black/40 transition",

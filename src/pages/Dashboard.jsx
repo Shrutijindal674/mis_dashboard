@@ -87,7 +87,6 @@ const DEFAULT_MULTI_YEAR_FROM = YEARS[Math.max(0, YEARS.length - 5)] ?? EARLIEST
 const YEAR_FILTER_MODES = [
   { id: "single", label: "Select Year" },
   { id: "range", label: "Select Year Range" },
-  { id: "advanced", label: "Advanced Filters" },
 ];
 const DEFAULT_FACULTY_STAFF_HIERARCHY_KEY = "workforce-composition";
 const DEFAULT_FACULTY_STAFF_PATHWAY_NO = 4;
@@ -242,10 +241,21 @@ function buildDashboardSearchResults(query) {
   const normalizedQuery = String(query ?? "").trim().toLowerCase();
   if (!normalizedQuery) return [];
 
-  const results = [];
+  const resultMap = new Map();
+  const addResult = (item) => {
+    if (!item?.key || resultMap.has(item.key)) return;
+    resultMap.set(item.key, item);
+  };
+  const matches = (...values) =>
+    values
+      .filter((value) => value != null)
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedQuery);
+
   for (const domain of DOMAIN_DEFS) {
-    if (String(domain.id ?? "").toLowerCase().includes(normalizedQuery)) {
-      results.push({
+    if (matches(domain.id)) {
+      addResult({
         key: `module-${domain.id}`,
         type: "module",
         label: domain.id,
@@ -255,9 +265,8 @@ function buildDashboardSearchResults(query) {
     }
 
     for (const subsection of domain.children) {
-      const subsectionText = `${domain.id} ${subsection.label}`.toLowerCase();
-      if (subsectionText.includes(normalizedQuery)) {
-        results.push({
+      if (matches(domain.id, subsection.label)) {
+        addResult({
           key: `submodule-${subsection.id}`,
           type: "submodule",
           label: subsection.label,
@@ -268,9 +277,8 @@ function buildDashboardSearchResults(query) {
       }
 
       for (const worksheet of SUBSECTION_VIEW_OPTIONS[subsection.id] ?? []) {
-        const worksheetText = `${domain.id} ${subsection.label} ${worksheet.label} ${worksheet.helper ?? ""}`.toLowerCase();
-        if (worksheetText.includes(normalizedQuery)) {
-          results.push({
+        if (matches(domain.id, subsection.label, worksheet.label, worksheet.helper)) {
+          addResult({
             key: `worksheet-${worksheet.id}-${subsection.id}`,
             type: "worksheet",
             label: worksheet.label,
@@ -280,11 +288,77 @@ function buildDashboardSearchResults(query) {
             viewId: worksheet.id,
           });
         }
+
+        if (isInstitutionGovernanceSubsection(subsection.id)) {
+          for (const category of getInstitutionGovernanceCategories(subsection.id, worksheet.id) ?? []) {
+            if (
+              matches(
+                domain.id,
+                subsection.label,
+                worksheet.label,
+                category.label,
+                category.title,
+                category.xLabel,
+                category.yLabel,
+                category.helper,
+                category.fields?.join(" "),
+              )
+            ) {
+              addResult({
+                key: `kpa-${subsection.id}-${worksheet.id}-${category.id}`,
+                type: "kpa",
+                label: category.label ?? category.title,
+                subtitle: `${domain.id} > ${subsection.label} > ${worksheet.label}`,
+                domainId: domain.id,
+                subsectionId: subsection.id,
+                viewId: worksheet.id,
+                categoryId: category.id,
+              });
+            }
+          }
+        }
       }
     }
   }
 
-  return results.slice(0, 8);
+  for (const kpi of KPI_DEFS) {
+    if (
+      matches(
+        kpi.label,
+        kpi.fact,
+        kpi.field,
+        kpi.format,
+        kpi.levels?.map((level) => `${level.label} ${level.field}`).join(" "),
+      )
+    ) {
+      const child = CHILD_BY_ID[kpi.childId];
+      addResult({
+        key: `kpi-${kpi.id}`,
+        type: "kpi",
+        label: kpi.label,
+        subtitle: child ? `${child.domainId} > ${child.label}` : "KPI",
+        domainId: child?.domainId,
+        subsectionId: kpi.childId,
+        kpiId: kpi.id,
+      });
+    }
+  }
+
+  return Array.from(resultMap.values()).slice(0, 12);
+}
+
+function toShareRows(rows = [], keys = []) {
+  return rows.map((row) => {
+    const out = { ...row };
+    const total = keys.reduce((sum, key) => sum + Math.max(0, Number(row[key] ?? 0)), 0) || 1;
+    for (const key of keys) {
+      out[key] = Math.max(0, Number(row[key] ?? 0)) / total;
+    }
+    if (keys.length === 1 && Object.prototype.hasOwnProperty.call(out, "value")) {
+      out.value = Math.max(0, Number(row.value ?? 0)) / total;
+    }
+    return out;
+  });
 }
 
 function iconSvg(kind, active = false, tone = null) {
@@ -966,54 +1040,10 @@ export default function Dashboard({
   const activeDomainDef = DOMAIN_BY_ID[activeDomain] ?? DOMAIN_DEFS[0];
   const subsectionCards = activeDomainDef.children;
 
-  const headerSearchResults = useMemo(() => {
-    const query = headerSearch.trim().toLowerCase();
-    if (!query) return [];
-
-    const results = [];
-    for (const domain of DOMAIN_DEFS) {
-      if (`${domain.id}`.toLowerCase().includes(query)) {
-        results.push({
-          key: `module-${domain.id}`,
-          type: "module",
-          label: domain.id,
-          subtitle: `${domain.children.length} sub-modules`,
-          domainId: domain.id,
-        });
-      }
-
-      for (const subsection of domain.children) {
-        const subsectionText = `${domain.id} ${subsection.label}`.toLowerCase();
-        if (subsectionText.includes(query)) {
-          results.push({
-            key: `submodule-${subsection.id}`,
-            type: "submodule",
-            label: subsection.label,
-            subtitle: domain.id,
-            domainId: domain.id,
-            subsectionId: subsection.id,
-          });
-        }
-
-        for (const worksheet of SUBSECTION_VIEW_OPTIONS[subsection.id] ?? []) {
-          const worksheetText = `${domain.id} ${subsection.label} ${worksheet.label} ${worksheet.helper ?? ""}`.toLowerCase();
-          if (worksheetText.includes(query)) {
-            results.push({
-              key: `worksheet-${worksheet.id}-${subsection.id}`,
-              type: "worksheet",
-              label: worksheet.label,
-              subtitle: `${domain.id} › ${subsection.label}`,
-              domainId: domain.id,
-              subsectionId: subsection.id,
-              viewId: worksheet.id,
-            });
-          }
-        }
-      }
-    }
-
-    return results.slice(0, 8);
-  }, [headerSearch]);
+  const headerSearchResults = useMemo(
+    () => buildDashboardSearchResults(headerSearch),
+    [headerSearch],
+  );
 
   const homeSearchResults = useMemo(
     () => buildDashboardSearchResults(homeSearch),
@@ -1024,8 +1054,18 @@ export default function Dashboard({
     if (!result) return;
     if (result.type === "module") {
       openDomain(result.domainId);
-    } else {
-      openSubsection(result.domainId, result.subsectionId, result.viewId ?? null);
+      return;
+    }
+
+    openSubsection(result.domainId, result.subsectionId, result.viewId ?? null);
+    if (result.kpiId) {
+      setSelectedKpiId(result.kpiId);
+    }
+    if (result.categoryId && result.subsectionId && result.viewId) {
+      setInstitutionGovernanceCategoryByView((prev) => ({
+        ...prev,
+        [`${result.subsectionId}:${result.viewId}`]: result.categoryId,
+      }));
     }
   }
 
@@ -1599,6 +1639,8 @@ export default function Dashboard({
       ? standardYearWiseBreakdown
       : baseVisibleChartBreakdown;
 
+  const chartSeriesColors = ["#1d4ed8", "#2563eb", "#0ea5e9", "#f97316", "#16a34a", "#7c3aed", "#db2777"];
+
   const activeVisualLevels = isInstitutionGovernanceVisualActive
     ? institutionGovernanceVisual?.levels ?? []
     : selectedKpi.levels ?? [];
@@ -1607,7 +1649,8 @@ export default function Dashboard({
     Number(yearRange.to) > Number(yearRange.from) &&
     trendSeries.length > 1 &&
     (!isInstitutionGovernanceVisualActive ||
-      institutionGovernanceVisual?.allowedViews?.includes("trend"));
+      institutionGovernanceVisual?.allowedViews?.includes("trend") ||
+      (institutionGovernanceVisual?.timeSeriesRows?.length ?? 0) > 1);
 
   function setSingleYearFilter(year) {
     const nextYear = Number(year);
@@ -2112,17 +2155,21 @@ export default function Dashboard({
     String(rootBreakdownLabel || "").trim().toLowerCase() === "category"
       ? null
       : rootBreakdownLabel;
-  const activeChartFormat = isInstitutionGovernanceVisualActive
-    ? (valueMode === "percent" && institutionGovernanceVisual?.allowPercent
-        ? "pct"
-        : institutionGovernanceVisual?.format ?? "number")
-    : (valueMode === "percent" && selectedKpi.format !== "pct" ? "pct" : selectedKpi.format);
-  const canUsePercentMode = !isInstitutionGovernanceVisualActive || Boolean(institutionGovernanceVisual?.allowPercent);
+  const baseMetricFormat = isInstitutionGovernanceVisualActive
+    ? institutionGovernanceVisual?.format ?? "number"
+    : selectedKpi.format;
+  const canUsePercentMode = isInstitutionGovernanceVisualActive
+    ? Boolean(institutionGovernanceVisual?.allowPercent)
+    : selectedKpi.format !== "pct";
+  const activeChartFormat = valueMode === "percent" && canUsePercentMode
+    ? "pct"
+    : baseMetricFormat;
+  const primaryValueModeLabel = baseMetricFormat === "pct" && !canUsePercentMode ? "Percentage" : "Raw";
   const currentValueLabel = isInstitutionGovernanceVisualActive
-    ? (valueMode === "percent" && institutionGovernanceVisual?.allowPercent
+    ? (valueMode === "percent" && canUsePercentMode
         ? "Share"
         : institutionGovernanceVisual?.yLabel ?? currentViewLabel)
-    : valueMode === "percent" && selectedKpi.format !== "pct"
+    : valueMode === "percent" && canUsePercentMode
       ? `${currentViewLabel}`
       : currentViewLabel;
   const activeFacultyStaffPathwayLabel = isFacultyStaffHierarchyView
@@ -2149,8 +2196,38 @@ export default function Dashboard({
     ? facultyStaffValueAxisLabel
     : currentValueLabel;
 
-  const mainTableColumns =
-    isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.tableColumns?.length
+  const rawTimeSeriesRowsForChart = isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.timeSeriesRows?.length
+    ? institutionGovernanceVisual.timeSeriesRows
+    : trendSeries;
+  const rawTimeSeriesKeysForChart = isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.timeSeriesKeys?.length
+    ? institutionGovernanceVisual.timeSeriesKeys
+    : ["value"];
+  const timeSeriesRowsForChart = valueMode === "percent" && canUsePercentMode
+    ? toShareRows(rawTimeSeriesRowsForChart, rawTimeSeriesKeysForChart)
+    : rawTimeSeriesRowsForChart;
+  const timeSeriesKeysForChart = rawTimeSeriesKeysForChart.filter(Boolean);
+  const canShowStackedTimeSeriesBars =
+    isMultiYearSelection &&
+    timeSeriesRowsForChart.length > 1 &&
+    timeSeriesKeysForChart.length > 1;
+  const useStackedTimeSeriesBars =
+    kpiView === "bar" &&
+    canShowStackedTimeSeriesBars;
+  const percentSummaryTableActive = valueMode === "percent" && canUsePercentMode;
+  const percentSummaryRows = visibleBreakdown.map((row) => ({
+    ...row,
+    value: Number(row.value ?? 0),
+  }));
+  const mainTableColumns = percentSummaryTableActive
+    ? [
+        { key: "name", label: visibleCurrentBreakdownLabel },
+        {
+          key: "value",
+          label: "Share",
+          format: formatPct,
+        },
+      ]
+    : isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.tableColumns?.length
       ? institutionGovernanceVisual.tableColumns
       : isMultiYearSelection && !isInstitutionGovernanceVisualActive
         ? [
@@ -2169,13 +2246,21 @@ export default function Dashboard({
               format: (value) => activeChartFormat === "pct" ? formatPct(value) : formatCompact(value),
             },
           ];
-  const mainTableRows = isInstitutionGovernanceVisualActive
-    ? institutionGovernanceVisual?.tableRows?.length
-      ? institutionGovernanceVisual.tableRows
-      : institutionGovernanceVisual?.detailRows ?? []
-    : isMultiYearSelection
-      ? standardYearWiseBreakdown
-      : visibleBreakdown;
+  const mainTableRows = percentSummaryTableActive
+    ? percentSummaryRows
+    : isInstitutionGovernanceVisualActive
+      ? institutionGovernanceVisual?.tableRows?.length
+        ? institutionGovernanceVisual.tableRows
+        : institutionGovernanceVisual?.detailRows ?? []
+      : isMultiYearSelection
+        ? standardYearWiseBreakdown
+        : visibleBreakdown;
+  const emptyVisualTitle = isInstitutionGovernanceVisualActive
+    ? institutionGovernanceVisual?.emptyTitle ?? "No Data Available"
+    : "No Data Available";
+  const emptyVisualMessage = isInstitutionGovernanceVisualActive
+    ? institutionGovernanceVisual?.emptyMessage ?? "There is no data available for the selected configuration."
+    : "There is no data available for the selected configuration.";
   const isNoDataVisual =
     kpiView === "empty" ||
     (isInstitutionGovernanceVisualActive && Boolean(institutionGovernanceVisual?.isEmpty));
@@ -2227,10 +2312,10 @@ export default function Dashboard({
   ]);
 
   useEffect(() => {
-    if (isInstitutionGovernanceVisualActive && !institutionGovernanceVisual?.allowPercent && valueMode === "percent") {
+    if (!canUsePercentMode && valueMode === "percent") {
       setValueMode("value");
     }
-  }, [isInstitutionGovernanceVisualActive, institutionGovernanceVisual?.allowPercent, valueMode]);
+  }, [canUsePercentMode, valueMode]);
 
   useEffect(() => {
     if (!isNoDataVisual) return;
@@ -2467,13 +2552,12 @@ export default function Dashboard({
     };
 
     if (kpiView === "table") {
-      downloadTableSvg(
-        `${isInstitutionGovernanceVisualActive ? currentInstitutionGovernanceCategoryId : selectedKpi.id}_${yearFileLabel}.svg`,
-        mainTableColumns,
-        mainTableRows,
-        exportMeta,
+      downloadText(
+        `${isInstitutionGovernanceVisualActive ? currentInstitutionGovernanceCategoryId : selectedKpi.id}_${yearFileLabel}.csv`,
+        toCsv(mainTableRows, mainTableColumns),
+        "text/csv;charset=utf-8",
       );
-      markDownloaded("SVG downloaded.", downloadStamp);
+      markDownloaded("CSV downloaded.", downloadStamp);
       return;
     }
 
@@ -2494,7 +2578,7 @@ export default function Dashboard({
     },
     {
       id: "download",
-      label: "Download SVG",
+      label: kpiView === "table" ? "Download CSV" : "Download SVG",
       icon: "download",
       action: handleDownload,
     },
@@ -2548,48 +2632,55 @@ export default function Dashboard({
       donut: { id: "donut", label: "Donut", icon: "◔" },
       table: { id: "table", label: "Table", icon: "▦" },
       empty: { id: "empty", label: "Unavailable", icon: "—" },
+      ai: {
+        id: "ai",
+        label: "AI interpretation",
+        icon: "✦",
+        action: () => setAiPanelOpen(true),
+      },
     };
+
+    const withAi = (items) => [...items.filter(Boolean), itemById.ai];
 
     if (isInstitutionGovernanceVisualActive) {
       const allowed = institutionGovernanceVisual?.allowedViews?.length
         ? institutionGovernanceVisual.allowedViews
         : [institutionGovernanceVisual?.defaultView ?? "bar", "table"];
       if (isMultiYearSelection) {
-        return [
-          ...(allowed.includes("trend") && canShowTimeSeries ? ["trend"] : []),
-          "table",
-        ]
-          .map((id) => itemById[id])
-          .filter(Boolean);
+        return withAi([
+          ...(allowed.includes("trend") && canShowTimeSeries ? [itemById.trend] : []),
+          ...(canShowStackedTimeSeriesBars ? [itemById.bar] : []),
+          itemById.table,
+        ]);
       }
-      return orderVisualViewIds(allowed)
+      return withAi(orderVisualViewIds(allowed)
         .filter((id) => id !== "trend" || canShowTimeSeries)
-        .map((id) => itemById[id])
-        .filter(Boolean);
+        .map((id) => itemById[id]));
     }
 
     if (isMultiYearSelection) {
-      return [
-        ...(canShowTimeSeries ? ["trend"] : []),
-        "bar",
-        "table",
-      ].map((id) => itemById[id]);
+      return withAi([
+        ...(canShowTimeSeries ? [itemById.trend] : []),
+        itemById.bar,
+        itemById.table,
+      ]);
     }
 
-    return orderVisualViewIds([
+    return withAi(orderVisualViewIds([
       "bar",
       "donut",
       ...(canShowTimeSeries ? ["trend"] : []),
       "table",
-    ]).map((id) => itemById[id]);
-  }, [canShowTimeSeries, isInstitutionGovernanceVisualActive, institutionGovernanceVisual, isMultiYearSelection, isNoDataVisual]);
+    ]).map((id) => itemById[id]));
+  }, [canShowStackedTimeSeriesBars, canShowTimeSeries, isInstitutionGovernanceVisualActive, institutionGovernanceVisual, isMultiYearSelection, isNoDataVisual]);
 
   useEffect(() => {
     if (isNoDataVisual) return;
-    if (!visualToolbarItems.some((item) => item.id === kpiView)) {
-      const preferred = isInstitutionGovernanceVisualActive && visualToolbarItems.some((item) => item.id === institutionGovernanceVisual?.defaultView)
+    const selectableToolbarItems = visualToolbarItems.filter((item) => !item.action);
+    if (!selectableToolbarItems.some((item) => item.id === kpiView)) {
+      const preferred = isInstitutionGovernanceVisualActive && selectableToolbarItems.some((item) => item.id === institutionGovernanceVisual?.defaultView)
         ? institutionGovernanceVisual.defaultView
-        : visualToolbarItems[0]?.id ?? "bar";
+        : selectableToolbarItems[0]?.id ?? "bar";
       setKpiView(preferred);
     }
   }, [kpiView, canShowTimeSeries, currentInstitutionGovernanceCategoryId, currentIgViewId, isInstitutionGovernanceVisualActive, institutionGovernanceVisual?.defaultView, visualToolbarItems, isNoDataVisual]);
@@ -3012,19 +3103,6 @@ export default function Dashboard({
           </div>
 
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleDashboardBack}
-              className="grid h-9 w-9 place-items-center rounded-2xl bg-white shadow-sm"
-              style={{ border: "1px solid rgba(59,130,246,0.15)", color: "#1252a0" }}
-              title="Go back"
-              aria-label="Go back"
-            >
-              <svg viewBox="0 0 24 24" className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-            </button>
-
             <div ref={headerSearchRef} className="relative hidden lg:block">
               <div
                 className="flex h-10 w-[320px] items-center gap-2 rounded-[18px] bg-white px-3 shadow-sm"
@@ -3047,7 +3125,7 @@ export default function Dashboard({
                       handleHeaderSearchSubmit();
                     }
                   }}
-                  placeholder="Search module, sub-module, or worksheet"
+                  placeholder="Search module, sub-module, KPA, or worksheet"
                   className="h-full min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none"
                 />
                 {headerSearch ? (
@@ -3524,7 +3602,7 @@ export default function Dashboard({
                 </div>
                 <div className="mt-3 grid flex-1 content-start gap-3">
                   <div
-                    className="grid grid-cols-3 gap-1 rounded-2xl border p-1"
+                    className="grid grid-cols-2 gap-1 rounded-2xl border p-1"
                     style={{
                       background: "rgba(248,250,252,0.78)",
                       borderColor: "rgba(59,130,246,0.14)",
@@ -3667,7 +3745,7 @@ export default function Dashboard({
                               handleHomeSearchSubmit();
                             }
                           }}
-                          placeholder="Search module, sub-module, or worksheet"
+                          placeholder="Search module, sub-module, KPA, or worksheet"
                           className="h-full min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none"
                         />
                         {homeSearch ? (
@@ -3961,7 +4039,7 @@ export default function Dashboard({
                           color: valueMode === "value" ? accent : "#475569",
                         }}
                       >
-                        Raw
+                        {primaryValueModeLabel}
                       </button>
                       {canUsePercentMode ? (
                         <button
@@ -3989,7 +4067,7 @@ export default function Dashboard({
                       {currentViewLabel}
                     </div>
                     {!isNoDataVisual ? (
-                      <div className="mt-2 flex justify-center">
+                      <div className="mt-2 flex flex-col items-center gap-1.5">
                         {(isInstitutionGovernanceVisualActive
                           ? institutionGovernanceVisual?.drillable
                           : selectedKpi.drillable) && !isFacultyStaffHierarchyView ? (
@@ -4000,15 +4078,20 @@ export default function Dashboard({
                             onPopTo={popDrillTo}
                           />
                         ) : (
-                          <div
-                            className="rounded-lg px-2.5 py-1.5 text-[13px] font-bold"
-                            style={{
-                              background: "rgba(25,117,190,0.08)",
-                              color: "#1252a0",
-                            }}
-                          >
-                            {nonDrillCategoryLabel}
-                          </div>
+                          <>
+                            <div
+                              className="rounded-lg px-2.5 py-1.5 text-[13px] font-bold"
+                              style={{
+                                background: "rgba(25,117,190,0.08)",
+                                color: "#1252a0",
+                              }}
+                            >
+                              {nonDrillCategoryLabel}
+                            </div>
+                            <div className="rounded-full px-2.5 py-1 text-[11px] font-extrabold" style={{ color: "#dc2626", background: "rgba(220,38,38,0.08)" }}>
+                              Drill down not available
+                            </div>
+                          </>
                         )}
                       </div>
                     ) : null}
@@ -4041,7 +4124,7 @@ export default function Dashboard({
                 <div
                   key={`${kpiView}-${isFullscreen ? "fs" : "std"}-${chartRenderNonce}-${selectedKpi.id}-${currentInstitutionGovernanceCategoryId ?? ""}-${drillPath.join("-")}-${selectedFacultyStaffHierarchyKey}-${selectedFacultyStaffPathwayNo}`}
                   ref={chartOnlyRef}
-                  className={`dashboard-chart-body min-w-0 ${isFullscreen ? (isNoDataVisual || ["table", "empty"].includes(kpiView) ? "flex flex-1 min-h-0 items-center justify-center overflow-hidden pt-24 pb-14" : "flex flex-1 min-h-0 items-start justify-center pt-24 pb-14" ) : "flex min-h-[460px] items-center justify-center pt-24 pb-10"}`}
+                  className={`dashboard-chart-body min-w-0 ${isFullscreen ? (isNoDataVisual || ["table", "empty"].includes(kpiView) ? "flex flex-1 min-h-0 items-center justify-center overflow-hidden pt-36 pb-14" : "flex flex-1 min-h-0 items-start justify-center pt-36 pb-14" ) : "flex min-h-[520px] items-center justify-center pt-36 pb-10"}`}
                   style={{
                     ...visualChartBodyStyle,
                     ...(isFullscreen ? {} : { transform: "translateY(12px)" }),
@@ -4050,8 +4133,13 @@ export default function Dashboard({
                   <div className={`${chartPanelWidthClass} mx-auto`}>
                     {isNoDataVisual ? (
                       <div className="mx-auto flex min-h-[260px] items-center justify-center px-8 text-center">
-                        <div className="text-lg font-extrabold" style={{ color: "#64748b" }}>
-                          No Data Available
+                        <div>
+                          <div className="text-lg font-extrabold" style={{ color: "#64748b" }}>
+                            {emptyVisualTitle}
+                          </div>
+                          <div className="mt-2 max-w-xl text-sm font-semibold" style={{ color: "#64748b" }}>
+                            {emptyVisualMessage}
+                          </div>
                         </div>
                       </div>
                     ) : kpiView === "cards" && isInstitutionGovernanceVisualActive ? (
@@ -4074,23 +4162,27 @@ export default function Dashboard({
                       </div>
                     ) : kpiView === "bar" ? (
                       <BreakdownBar
-                        data={visibleChartBreakdown}
+                        data={useStackedTimeSeriesBars ? timeSeriesRowsForChart : visibleChartBreakdown}
                         format={activeChartFormat}
-                        onBarClick={chartIsInteractive ? (isFacultyStaffHierarchyView ? onFacultyStaffChartDrill : onDrillNext) : undefined}
+                        onBarClick={!useStackedTimeSeriesBars && chartIsInteractive ? (isFacultyStaffHierarchyView ? onFacultyStaffChartDrill : onDrillNext) : undefined}
                         accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
-                        xLabel={chartShowsYearWiseBars ? "Year" : visibleCurrentBreakdownLabel}
+                        xLabel={useStackedTimeSeriesBars || chartShowsYearWiseBars ? "Year" : visibleCurrentBreakdownLabel}
                         yLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
-                        interactive={chartIsInteractive}
+                        interactive={!useStackedTimeSeriesBars && chartIsInteractive}
                         drillHint={chartDrillHint}
+                        seriesKeys={useStackedTimeSeriesBars ? timeSeriesKeysForChart : []}
+                        seriesColors={chartSeriesColors}
                       />
                     ) : kpiView === "trend" ? (
                       <BreakdownLine
-                        data={trendSeries}
+                        data={timeSeriesRowsForChart}
                         format={activeChartFormat}
                         accent={accent}
                         yLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
+                        seriesKeys={timeSeriesKeysForChart.length > 1 ? timeSeriesKeysForChart : []}
+                        seriesColors={chartSeriesColors}
                       />
                     ) : kpiView === "donut" ? (
                       <BreakdownDonut
@@ -4131,7 +4223,7 @@ export default function Dashboard({
                 {!isNoDataVisual ? (
                   <div
                     data-export-hide="true"
-                    className={`${isFullscreen ? "fixed bottom-8 right-8 z-[340]" : "absolute bottom-4 right-4 z-20"} flex flex-col items-end gap-2`}
+                    className={`${isFullscreen ? "fixed bottom-8 right-8 z-[340]" : "fixed bottom-6 right-6 z-[260]"} flex flex-col items-end gap-2`}
                   >
                     {speedDialOpen
                       ? speedDialItems.map((item) => (
@@ -4319,21 +4411,20 @@ export default function Dashboard({
         <div className="mt-4 flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={() => {
-              downloadText(
-                `${selectedKpi.id}_${yearFileLabel}_ai_interpretation.txt`,
+            onClick={async () => {
+              const ok = await copyToClipboard(
                 `AI interpretation
 
 ${currentViewLabel} • ${chartContextSubtitle}
 
 ${String(dashboardInterpretation).replace(/<[^>]+>/g, " ")}`,
               );
-              markDownloaded("AI interpretation downloaded.");
+              setNotice(ok ? "AI interpretation copied." : "Copy failed.");
             }}
             className="rounded-2xl px-4 py-2 text-sm font-semibold"
             style={{ color: "#1252a0", border: "1px solid rgba(59,130,246,0.18)", background: "white" }}
           >
-            Download AI interpretation
+            Copy AI interpretation
           </button>
         </div>
       </Drawer>
