@@ -237,6 +237,36 @@ function dedupeList(values) {
   return Array.from(new Set((values ?? []).filter(Boolean)));
 }
 
+const DASHBOARD_SEARCH_ALIASES = {
+  "institutional-profile": "institution profile campus online degree disciplines states uts academic units director registrar",
+  "governance-policy": "anti ragging grievance committees iqac governance meetings bog senate finance committee diversity inclusion female women sc st obc pwd policy status",
+  "rankings-accreditations": "ranking rank qs the nirf accreditation naac nba iso quality score",
+  "audit-observation": "audit observation department current status audit type corrective action financial impact",
+  "court-cases": "court legal cases nature status hearing compliance counsel financial implication",
+  "student-profile": "student enrollment admission entrance gender female male social category category nationality international death",
+  "faculty-staff": "faculty staff vacancy recruitment gender female male social category international adjunct visiting awards qualification experience",
+  "student-support-system": "medical counselling career entrepreneurship scholarship fellowship support staff doctor nurse mental health",
+  "placements-alumni": "placement alumni recruiter ctc placed registered phd career network chapter",
+  "research-innovation": "research innovation publication patent grant rnd expenditure infrastructure startup hackathon ip commercialization ai ml climate",
+  "industrial-research": "industrial research consultancy industry project company center excellence technology transfer grant",
+  "research-awards-collaborations": "research awards collaborations faculty honors fellowship international mous staff",
+  "startup-innovation-ecosystem": "startup innovation incubator tbi jobs investment fundraising hackathon ip revenue",
+  "emerging-areas": "emerging areas climate sustainability ai ml research",
+  "collaborations-mous": "collaboration mou partner partnership project sector",
+  internationalisation: "internationalisation international faculty exchange student recruitment joint phd dual degree qs the global",
+  "global-academic-collaborations": "global academic collaborations international conferences",
+  "events-outreach": "events outreach community partnership participants attendees",
+  "special-programs": "pmrf scholar national missions social impact programme",
+  infrastructure: "infrastructure health facilities hostel academic digital sports recreation building lab capacity project",
+  "funding-financials": "finance funding financials budget expenditure endowment hefa loan revenue csr foreign funds allocation utilisation",
+  "sustainability-esg": "sustainability esg waste green campus energy efficiency carbon water reporting",
+  miscellaneous: "achievements awards media coverage perception unique initiatives visitors lectures",
+};
+
+function searchAliasFor(...ids) {
+  return ids.map((id) => DASHBOARD_SEARCH_ALIASES[id]).filter(Boolean).join("  ");
+}
+
 function buildDashboardSearchResults(query) {
   const normalizedQuery = String(query ?? "").trim().toLowerCase();
   if (!normalizedQuery) return [];
@@ -246,15 +276,18 @@ function buildDashboardSearchResults(query) {
     if (!item?.key || resultMap.has(item.key)) return;
     resultMap.set(item.key, item);
   };
-  const matches = (...values) =>
-    values
+  const normalizedQueryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const matches = (...values) => {
+    const haystack = values
       .filter((value) => value != null)
+      .flatMap((value) => Array.isArray(value) ? value : [value])
       .join(" ")
-      .toLowerCase()
-      .includes(normalizedQuery);
+      .toLowerCase();
+    return normalizedQueryTokens.every((token) => haystack.includes(token));
+  };
 
   for (const domain of DOMAIN_DEFS) {
-    if (matches(domain.id)) {
+    if (matches(domain.id, searchAliasFor(domain.id))) {
       addResult({
         key: `module-${domain.id}`,
         type: "module",
@@ -265,7 +298,7 @@ function buildDashboardSearchResults(query) {
     }
 
     for (const subsection of domain.children) {
-      if (matches(domain.id, subsection.label)) {
+      if (matches(domain.id, subsection.id, subsection.label, searchAliasFor(domain.id, subsection.id))) {
         addResult({
           key: `submodule-${subsection.id}`,
           type: "submodule",
@@ -277,7 +310,7 @@ function buildDashboardSearchResults(query) {
       }
 
       for (const worksheet of SUBSECTION_VIEW_OPTIONS[subsection.id] ?? []) {
-        if (matches(domain.id, subsection.label, worksheet.label, worksheet.helper)) {
+        if (matches(domain.id, subsection.id, subsection.label, worksheet.id, worksheet.label, worksheet.helper, worksheet.kpiId, searchAliasFor(domain.id, subsection.id, worksheet.id))) {
           addResult({
             key: `worksheet-${worksheet.id}-${subsection.id}`,
             type: "worksheet",
@@ -296,12 +329,14 @@ function buildDashboardSearchResults(query) {
                 domain.id,
                 subsection.label,
                 worksheet.label,
+                category.id,
                 category.label,
                 category.title,
                 category.xLabel,
                 category.yLabel,
                 category.helper,
                 category.fields?.join(" "),
+                searchAliasFor(domain.id, subsection.id, worksheet.id, category.id),
               )
             ) {
               addResult({
@@ -329,6 +364,9 @@ function buildDashboardSearchResults(query) {
         kpi.field,
         kpi.format,
         kpi.levels?.map((level) => `${level.label} ${level.field}`).join(" "),
+        CHILD_BY_ID[kpi.childId]?.label,
+        CHILD_BY_ID[kpi.childId]?.domainId,
+        searchAliasFor(CHILD_BY_ID[kpi.childId]?.domainId, kpi.childId),
       )
     ) {
       const child = CHILD_BY_ID[kpi.childId];
@@ -1639,7 +1677,7 @@ export default function Dashboard({
       ? standardYearWiseBreakdown
       : baseVisibleChartBreakdown;
 
-  const chartSeriesColors = ["#1d4ed8", "#2563eb", "#0ea5e9", "#f97316", "#16a34a", "#7c3aed", "#db2777"];
+  const chartSeriesColors = ["#db2777", "#f97316", "#16a34a", "#2563eb", "#7c3aed", "#eab308", "#0891b2"];
 
   const activeVisualLevels = isInstitutionGovernanceVisualActive
     ? institutionGovernanceVisual?.levels ?? []
@@ -2283,6 +2321,12 @@ export default function Dashboard({
       ? currentInstitutionGovernanceCategory?.label ?? currentViewLabel
       : detailFocus?.value ?? currentViewLabel;
 
+  const chartHeaderUsesBreadcrumb =
+    !isFacultyStaffHierarchyView &&
+    (isInstitutionGovernanceVisualActive
+      ? Boolean(institutionGovernanceVisual?.drillable)
+      : Boolean(selectedKpi.drillable));
+
   const chartDrillHint =
     kpiView !== "bar" && kpiView !== "donut"
       ? ""
@@ -2745,6 +2789,22 @@ export default function Dashboard({
     currentSubsection.label,
   ]);
 
+  const genericModuleCarouselItems = useMemo(() => {
+    return subsectionCards.map((item) => ({
+      id: item.id,
+      label: item.label,
+      tooltip: `${activeDomain} > ${item.label}`,
+    }));
+  }, [subsectionCards, activeDomain]);
+
+  const genericCategoryCarouselItems = useMemo(() => {
+    return currentIgViewOptions.map((item) => ({
+      id: item.id,
+      label: item.label,
+      tooltip: `${activeDomain} > ${currentSubsection?.label ?? ""} > ${item.label}`,
+    }));
+  }, [currentIgViewOptions, activeDomain, currentSubsection?.label]);
+
   const facultyStaffPathwayByNo = useMemo(
     () =>
       Object.fromEntries(
@@ -2861,10 +2921,21 @@ export default function Dashboard({
     showFacultyStaffCategoryCarousel && facultyStaffNestedCarouselChildren.length > 0;
   const showInstitutionGovernanceCategoryCarousel =
     isInstitutionGovernanceActive && institutionGovernanceCategoryItems.length > 0;
+  const showGenericCategoryCarousel =
+    !isInstitutionGovernanceActive &&
+    !isFacultyStaffSheetActive &&
+    genericModuleCarouselItems.length > 0 &&
+    genericCategoryCarouselItems.length > 0;
   const hasCombinedKpiSelector =
-    showFacultyStaffCategoryCarousel || showInstitutionGovernanceCategoryCarousel;
-  const categorySelectorAccent = blendHexColor(accent, "#ffffff", 0.32);
-  const categorySelectorSoft = blendHexColor(accent, "#ffffff", 0.9);
+    showFacultyStaffCategoryCarousel ||
+    showInstitutionGovernanceCategoryCarousel ||
+    showGenericCategoryCarousel;
+  const categorySelectorAccent = accent;
+  const categorySelectorSoft = soft;
+
+  function pickGenericModuleCarouselItem(itemId) {
+    openSubsection(activeDomain, itemId);
+  }
 
   function pickWorksheetCarouselItem(itemId) {
     if (selectedSubsectionId === "faculty-staff") {
@@ -3513,18 +3584,46 @@ export default function Dashboard({
               <div className="min-w-0">
                 {hasCombinedKpiSelector ? (
                   <CombinedKpiSelector
-                    title={currentSubsection.label}
+                    title={showGenericCategoryCarousel ? activeDomain : currentSubsection.label}
                     helper="Select the module and the category to analyse."
                     accent={accent}
                     soft={soft}
                     rows={[
-                      {
-                        id: "worksheet",
-                        label: "Module",
-                        items: facultyStaffWorksheetCarouselItems,
-                        activeId: facultyStaffWorksheetCarouselActiveId,
-                        onPick: pickWorksheetCarouselItem,
-                      },
+                      ...(showGenericCategoryCarousel
+                        ? [
+                            {
+                              id: "generic-module",
+                              label: "Module",
+                              items: genericModuleCarouselItems,
+                              activeId: selectedSubsectionId,
+                              onPick: pickGenericModuleCarouselItem,
+                            },
+                            {
+                              id: "generic-category",
+                              label: "Category",
+                              items: genericCategoryCarouselItems.map((item) => ({
+                                ...item,
+                                accent: categorySelectorAccent,
+                                soft: categorySelectorSoft,
+                              })),
+                              activeId: currentIgViewId,
+                              onPick: pickWorksheetCarouselItem,
+                              accent: categorySelectorAccent,
+                              soft: categorySelectorSoft,
+                            },
+                          ]
+                        : []),
+                      ...(!showGenericCategoryCarousel
+                        ? [
+                            {
+                              id: "worksheet",
+                              label: "Module",
+                              items: facultyStaffWorksheetCarouselItems,
+                              activeId: facultyStaffWorksheetCarouselActiveId,
+                              onPick: pickWorksheetCarouselItem,
+                            },
+                          ]
+                        : []),
                       ...(showFacultyStaffCategoryCarousel
                         ? [
                             {
@@ -4068,9 +4167,7 @@ export default function Dashboard({
                     </div>
                     {!isNoDataVisual ? (
                       <div className="mt-2 flex flex-col items-center gap-1.5">
-                        {(isInstitutionGovernanceVisualActive
-                          ? institutionGovernanceVisual?.drillable
-                          : selectedKpi.drillable) && !isFacultyStaffHierarchyView ? (
+                        {chartHeaderUsesBreadcrumb ? (
                           <Breadcrumbs
                             base={visibleBaseBreakdownLabel}
                             levels={activeVisualLevels}
@@ -4078,29 +4175,36 @@ export default function Dashboard({
                             onPopTo={popDrillTo}
                           />
                         ) : (
-                          <>
-                            <div
-                              className="rounded-lg px-2.5 py-1.5 text-[13px] font-bold"
-                              style={{
-                                background: "rgba(25,117,190,0.08)",
-                                color: "#1252a0",
-                              }}
-                            >
-                              {nonDrillCategoryLabel}
-                            </div>
-                            <div className="rounded-full px-2.5 py-1 text-[11px] font-extrabold" style={{ color: "#dc2626", background: "rgba(220,38,38,0.08)" }}>
-                              Drill down not available
-                            </div>
-                          </>
+                          <div
+                            className="rounded-lg px-2.5 py-1.5 text-[13px] font-bold"
+                            style={{
+                              background: "rgba(25,117,190,0.08)",
+                              color: "#1252a0",
+                            }}
+                          >
+                            {nonDrillCategoryLabel}
+                          </div>
                         )}
+                        <div
+                          className="text-[13px] font-semibold"
+                          style={{ color: "#334155" }}
+                        >
+                          {chartContextSubtitle}
+                        </div>
+                        {!chartHeaderUsesBreadcrumb ? (
+                          <div className="rounded-full px-2.5 py-1 text-[11px] font-extrabold" style={{ color: "#dc2626", background: "rgba(220,38,38,0.08)" }}>
+                            Drill down not available
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
-                    <div
-                      className="mt-2.5 text-[13px] font-semibold"
-                      style={{ color: "#334155" }}
-                    >
-                      {chartContextSubtitle}
-                    </div>
+                    ) : (
+                      <div
+                        className="mt-2.5 text-[13px] font-semibold"
+                        style={{ color: "#334155" }}
+                      >
+                        {chartContextSubtitle}
+                      </div>
+                    )}
                   </div>
 
                   {!isNoDataVisual && visualToolbarItems.length ? (

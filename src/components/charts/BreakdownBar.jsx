@@ -165,6 +165,27 @@ function LegendItem({ color, label, active }) {
   );
 }
 
+function lightenHexColor(hex, amount = 0.24) {
+  const normalized = String(hex ?? "").trim();
+  const match = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!match) return normalized;
+
+  const fullHex =
+    match[1].length === 3
+      ? match[1].split("").map((char) => `${char}${char}`).join("")
+      : match[1];
+  const value = Number.parseInt(fullHex, 16);
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+  const blend = (channel) =>
+    Math.round(channel + (255 - channel) * amount)
+      .toString(16)
+      .padStart(2, "0");
+
+  return `#${blend(red)}${blend(green)}${blend(blue)}`;
+}
+
 export default function BreakdownBar({
   data,
   format,
@@ -182,7 +203,7 @@ export default function BreakdownBar({
   const stacked = Array.isArray(seriesKeys) && seriesKeys.length > 1;
   const horizontal = !stacked && data.length > 7;
   const yAxisLabel = isPct ? `${yLabel} (%)` : yLabel;
-  const palette = seriesColors.length ? seriesColors : [accent, "#60a5fa", "#f97316", "#22c55e", "#a855f7"];
+  const palette = seriesColors.length ? seriesColors : ["#db2777", "#f97316", "#16a34a", "#2563eb", "#7c3aed", "#eab308"];
   const [selectedStackSegment, setSelectedStackSegment] = useState(null);
   const [hoverStackSegment, setHoverStackSegment] = useState(null);
   const activeStackSegment = hoverStackSegment ?? selectedStackSegment;
@@ -306,15 +327,15 @@ export default function BreakdownBar({
                   isAnimationActive={false}
                 >
                   {data.map((item, itemIndex) => {
+                    const baseColor = palette[index % palette.length];
                     const active = stackSegmentIsActive(item, seriesKey);
-                    const dimmed = Boolean(activeStackSegment) && !active;
                     return (
                       <Cell
                         key={`${seriesKey}-${item.name}-${itemIndex}`}
                         cursor="pointer"
-                        fill={palette[index % palette.length]}
-                        opacity={dimmed ? 0.68 : 1}
-                        stroke={active ? "#0f172a" : "rgba(255,255,255,0.72)"}
+                        fill={baseColor}
+                        opacity={1}
+                        stroke={active ? lightenHexColor(baseColor, 0.42) : "rgba(255,255,255,0.72)"}
                         strokeWidth={active ? 3 : 0.75}
                         strokeLinejoin="round"
                         onMouseEnter={() =>
