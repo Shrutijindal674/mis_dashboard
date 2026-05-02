@@ -28,6 +28,96 @@ export function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
 }
 
+export function hexToRgb(hex) {
+  const normalized = String(hex ?? "").trim().replace(/^#/, "");
+  const fullHex = normalized.length === 3
+    ? normalized.split("").map((char) => `${char}${char}`).join("")
+    : normalized;
+
+  if (!/^[0-9a-f]{6}$/i.test(fullHex)) return null;
+
+  const value = parseInt(fullHex, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+}
+
+export function hexToRgba(hex, alpha = 1) {
+  const rgb = hexToRgb(hex) || { r: 29, g: 78, b: 216 };
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${clamp(alpha, 0, 1)})`;
+}
+
+export function rgbToHsl({ r, g, b }) {
+  const rr = r / 255;
+  const gg = g / 255;
+  const bb = b / 255;
+  const max = Math.max(rr, gg, bb);
+  const min = Math.min(rr, gg, bb);
+  const delta = max - min;
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (delta !== 0) {
+    s = l <= 0.5 ? delta / (max + min) : delta / (2 - max - min);
+    switch (max) {
+      case rr:
+        h = ((gg - bb) / delta + (gg < bb ? 6 : 0)) / 6;
+        break;
+      case gg:
+        h = ((bb - rr) / delta + 2) / 6;
+        break;
+      default:
+        h = ((rr - gg) / delta + 4) / 6;
+    }
+  }
+
+  return { h, s, l };
+}
+
+export function hslToHex(h, s, l) {
+  const hue2rgb = (p, q, t) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+
+  const clampedH = ((h % 1) + 1) % 1;
+  const clampedS = clamp(s, 0, 1);
+  const clampedL = clamp(l, 0, 1);
+
+  if (clampedS === 0) {
+    const gray = Math.round(clampedL * 255).toString(16).padStart(2, "0");
+    return `#${gray}${gray}${gray}`;
+  }
+
+  const q = clampedL < 0.5 ? clampedL * (1 + clampedS) : clampedL + clampedS - clampedL * clampedS;
+  const p = 2 * clampedL - q;
+  const red = Math.round(hue2rgb(p, q, clampedH + 1 / 3) * 255).toString(16).padStart(2, "0");
+  const green = Math.round(hue2rgb(p, q, clampedH) * 255).toString(16).padStart(2, "0");
+  const blue = Math.round(hue2rgb(p, q, clampedH - 1 / 3) * 255).toString(16).padStart(2, "0");
+
+  return `#${red}${green}${blue}`;
+}
+
+export function generateColorShades(baseHex, count = 5) {
+  const rgb = hexToRgb(baseHex) || { r: 29, g: 78, b: 216 };
+  const { h, s } = rgbToHsl(rgb);
+  const minL = 0.26;
+  const maxL = 0.74;
+  const saturation = clamp(s, 0.48, 0.92);
+
+  return Array.from({ length: count }, (_, index) => {
+    const lightness = maxL - ((maxL - minL) * index) / Math.max(count - 1, 1);
+    return hslToHex(h, saturation, lightness);
+  });
+}
+
 export function formatCompact(n) {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
   const value = Number(n);

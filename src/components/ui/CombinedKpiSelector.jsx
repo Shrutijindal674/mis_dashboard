@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cx } from "../../utils/helpers";
 
 function PillScrollRow({
@@ -248,24 +248,19 @@ export default function CombinedKpiSelector({ title, helper, rows, accent, soft 
         ) : null}
       </div>
 
-      <div
-        className="grid"
-        style={{ gridTemplateColumns: "clamp(118px, 24vw, 172px) minmax(0, 1fr)" }}
-      >
+      <div className="divide-y" style={{ borderColor: divider }}>
         {visibleRows.map((row) => (
-          <Fragment key={row.id}>
-            <div
-              className="flex min-h-[58px] items-center border-r px-4 py-2"
-              style={{ borderColor: divider }}
-            >
-              <div className="text-[12px] font-extrabold leading-tight" style={{ color: "#334155" }}>
-                {row.label}
-                {String(row.label).trim().endsWith(":") ? "" : ":"}
+          <div
+            key={row.id}
+            className="grid min-h-[58px] items-center gap-1 px-3 py-2.5 sm:grid-cols-[max-content_minmax(0,1fr)]"
+          >
+            <div className="flex items-center sm:justify-start">
+              <div className="grid grid-cols-[max-content_auto] items-center gap-x-1 text-[12px] font-extrabold leading-tight" style={{ color: "#334155" }}>
+                <span className="whitespace-nowrap">{String(row.label).replace(/:$/, "")}</span>
+                <span>:</span>
               </div>
             </div>
-            <div
-              className="min-w-0 px-3 py-2.5"
-            >
+            <div className="min-w-0">
               <PillScrollRow
                 items={row.items}
                 activeId={row.activeId}
@@ -276,7 +271,7 @@ export default function CombinedKpiSelector({ title, helper, rows, accent, soft 
                 rowLabel={row.label}
               />
             </div>
-          </Fragment>
+          </div>
         ))}
       </div>
     </div>

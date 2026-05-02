@@ -31,7 +31,7 @@ import DataTable from "../components/ui/DataTable";
 import Drawer from "../components/ui/Drawer";
 
 const LEGACY_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
-const PALETTE = ["#2563eb", "#f59e0b", "#14b8a6", "#8b5cf6", "#ec4899", "#64748b", "#0f766e"];
+const PALETTE = ["#dbeafe", "#93c5fd", "#60a5fa", "#3b82f6", "#2563eb", "#1d4ed8", "#1e40af"];
 const TOP_TABS = ["Compare View", "Filters", "Compare Mode", "Saved Sets"];
 const VIEW_OPTIONS = [
   { id: "grouped", label: "Grouped", help: "Compare the same or compatible metrics side by side for the focus year." },
@@ -668,7 +668,7 @@ function SmallMultipleCard({ series, accent, scaleMode }) {
               formatter={(value) => fmtDisplay(item.kpi, value, scaleMode)}
               labelFormatter={(label) => IITs.find((iit) => iit.id === label)?.name ?? label}
             />
-            <Bar dataKey="display" fill={accent} radius={[10, 10, 0, 0]} maxBarSize={26}>
+            <Bar dataKey="display" fill={accent} radius={[10, 10, 0, 0]} maxBarSize={26} isAnimationActive={false}>
               {rows.map((row) => (
                 <Cell key={`${item.id}-${row.instituteId}`} fill={row.color} />
               ))}
@@ -2246,9 +2246,9 @@ export default function ComparePage({
                     className={cn("rounded-full px-4 py-2 text-[0.78rem] font-bold transition", disabled ? "cursor-not-allowed opacity-50" : "")}
                     style={{
                       background: "rgba(255,255,255,0.98)",
-                      border: `1px solid ${active ? "#f97316" : "rgba(203,213,225,0.9)"}`,
-                      color: active ? "#f97316" : "#475569",
-                      boxShadow: active ? "0 8px 24px rgba(249,115,22,0.14)" : "0 2px 10px rgba(15,23,42,0.04)",
+                      border: `1px solid ${active ? uiAccent : "rgba(203,213,225,0.9)"}`,
+                      color: active ? uiAccent : "#475569",
+                      boxShadow: active ? "0 8px 24px rgba(59,130,246,0.14)" : "0 2px 10px rgba(15,23,42,0.04)",
                     }}
                   >
                     {option.label}
@@ -2348,7 +2348,7 @@ export default function ComparePage({
                     <Tooltip content={<CompareTooltip metricLookup={appliedMetricLookup} scaleMode={applied.scale} mode="trend" />} />
                     <ReferenceLine x={String(applied.focusYear)} stroke={uiAccent} strokeDasharray="4 4" />
                     {appliedIITs.map((iid, index) => (
-                      <Line key={iid} type="monotone" dataKey={`display_${iid}`} stroke={PALETTE[index % PALETTE.length]} strokeWidth={2.6} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                      <Line key={iid} type="monotone" dataKey={`display_${iid}`} stroke={PALETTE[index % PALETTE.length]} strokeWidth={2.6} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false} />
                     ))}
                   </LineChart>
                 </ResponsiveContainer>
@@ -2580,6 +2580,7 @@ export default function ComparePage({
             columns={compareDetailColumns}
             rows={compareDetailRows}
             maxHeight={620}
+            accent={uiAccent}
           />
         </div>
         <div className="mt-4 flex flex-wrap gap-3">

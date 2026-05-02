@@ -78,7 +78,7 @@ const CATEGORY_CONFIG = {
         xLabel: "Institute, Department, Degree",
         yLabel: "Number of Faculty Currently Teaching",
         format: "number",
-        allowPercent: false,
+        allowPercent: true,
         drillable: true,
         levels: [
           { label: "Department", field: "Department" },
@@ -131,7 +131,7 @@ const CATEGORY_CONFIG = {
         id: "governance-meetings",
         label: "Governance Meetings",
         defaultView: "bar",
-        allowedViews: ["bar", "donut", "table"],
+        allowedViews: ["bar", "donut", "trend", "table"],
         xLabel: "Governing body",
         yLabel: "Meeting count",
         format: "number",
@@ -659,6 +659,14 @@ function deriveAllowedViews(category, state) {
 }
 
 function buildEmptyState(category, state = {}, emptyMessage = null) {
+  const hasAnyData = Boolean(
+    state.cards?.length ||
+    state.breakdown?.length ||
+    state.trend?.length ||
+    state.tableRows?.length ||
+    state.detailRows?.length
+  );
+  const visualizationUnsupported = hasAnyData || category.defaultView === "empty";
   return {
     id: category.id,
     category,
@@ -669,6 +677,8 @@ function buildEmptyState(category, state = {}, emptyMessage = null) {
     cards: [],
     breakdown: [],
     trend: [],
+    timeSeriesRows: [],
+    timeSeriesKeys: [],
     levels: category.levels ?? [],
     tableColumns: state.tableColumns ?? [],
     tableRows: state.tableRows ?? [],
@@ -678,8 +688,10 @@ function buildEmptyState(category, state = {}, emptyMessage = null) {
     yLabel: category.yLabel,
     format: category.format ?? "number",
     allowPercent: false,
-    emptyTitle: "No Data Available",
-    emptyMessage: "No Data Available",
+    emptyTitle: visualizationUnsupported ? "Visualization not supported" : "No Data Available",
+    emptyMessage: visualizationUnsupported
+      ? (emptyMessage ?? category.emptyMessage ?? "This data does not support visualization. If you have a suggestion for a visualization, please contact support.")
+      : "No Data Available",
   };
 }
 
@@ -715,6 +727,8 @@ function finalize(category, state) {
     cards: state.cards ?? [],
     breakdown: state.breakdown ?? [],
     trend: state.trend ?? [],
+    timeSeriesRows: state.timeSeriesRows ?? [],
+    timeSeriesKeys: state.timeSeriesKeys ?? [],
     levels: category.levels ?? [],
     tableColumns: state.tableColumns ?? [],
     tableRows: state.tableRows ?? [],
@@ -932,8 +946,31 @@ export function buildInstitutionGovernanceVisual({
 
   if (category.id === "governance-meetings") {
     const rows = rangeGovernance.filter((row) => row.Theme === "Institutional Governance Structure");
-    const breakdown = groupValue(rows, "GoverningBody", "MeetingCount");
-    return finalize(category, { visualKind: "bar", breakdown, tableColumns: IG_TABLE_COLUMNS.governance, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.governance, detailRows: filterDetailFocus(rows, detailFocus) });
+    const latestRowsForChart = latestGovernance.filter((row) => row.Theme === "Institutional Governance Structure");
+    const breakdown = groupValue(latestRowsForChart.length ? latestRowsForChart : rows, "GoverningBody", "MeetingCount");
+    const timeSeriesKeys = Array.from(new Set(rows.map((row) => row.GoverningBody).filter(Boolean)));
+    const timeSeriesRows = [];
+    for (let year = Number(yearRange.from); year <= Number(yearRange.to); year += 1) {
+      const yearRows = rows.filter((row) => Number(row.Year) === year);
+      if (!yearRows.length) continue;
+      const out = { name: String(year) };
+      for (const key of timeSeriesKeys) {
+        out[key] = sum(yearRows.filter((row) => row.GoverningBody === key), "MeetingCount");
+      }
+      timeSeriesRows.push(out);
+    }
+    const trend = buildTrendFromRows(rows, yearRange, (yearRows) => sum(yearRows, "MeetingCount"));
+    return finalize(category, {
+      visualKind: "bar",
+      breakdown,
+      trend,
+      timeSeriesRows,
+      timeSeriesKeys,
+      tableColumns: IG_TABLE_COLUMNS.governance,
+      tableRows: rows,
+      detailColumns: IG_TABLE_COLUMNS.governance,
+      detailRows: filterDetailFocus(rows, detailFocus),
+    });
   }
 
   if (category.id === "inclusion-metrics") {

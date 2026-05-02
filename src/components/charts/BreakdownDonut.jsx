@@ -82,6 +82,7 @@ export default function BreakdownDonut({ data, format, onSliceClick, accent, sof
             paddingAngle={donutData.length > 1 ? 1 : 0}
             onClick={interactive ? (p) => onSliceClick?.(p?.name) : undefined}
             labelLine={false}
+            isAnimationActive={false}
             label={(props) => <DonutLabel {...props} isPct={isPct} />}
           >
             {donutData.map((d) => (

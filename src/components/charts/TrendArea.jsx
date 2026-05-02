@@ -38,6 +38,7 @@ export default function TrendArea({ seriesA, seriesB, labelA, labelB, accent }) 
             stroke="#64748b"
             fill="#e5e7eb"
             fillOpacity={0.7}
+            isAnimationActive={false}
           />
           <Area
             type="monotone"
@@ -46,6 +47,7 @@ export default function TrendArea({ seriesA, seriesB, labelA, labelB, accent }) 
             stroke={accent}
             fill={accent}
             fillOpacity={0.25}
+            isAnimationActive={false}
           />
         </AreaChart>
       </ResponsiveContainer>

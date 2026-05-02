@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatCompact, formatPct } from "../../utils/helpers";
+import { formatCompact, formatPct, generateColorShades } from "../../utils/helpers";
 
 function splitLabelAcrossTwoLines(text) {
   const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
@@ -203,7 +203,7 @@ export default function BreakdownBar({
   const stacked = Array.isArray(seriesKeys) && seriesKeys.length > 1;
   const horizontal = !stacked && data.length > 7;
   const yAxisLabel = isPct ? `${yLabel} (%)` : yLabel;
-  const palette = seriesColors.length ? seriesColors : ["#db2777", "#f97316", "#16a34a", "#2563eb", "#7c3aed", "#eab308"];
+  const palette = seriesColors.length ? seriesColors : generateColorShades(accent || "#1d4ed8", 6);
   const [selectedStackSegment, setSelectedStackSegment] = useState(null);
   const [hoverStackSegment, setHoverStackSegment] = useState(null);
   const activeStackSegment = hoverStackSegment ?? selectedStackSegment;

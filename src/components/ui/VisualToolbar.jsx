@@ -1,7 +1,10 @@
 import { cx } from "../../utils/helpers";
 
-export default function VisualToolbar({ items, value, onChange, orientation = "vertical", className = "", exportHidden = false, style = {} }) {
+export default function VisualToolbar({ items, value, onChange, accent = "#1975be", orientation = "vertical", className = "", exportHidden = false, style = {} }) {
   const horizontal = orientation === "horizontal";
+  const borderColor = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(accent)
+    ? `${accent}26`
+    : accent;
   return (
     <div
       data-export-hide={exportHidden ? "true" : undefined}
@@ -14,7 +17,7 @@ export default function VisualToolbar({ items, value, onChange, orientation = "v
       )}
       style={{
         background: "rgba(255,255,255,0.98)",
-        border: "1px solid rgba(59,130,246,0.16)",
+        border: `1px solid ${borderColor}`,
         ...style,
       }}
     >
@@ -23,13 +26,13 @@ export default function VisualToolbar({ items, value, onChange, orientation = "v
         return (
           <button
             key={it.id}
-            onClick={() => onChange(it.id)}
+            onClick={() => (typeof it.action === "function" ? it.action() : onChange(it.id))}
             className={cx(horizontal ? "grid h-10 w-10 place-items-center text-base transition" : "grid h-11 w-11 place-items-center text-lg transition")}
             style={{
               [horizontal ? "borderLeft" : "borderTop"]:
-                idx !== 0 ? "1px solid rgba(59,130,246,0.1)" : undefined,
-              background: active ? "#1975be" : "transparent",
-              color: active ? "#fff" : "#1252a0",
+                idx !== 0 ? `1px solid ${accent}20` : undefined,
+              background: active ? accent : "transparent",
+              color: active ? "#fff" : accent,
             }}
             type="button"
             title={it.label}

@@ -8,8 +8,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatCompact, formatPct } from "../../utils/helpers";
-
+import { formatCompact, formatPct, generateColorShades } from "../../utils/helpers";
 
 function splitLabelAcrossTwoLines(text) {
   const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
@@ -60,7 +59,7 @@ function WrappedAxisLabel({ viewBox, value }) {
   );
 }
 
-function TooltipCard({ active, payload, label, isPct, yLabel }) {
+function TooltipCard({ active, payload, label, isPct, yLabel, multiSeries }) {
   if (!active || !payload?.length) return null;
   const point = payload[0]?.payload ?? {};
   const formattedValue = isPct
@@ -84,16 +83,37 @@ function TooltipCard({ active, payload, label, isPct, yLabel }) {
       >
         {yLabel || "Metric"}
       </div>
-      <div className="mt-1 text-sm font-semibold" style={{ color: "#0f172a" }}>
-        {formattedValue}
-      </div>
+      {multiSeries ? (
+        <div className="mt-1 grid gap-1 text-sm font-semibold" style={{ color: "#0f172a" }}>
+          {payload.map((entry) => (
+            <div key={entry.dataKey} className="flex items-center justify-between gap-4">
+              <span>{entry.name}</span>
+              <span>{isPct ? formatPct(Number(entry.value ?? 0)) : formatCompact(Number(entry.value ?? 0))}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-1 text-sm font-semibold" style={{ color: "#0f172a" }}>
+          {formattedValue}
+        </div>
+      )}
     </div>
   );
 }
 
-export default function BreakdownLine({ data, format, accent, yLabel = "Value", height = 420 }) {
+export default function BreakdownLine({
+  data,
+  format,
+  accent,
+  yLabel = "Value",
+  height = 420,
+  seriesKeys = [],
+  seriesColors = [],
+}) {
   const isPct = format === "pct";
   const axisLabel = isPct ? `${yLabel} (%)` : yLabel;
+  const activeSeriesKeys = Array.isArray(seriesKeys) && seriesKeys.length > 1 ? seriesKeys : ["value"];
+  const palette = seriesColors.length ? seriesColors : generateColorShades(accent || "#1d4ed8", 5);
 
   return (
     <div style={{ height }}>
@@ -117,15 +137,20 @@ export default function BreakdownLine({ data, format, accent, yLabel = "Value", 
           >
             <Label content={<WrappedAxisLabel value={axisLabel} />} />
           </YAxis>
-          <Tooltip content={<TooltipCard isPct={isPct} yLabel={yLabel} />} />
-          <Line
-            type="monotone"
-            dataKey="value"
-            stroke={accent}
-            strokeWidth={3}
-            dot={{ r: 5, fill: accent }}
-            activeDot={{ r: 7 }}
-          />
+          <Tooltip content={<TooltipCard isPct={isPct} yLabel={yLabel} multiSeries={activeSeriesKeys.length > 1} />} />
+          {activeSeriesKeys.map((seriesKey, index) => (
+            <Line
+              key={seriesKey}
+              type="monotone"
+              dataKey={seriesKey}
+              name={seriesKey}
+              stroke={palette[index % palette.length]}
+              strokeWidth={3}
+              dot={{ r: 5, fill: palette[index % palette.length] }}
+              activeDot={{ r: 7 }}
+              isAnimationActive={false}
+            />
+          ))}
         </LineChart>
       </ResponsiveContainer>
     </div>

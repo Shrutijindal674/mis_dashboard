@@ -1,7 +1,11 @@
 import React from "react";
+import { hexToRgba } from "../../utils/helpers";
 
-export default function Breadcrumbs({ base, levels, drillPath, onPopTo }) {
+export default function Breadcrumbs({ base, levels, drillPath, onPopTo, accent = "#1d4ed8" }) {
   const baseVisible = base && String(base).trim().toLowerCase() !== "category";
+  const buttonBg = hexToRgba(accent, 0.08);
+  const buttonColor = accent;
+  const separatorColor = hexToRgba(accent, 0.62);
 
   return (
     <div className="flex flex-wrap items-center justify-center gap-2">
@@ -9,8 +13,8 @@ export default function Breadcrumbs({ base, levels, drillPath, onPopTo }) {
         <button
           className="rounded-lg px-2.5 py-1.5 hover:opacity-80"
           style={{
-            background: "rgba(25,117,190,0.08)",
-            color: "#1252a0",
+            background: buttonBg,
+            color: buttonColor,
             fontWeight: 700,
             fontSize: 14,
           }}
@@ -24,15 +28,15 @@ export default function Breadcrumbs({ base, levels, drillPath, onPopTo }) {
       {drillPath.map((v, idx) => (
         <React.Fragment key={`${idx}-${v}`}>
           {(baseVisible || idx > 0) ? (
-            <span style={{ color: "#94a3b8", fontSize: 13, fontWeight: 800 }}>
+            <span style={{ color: separatorColor, fontSize: 13, fontWeight: 800 }}>
               &gt;
             </span>
           ) : null}
           <button
             className="rounded-lg px-2.5 py-1.5 hover:opacity-80"
             style={{
-              background: "rgba(25,117,190,0.08)",
-              color: "#1252a0",
+              background: buttonBg,
+              color: buttonColor,
               fontWeight: 700,
               fontSize: 14,
             }}

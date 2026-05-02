@@ -3,69 +3,88 @@ const IG_MODULE_ID = "Institution & Governance";
 const CATEGORY_CONFIG = {
   "institutional-profile": {
     profile: [
-     
       {
-        id: "rank-trend",
-        label: "Rank Trend",
-        defaultView: "trend",
-        allowedViews: ["trend", "bar", "table"],
-        xLabel: "Academic Year",
-        yLabel: "NIRF rank (lower is stronger)",
-        format: "number",
-        allowPercent: false,
-        emptyMessage: "No NIRF ranking data available for the selected institute/year range.",
-      },
-      {
-        id: "degree-portfolio",
-        label: "Degree Portfolio",
+        id: "on-campus-online-degrees",
+        label: "On Campus vs Online Degrees",
         defaultView: "bar",
-        allowedViews: ["bar", "table"],
-        xLabel: "Degree / discipline category",
-        yLabel: "Number of degrees",
+        allowedViews: ["bar", "donut", "table"],
+        xLabel: "Type of Degree",
+        yLabel: "Number of Degrees",
         format: "number",
         allowPercent: true,
-        emptyMessage: "No degree portfolio records available for the selected institute/year.",
+        emptyMessage: "No on-campus / online degree records available for the selected institute/year.",
+      },
+      {
+        id: "degrees-by-discipline",
+        label: "Degrees by Discipline",
+        defaultView: "bar",
+        allowedViews: ["bar", "donut", "table"],
+        xLabel: "Discipline",
+        yLabel: "Number of Degrees",
+        format: "number",
+        allowPercent: true,
+        emptyMessage: "No discipline-wise degree records available for the selected institute/year.",
+      },
+      {
+        id: "states-uts-covered",
+        label: "Number of States / UTs Covered",
+        defaultView: "trend",
+        allowedViews: ["trend", "bar", "table"],
+        xLabel: "Year",
+        yLabel: "Number of States/UTs Covered",
+        format: "number",
+        allowPercent: false,
+        emptyMessage: "No States/UT coverage records available for the selected institute/year range.",
       },
     ],
     programs: [
       {
-        id: "academic-programs",
-        label: "Academic Programs",
+        id: "total-academic-programs-dept-degree",
+        label: "Total Academic Programs by Department and Degree",
         defaultView: "bar",
         allowedViews: ["bar", "donut", "table"],
-        xLabel: "Department",
-        yLabel: "Count of programs",
+        xLabel: "Institute, Department, Degree",
+        yLabel: "Total Programs",
         format: "number",
         allowPercent: true,
         drillable: true,
         levels: [
           { label: "Department", field: "Department" },
           { label: "Degree", field: "Degree" },
-          { label: "Mode of Delivery", field: "ModeOfDelivery" },
         ],
         emptyMessage: "No academic programme records available for the selected institute/year.",
       },
       {
-        id: "delivery-mode",
-        label: "Delivery Mode",
-        defaultView: "donut",
-        allowedViews: ["donut", "bar", "table"],
-        xLabel: "Mode of Delivery",
-        yLabel: "Count of programs",
-        format: "number",
-        allowPercent: true,
-        emptyMessage: "No delivery-mode records available for the selected institute/year.",
-      },
-      {
-        id: "teaching-faculty",
-        label: "Teaching Faculty",
+        id: "average-duration-dept-degree",
+        label: "Average Duration Years by Department and Degree",
         defaultView: "bar",
-        allowedViews: ["bar", "donut", "table"],
-        xLabel: "Department",
-        yLabel: "Faculty currently teaching",
+        allowedViews: ["bar", "table"],
+        xLabel: "Institute, Department, Degree",
+        yLabel: "Duration (Years)",
         format: "number",
         allowPercent: false,
-        emptyMessage: "Teaching-faculty numbers are not structured for this worksheet. Use the Academic Programs table until the field is added.",
+        drillable: true,
+        levels: [
+          { label: "Department", field: "Department" },
+          { label: "Degree", field: "Degree" },
+        ],
+        emptyMessage: "No duration-year records available for the selected institute/year.",
+      },
+      {
+        id: "faculty-teaching-dept-degree",
+        label: "Faculty Teaching by Department and Degree",
+        defaultView: "bar",
+        allowedViews: ["bar", "donut", "table"],
+        xLabel: "Institute, Department, Degree",
+        yLabel: "Number of Faculty Currently Teaching",
+        format: "number",
+        allowPercent: false,
+        drillable: true,
+        levels: [
+          { label: "Department", field: "Department" },
+          { label: "Degree", field: "Degree" },
+        ],
+        emptyMessage: "No teaching-faculty records available for the selected institute/year.",
       },
     ],
   },
@@ -148,23 +167,12 @@ const CATEGORY_CONFIG = {
   "rankings-accreditations": {
     rankings: [
       {
-        id: "nirf-ranking",
-        label: "NIRF Ranking",
-        defaultView: "trend",
-        allowedViews: ["trend", "bar", "table"],
-        xLabel: "Academic Year",
-        yLabel: "NIRF rank (lower is stronger)",
-        format: "number",
-        allowPercent: false,
-        emptyMessage: "No NIRF ranking data available for the selected institute/year range.",
-      },
-      {
         id: "qs-rank",
-        label: "QS Rank",
+        label: "QS World University Ranking",
         defaultView: "trend",
         allowedViews: ["trend", "bar", "table"],
-        xLabel: "Academic Year",
-        yLabel: "QS rank (lower is stronger)",
+        xLabel: "Year",
+        yLabel: "QS Rank",
         format: "number",
         allowPercent: false,
         emptyMessage: "QS rank data are not available for the selected institute/year range.",
@@ -174,44 +182,22 @@ const CATEGORY_CONFIG = {
         label: "QS Score",
         defaultView: "trend",
         allowedViews: ["trend", "bar", "table"],
-        xLabel: "Academic Year",
-        yLabel: "QS score",
+        xLabel: "Year",
+        yLabel: "QS Score",
         format: "number",
         allowPercent: false,
         emptyMessage: "QS score data are not available for the selected institute/year range.",
       },
       {
         id: "the-rank",
-        label: "THE Rank",
+        label: "THE World University Ranking",
         defaultView: "trend",
         allowedViews: ["trend", "bar", "table"],
-        xLabel: "Academic Year",
-        yLabel: "THE rank / band lower bound (lower is stronger)",
+        xLabel: "Year",
+        yLabel: "THE Rank",
         format: "number",
         allowPercent: false,
         emptyMessage: "THE rank data are not available for the selected institute/year range.",
-      },
-      {
-        id: "the-score",
-        label: "THE Score",
-        defaultView: "trend",
-        allowedViews: ["trend", "bar", "table"],
-        xLabel: "Academic Year",
-        yLabel: "THE score",
-        format: "number",
-        allowPercent: false,
-        emptyMessage: "THE score data are not available for the selected institute/year range.",
-      },
-      {
-        id: "nirf-score-areas",
-        label: "NIRF Score Areas",
-        defaultView: "bar",
-        allowedViews: ["bar", "table"],
-        xLabel: "Score area",
-        yLabel: "Score",
-        format: "number",
-        allowPercent: false,
-        emptyMessage: "NIRF score-area fields are not available for the selected institute/year.",
       },
     ],
     accreditations: [
@@ -255,179 +241,41 @@ const CATEGORY_CONFIG = {
   "audit-observation": {
     audit: [
       {
-        id: "audit-type",
-        label: "Audit Type",
+        id: "audit-count-department-type",
+        label: "Audit Count by Department and Type",
         defaultView: "bar",
         allowedViews: ["bar", "donut", "table"],
-        xLabel: "Audit type",
-        yLabel: "Count of observations",
+        xLabel: "Institute, Department Unit, Current Status, Audit Type",
+        yLabel: "Number of Audits",
         format: "number",
         allowPercent: true,
         drillable: true,
         levels: [
-          { label: "Audit Type", field: "AuditType" },
-          { label: "Department / Unit", field: "Department" },
+          { label: "Department Unit", field: "Department" },
           { label: "Current Status", field: "Status" },
-          { label: "Observation ID", field: "ObservationId" },
+          { label: "Audit Type", field: "AuditType" },
         ],
         emptyMessage: "No audit observations available for the selected institute/year.",
-      },
-      {
-        id: "audit-status",
-        label: "Audit Status",
-        defaultView: "donut",
-        allowedViews: ["donut", "bar", "table"],
-        xLabel: "Current status",
-        yLabel: "Count of observations",
-        format: "number",
-        allowPercent: true,
-        drillable: true,
-        levels: [
-          { label: "Current Status", field: "Status" },
-          { label: "Audit Type", field: "AuditType" },
-          { label: "Observation ID", field: "ObservationId" },
-        ],
-        emptyMessage: "No audit status records available for the selected institute/year.",
-      },
-      {
-        id: "department-audits",
-        label: "Department Audits",
-        defaultView: "bar",
-        allowedViews: ["bar", "donut", "table"],
-        xLabel: "Department / Unit",
-        yLabel: "Count of observations",
-        format: "number",
-        allowPercent: true,
-        drillable: true,
-        levels: [
-          { label: "Department / Unit", field: "Department" },
-          { label: "Audit Type", field: "AuditType" },
-          { label: "Current Status", field: "Status" },
-          { label: "Observation ID", field: "ObservationId" },
-        ],
-        emptyMessage: "No department-wise audit records available for the selected institute/year.",
-      },
-      {
-        id: "financial-impact",
-        label: "Financial Impact",
-        defaultView: "bar",
-        allowedViews: ["bar", "table"],
-        xLabel: "Department / Unit",
-        yLabel: "Financial impact (Cr)",
-        format: "number",
-        allowPercent: false,
-        emptyMessage: "Financial impact is not available as a numeric field for the selected institute/year.",
-      },
-      {
-        id: "audit-timeline",
-        label: "Audit Timeline",
-        defaultView: "trend",
-        allowedViews: ["trend", "bar", "table"],
-        xLabel: "Year of audit",
-        yLabel: "Count of observations",
-        format: "number",
-        allowPercent: false,
-        emptyMessage: "No year-wise audit observation records available for the selected institute/year range.",
-      },
-      {
-        id: "open-observations",
-        label: "Open Observations",
-        defaultView: "table",
-        allowedViews: ["table"],
-        xLabel: "Observation ID",
-        yLabel: "Status/action/remarks",
-        format: "number",
-        allowPercent: false,
-        emptyMessage: "No open observations available for the selected institute/year.",
       },
     ],
   },
   "court-cases": {
     legal: [
       {
-        id: "court-wise-cases",
-        label: "Court-wise Cases",
+        id: "legal-cases-status-nature",
+        label: "Legal Cases by Status and Nature",
         defaultView: "bar",
         allowedViews: ["bar", "donut", "table"],
-        xLabel: "Court name",
-        yLabel: "Count of cases",
+        xLabel: "Current Status, Nature of Case",
+        yLabel: "Number of Cases",
         format: "number",
         allowPercent: true,
         drillable: true,
         levels: [
-          { label: "Court Name", field: "CourtName" },
-          { label: "Nature of Case", field: "NatureOfCase" },
           { label: "Current Status", field: "Status" },
-          { label: "Case Number", field: "CaseId" },
+          { label: "Nature of Case", field: "NatureOfCase" },
         ],
         emptyMessage: "No court-case records available for the selected institute/year.",
-      },
-      {
-        id: "case-nature",
-        label: "Case Nature",
-        defaultView: "bar",
-        allowedViews: ["bar", "donut", "table"],
-        xLabel: "Nature of case",
-        yLabel: "Count of cases",
-        format: "number",
-        allowPercent: true,
-        drillable: true,
-        levels: [
-          { label: "Nature of Case", field: "NatureOfCase" },
-          { label: "Current Status", field: "Status" },
-          { label: "Case Number", field: "CaseId" },
-        ],
-        emptyMessage: "No case-nature records available for the selected institute/year.",
-      },
-      {
-        id: "case-status",
-        label: "Case Status",
-        defaultView: "donut",
-        allowedViews: ["donut", "bar", "table"],
-        xLabel: "Current status",
-        yLabel: "Count of cases",
-        format: "number",
-        allowPercent: true,
-        drillable: true,
-        levels: [
-          { label: "Current Status", field: "Status" },
-          { label: "Court Name", field: "CourtName" },
-          { label: "Case Number", field: "CaseId" },
-        ],
-        emptyMessage: "No case-status records available for the selected institute/year.",
-      },
-      {
-        id: "compliance-status",
-        label: "Compliance Status",
-        defaultView: "bar",
-        allowedViews: ["bar", "donut", "table"],
-        xLabel: "Compliance status",
-        yLabel: "Count of cases",
-        format: "number",
-        allowPercent: true,
-        emptyMessage: "Compliance statuses are not structured cleanly for the selected institute/year.",
-      },
-      {
-        id: "hearing-timeline",
-        label: "Hearing Timeline",
-        defaultView: "table",
-        allowedViews: ["table"],
-        xLabel: "Next hearing date",
-        yLabel: "Case list",
-        format: "number",
-        allowPercent: false,
-        emptyMessage: "No next-hearing records available for the selected institute/year.",
-      },
-      {
-        id: "financial-exposure",
-        label: "Financial Exposure",
-        defaultView: "bar",
-        allowedViews: ["bar", "table"],
-        xLabel: "Court name / case nature",
-        yLabel: "Financial exposure (Cr)",
-        format: "number",
-        allowPercent: false,
-        emptyMessage: "Financial implications are not available as a numeric field for the selected institute/year.",
       },
     ],
   },
@@ -436,8 +284,10 @@ const CATEGORY_CONFIG = {
 const IG_TABLE_COLUMNS = {
   institutionalProfile: [
     { key: "Year", label: "Year" },
-    { key: "DegreeCategory", label: "Degree category" },
-    { key: "DegreeCount", label: "Value" },
+    { key: "DegreeCategory", label: "Degree / Discipline Category" },
+    { key: "DegreeCount", label: "Number of Degrees" },
+    { key: "StatesUTsCovered", label: "States/UTs Covered" },
+    { key: "AcademicUnits", label: "Academic Units" },
     { key: "NIRFOverallRank", label: "NIRF Overall" },
     { key: "NIRFEngineeringRank", label: "NIRF Engineering" },
   ],
@@ -447,7 +297,9 @@ const IG_TABLE_COLUMNS = {
     { key: "Degree", label: "Degree" },
     { key: "ModeOfDelivery", label: "Mode of Delivery" },
     { key: "ProgramName", label: "Program" },
-    { key: "FacultyCurrentlyTeaching", label: "Faculty currently teaching" },
+    { key: "DurationYears", label: "Duration (Years)" },
+    { key: "LaunchYear", label: "Launch Year" },
+    { key: "FacultyCurrentlyTeaching", label: "Faculty Currently Teaching" },
   ],
   governance: [
     { key: "Year", label: "Year" },
@@ -533,6 +385,23 @@ function groupValue(rows, field, valueField) {
     .sort((a, b) => b.value - a.value);
 }
 
+function groupAverage(rows, field, valueField) {
+  const map = new Map();
+  for (const row of rows) {
+    const key = row[field] ?? "(unknown)";
+    const numeric = Number(row[valueField] ?? 0);
+    if (!Number.isFinite(numeric) || numeric === 0) continue;
+    const current = map.get(key) ?? { total: 0, count: 0 };
+    current.total += numeric;
+    current.count += 1;
+    map.set(key, current);
+  }
+  return Array.from(map.entries())
+    .map(([name, item]) => ({ name, value: Number((item.total / Math.max(1, item.count)).toFixed(2)) }))
+    .filter((item) => item.name !== "(unknown)" && Number.isFinite(item.value) && item.value !== 0)
+    .sort((a, b) => b.value - a.value);
+}
+
 function groupCount(rows, field, idField = null) {
   const map = new Map();
   for (const row of rows) {
@@ -566,6 +435,21 @@ function countByLevels(rows, levels, drillPath, idField) {
   const field = levels?.[drillPath.length]?.field;
   if (!field) return [];
   return groupCount(scoped, field, idField);
+}
+
+function valueByLevels(rows, levels, drillPath, valueField, aggregation = "sum") {
+  const scoped = applyDrill(rows, levels, drillPath);
+  const field = levels?.[drillPath.length]?.field;
+  if (!field) return [];
+  return aggregation === "average" ? groupAverage(scoped, field, valueField) : groupValue(scoped, field, valueField);
+}
+
+function isCampusDegreeCategory(category) {
+  return /on[- ]?campus|online/i.test(String(category ?? ""));
+}
+
+function isDisciplineDegreeCategory(category) {
+  return !isCampusDegreeCategory(category);
 }
 
 function filterDetailFocus(rows, detailFocus) {
@@ -920,11 +804,38 @@ export function buildInstitutionGovernanceVisual({
     });
   }
 
-  if (category.id === "rank-trend") {
-    const scoped = rangeProfile;
-    const trend = buildTrendFromRows(scoped, yearRange, (rows) => rows[0]?.NIRFOverallRank ?? null);
+  if (category.id === "on-campus-online-degrees") {
+    const rows = rangeProfile.filter((row) => isCampusDegreeCategory(row.DegreeCategory));
+    const latestRowsForChart = latestProfile.filter((row) => isCampusDegreeCategory(row.DegreeCategory));
+    const breakdown = groupValue(latestRowsForChart, "DegreeCategory", "DegreeCount");
+    return finalize(category, {
+      visualKind: "bar",
+      breakdown,
+      tableColumns: IG_TABLE_COLUMNS.institutionalProfile,
+      tableRows: rows,
+      detailColumns: IG_TABLE_COLUMNS.institutionalProfile,
+      detailRows: filterDetailFocus(rows, detailFocus),
+    });
+  }
+
+  if (category.id === "degrees-by-discipline") {
+    const rows = rangeProfile.filter((row) => isDisciplineDegreeCategory(row.DegreeCategory));
+    const latestRowsForChart = latestProfile.filter((row) => isDisciplineDegreeCategory(row.DegreeCategory));
+    const breakdown = groupValue(latestRowsForChart, "DegreeCategory", "DegreeCount");
+    return finalize(category, {
+      visualKind: "bar",
+      breakdown,
+      tableColumns: IG_TABLE_COLUMNS.institutionalProfile,
+      tableRows: rows,
+      detailColumns: IG_TABLE_COLUMNS.institutionalProfile,
+      detailRows: filterDetailFocus(rows, detailFocus),
+    });
+  }
+
+  if (category.id === "states-uts-covered") {
+    const tableRows = rangeProfile.filter((row, index, arr) => arr.findIndex((x) => x.Year === row.Year) === index);
+    const trend = buildTrendFromRows(rangeProfile, yearRange, (rows) => rows[0]?.StatesUTsCovered ?? null);
     const breakdown = trend.map((item) => ({ name: item.name, value: item.value }));
-    const tableRows = scoped.filter((row, index, arr) => arr.findIndex((x) => x.Year === row.Year) === index);
     return finalize(category, {
       visualKind: "trend",
       trend,
@@ -932,23 +843,11 @@ export function buildInstitutionGovernanceVisual({
       tableColumns: IG_TABLE_COLUMNS.institutionalProfile,
       tableRows,
       detailColumns: IG_TABLE_COLUMNS.institutionalProfile,
-      detailRows: tableRows,
+      detailRows: filterDetailFocus(tableRows, detailFocus),
     });
   }
 
-  if (category.id === "degree-portfolio") {
-    const breakdown = groupValue(latestProfile, "DegreeCategory", "DegreeCount");
-    return finalize(category, {
-      visualKind: "bar",
-      breakdown,
-      tableColumns: IG_TABLE_COLUMNS.institutionalProfile,
-      tableRows: rangeProfile,
-      detailColumns: IG_TABLE_COLUMNS.institutionalProfile,
-      detailRows: rangeProfile,
-    });
-  }
-
-  if (category.id === "academic-programs") {
+  if (category.id === "total-academic-programs-dept-degree") {
     const scoped = applyDrill(latestAcademic, category.levels, drillPath);
     const detailScoped = applyDrill(rangeAcademic, category.levels, drillPath);
     const breakdown = countByLevels(latestAcademic, category.levels, drillPath, "ProgramName");
@@ -962,29 +861,33 @@ export function buildInstitutionGovernanceVisual({
     });
   }
 
-  if (category.id === "delivery-mode") {
-    const breakdown = groupCount(latestAcademic, "ModeOfDelivery", "ProgramName");
-    return finalize(category, {
-      visualKind: "donut",
-      breakdown,
-      tableColumns: IG_TABLE_COLUMNS.academicPrograms,
-      tableRows: rangeAcademic,
-      detailColumns: IG_TABLE_COLUMNS.academicPrograms,
-      detailRows: filterDetailFocus(rangeAcademic, detailFocus),
-    });
-  }
-
-  if (category.id === "teaching-faculty") {
-    const usable = latestAcademic.filter((row) => Number.isFinite(Number(row.FacultyCurrentlyTeaching)) && Number(row.FacultyCurrentlyTeaching) > 0);
-    const detailRows = rangeAcademic.filter((row) => Number.isFinite(Number(row.FacultyCurrentlyTeaching)) && Number(row.FacultyCurrentlyTeaching) > 0);
-    const breakdown = groupValue(usable, "Department", "FacultyCurrentlyTeaching");
+  if (category.id === "average-duration-dept-degree") {
+    const scoped = applyDrill(latestAcademic, category.levels, drillPath);
+    const detailScoped = applyDrill(rangeAcademic, category.levels, drillPath);
+    const breakdown = valueByLevels(latestAcademic, category.levels, drillPath, "DurationYears", "average");
     return finalize(category, {
       visualKind: "bar",
       breakdown,
       tableColumns: IG_TABLE_COLUMNS.academicPrograms,
-      tableRows: detailRows,
+      tableRows: detailScoped,
       detailColumns: IG_TABLE_COLUMNS.academicPrograms,
-      detailRows: filterDetailFocus(detailRows, detailFocus),
+      detailRows: filterDetailFocus(detailScoped, detailFocus),
+    });
+  }
+
+  if (category.id === "faculty-teaching-dept-degree") {
+    const rowsWithFaculty = latestAcademic.filter((row) => Number.isFinite(Number(row.FacultyCurrentlyTeaching)) && Number(row.FacultyCurrentlyTeaching) > 0);
+    const rangeRowsWithFaculty = rangeAcademic.filter((row) => Number.isFinite(Number(row.FacultyCurrentlyTeaching)) && Number(row.FacultyCurrentlyTeaching) > 0);
+    const scoped = applyDrill(rowsWithFaculty, category.levels, drillPath);
+    const detailScoped = applyDrill(rangeRowsWithFaculty, category.levels, drillPath);
+    const breakdown = valueByLevels(rowsWithFaculty, category.levels, drillPath, "FacultyCurrentlyTeaching", "sum");
+    return finalize(category, {
+      visualKind: "bar",
+      breakdown,
+      tableColumns: IG_TABLE_COLUMNS.academicPrograms,
+      tableRows: detailScoped,
+      detailColumns: IG_TABLE_COLUMNS.academicPrograms,
+      detailRows: filterDetailFocus(detailScoped, detailFocus),
     });
   }
 
@@ -1091,7 +994,7 @@ export function buildInstitutionGovernanceVisual({
     return buildEmptyState(category);
   }
 
-  if (["audit-type", "audit-status", "department-audits"].includes(category.id)) {
+  if (["audit-count-department-type", "audit-type", "audit-status", "department-audits"].includes(category.id)) {
     const scoped = applyDrill(rangeAudit, category.levels, drillPath);
     const breakdown = countByLevels(rangeAudit, category.levels, drillPath, "ObservationId");
     return finalize(category, { visualKind: category.defaultView, breakdown, tableColumns: IG_TABLE_COLUMNS.audit, tableRows: scoped, detailColumns: IG_TABLE_COLUMNS.audit, detailRows: filterDetailFocus(scoped, detailFocus) });
@@ -1115,7 +1018,7 @@ export function buildInstitutionGovernanceVisual({
     return finalize(category, { visualKind: "table", tableColumns: IG_TABLE_COLUMNS.audit, tableRows: rows, detailColumns: IG_TABLE_COLUMNS.audit, detailRows: filterDetailFocus(rows, detailFocus) });
   }
 
-  if (["court-wise-cases", "case-nature", "case-status"].includes(category.id)) {
+  if (["legal-cases-status-nature", "court-wise-cases", "case-nature", "case-status"].includes(category.id)) {
     const scoped = applyDrill(rangeCourt, category.levels, drillPath);
     const breakdown = countByLevels(rangeCourt, category.levels, drillPath, "CaseId");
     return finalize(category, { visualKind: category.defaultView, breakdown, tableColumns: IG_TABLE_COLUMNS.court, tableRows: scoped, detailColumns: IG_TABLE_COLUMNS.court, detailRows: filterDetailFocus(scoped, detailFocus) });

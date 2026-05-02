@@ -110,8 +110,10 @@ export default function BreakdownLine({ data, format, accent, yLabel = "Value", 
           </XAxis>
           <YAxis
             width={84}
+            domain={isPct ? [0, 1] : [0, "dataMax"]}
+            ticks={isPct ? [0, 0.25, 0.5, 0.75, 1] : undefined}
             tick={{ fontSize: 12, fontWeight: 600, fill: "#334155" }}
-            tickFormatter={(v) => (isPct ? `${Math.round(v * 100)}%` : formatCompact(v))}
+            tickFormatter={(v) => (isPct ? formatPct(Number(v)) : formatCompact(v))}
           >
             <Label content={<WrappedAxisLabel value={axisLabel} />} />
           </YAxis>
@@ -123,6 +125,7 @@ export default function BreakdownLine({ data, format, accent, yLabel = "Value", 
             strokeWidth={3}
             dot={{ r: 5, fill: accent }}
             activeDot={{ r: 7 }}
+            isAnimationActive={false}
           />
         </LineChart>
       </ResponsiveContainer>

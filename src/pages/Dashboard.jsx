@@ -9,6 +9,8 @@ import {
   downloadText,
   formatCompact,
   formatPct,
+  generateColorShades,
+  hexToRgba,
   safeDelta,
   toCsv,
 } from "../utils/helpers";
@@ -576,6 +578,13 @@ function iconSvg(kind, active = false, tone = null) {
           <path {...common} d="M12 3l1.6 3.8L17 8.4l-3.4 1.6L12 14l-1.6-4L7 8.4l3.4-1.6L12 3Z" />
           <path {...common} d="M19 13l.9 2.1L22 16l-2.1.9L19 19l-.9-2.1L16 16l2.1-.9L19 13Z" />
           <path {...common} d="M6 14l.7 1.7L8.4 16l-1.7.7L6 18.4l-.7-1.7L3.6 16l1.7-.7L6 14Z" />
+        </svg>
+      );
+    case "copy":
+      return (
+        <svg viewBox="0 0 24 24" className="h-5 w-5">
+          <path {...common} d="M10 13v6a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-6" />
+          <path {...common} d="M14 13v-4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1" />
         </svg>
       );
     default:
@@ -1677,7 +1686,7 @@ export default function Dashboard({
       ? standardYearWiseBreakdown
       : baseVisibleChartBreakdown;
 
-  const chartSeriesColors = ["#db2777", "#f97316", "#16a34a", "#2563eb", "#7c3aed", "#eab308", "#0891b2"];
+  const chartSeriesColors = generateColorShades(accent, 7);
 
   const activeVisualLevels = isInstitutionGovernanceVisualActive
     ? institutionGovernanceVisual?.levels ?? []
@@ -2069,7 +2078,7 @@ export default function Dashboard({
   }
 
   const dashboardInterpretation = useMemo(() => {
-    if (!visibleBreakdown.length) return "Select the module to analyze.";
+    if (!visibleBreakdown.length) return "Select the sheet to analyze.";
     const top = visibleBreakdown[0];
     const next = visibleBreakdown[1];
     const parts = [
@@ -2327,14 +2336,30 @@ export default function Dashboard({
       ? Boolean(institutionGovernanceVisual?.drillable)
       : Boolean(selectedKpi.drillable));
 
-  const chartDrillHint =
-    kpiView !== "bar" && kpiView !== "donut"
-      ? ""
-      : isFacultyStaffHierarchyView
-        ? ""
-        : chartIsInteractive
-          ? "Click to drill down."
-          : "";
+  const chartHasVisibleDrillAction =
+    !isNoDataVisual &&
+    (
+      (kpiView === "bar" && !useStackedTimeSeriesBars && chartIsInteractive) ||
+      (kpiView === "donut" && chartIsInteractive) ||
+      (kpiView === "table" && !isMultiYearSelection && !isInstitutionGovernanceVisualActive && canDrillChart)
+    );
+  const chartDrillControlMessage = !isNoDataVisual
+    ? chartHasVisibleDrillAction
+      ? kpiView === "donut"
+        ? "Click each slice to drill down"
+        : kpiView === "table"
+          ? "Click each row to drill down"
+          : "Click each bar to drill down"
+      : "Drill down not available"
+    : "";
+  const normalizeChartTitle = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+  const promoteNonDrillChartTitle =
+    !isNoDataVisual &&
+    !chartHeaderUsesBreadcrumb &&
+    normalizeChartTitle(nonDrillCategoryLabel) &&
+    normalizeChartTitle(nonDrillCategoryLabel) !== normalizeChartTitle(currentViewLabel);
+  const chartHeaderTitle = promoteNonDrillChartTitle ? nonDrillCategoryLabel : currentViewLabel;
+  const showNonDrillCategoryBadge = !chartHeaderUsesBreadcrumb && !promoteNonDrillChartTitle;
 
   // Used for SVG / PDF exports and for the chart header context line.
   const breadcrumbText = useMemo(() => {
@@ -3196,7 +3221,7 @@ export default function Dashboard({
                       handleHeaderSearchSubmit();
                     }
                   }}
-                  placeholder="Search module, sub-module, KPA, or worksheet"
+                  placeholder="Search category, sub-category, KPI, or worksheet"
                   className="h-full min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none"
                 />
                 {headerSearch ? (
@@ -3237,7 +3262,7 @@ export default function Dashboard({
                       ))}
                     </div>
                   ) : headerSearch.trim() ? (
-                    <div className="px-4 py-4 text-sm text-slate-500">No matching module, sub-module, or worksheet found.</div>
+                    <div className="px-4 py-4 text-sm text-slate-500">No matching category, sub-category, KPI, or worksheet found.</div>
                   ) : null}
                 </div>
               ) : null}
@@ -3404,7 +3429,7 @@ export default function Dashboard({
                 className="px-2 text-[11px] uppercase tracking-[0.16em]"
                 style={{ color: "#64748b" }}
               >
-                Modules
+                Categories
               </div>
             ) : null}
             <div className="mt-2 space-y-2">
@@ -3585,7 +3610,7 @@ export default function Dashboard({
                 {hasCombinedKpiSelector ? (
                   <CombinedKpiSelector
                     title={showGenericCategoryCarousel ? activeDomain : currentSubsection.label}
-                    helper="Select the module and the category to analyse."
+                    helper="Select the sheet and KPI to analyse."
                     accent={accent}
                     soft={soft}
                     rows={[
@@ -3593,14 +3618,14 @@ export default function Dashboard({
                         ? [
                             {
                               id: "generic-module",
-                              label: "Module",
+                              label: "Sheet",
                               items: genericModuleCarouselItems,
                               activeId: selectedSubsectionId,
                               onPick: pickGenericModuleCarouselItem,
                             },
                             {
                               id: "generic-category",
-                              label: "Category",
+                              label: "KPI",
                               items: genericCategoryCarouselItems.map((item) => ({
                                 ...item,
                                 accent: categorySelectorAccent,
@@ -3617,7 +3642,7 @@ export default function Dashboard({
                         ? [
                             {
                               id: "worksheet",
-                              label: "Module",
+                              label: "Sheet",
                               items: facultyStaffWorksheetCarouselItems,
                               activeId: facultyStaffWorksheetCarouselActiveId,
                               onPick: pickWorksheetCarouselItem,
@@ -3683,8 +3708,8 @@ export default function Dashboard({
                       isFacultyStaffSheetActive
                         ? facultyStaffDrillCarouselOpen
                           ? "Select a category to analyse."
-                          : "Select the module to analyze. Choose Faculty and Staff to reveal its mapped drill paths below the carousel."
-                        : "Select the module to analyze."
+                          : "Select the sheet to analyze. Choose Faculty and Staff to reveal its mapped drill paths below the carousel."
+                        : "Select the sheet to analyze."
                     }
                   />
                 )}
@@ -3844,7 +3869,7 @@ export default function Dashboard({
                               handleHomeSearchSubmit();
                             }
                           }}
-                          placeholder="Search module, sub-module, KPA, or worksheet"
+                          placeholder="Search category, sub-category, KPI, or worksheet"
                           className="h-full min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none"
                         />
                         {homeSearch ? (
@@ -3903,7 +3928,7 @@ export default function Dashboard({
                           </div>
                         ) : homeSearch.trim() ? (
                           <div className="px-4 py-4 text-sm text-slate-500">
-                            No matching module, sub-module, or worksheet found.
+                            No matching category, sub-category, KPI, or worksheet found.
                           </div>
                         ) : null}
                       </div>
@@ -4107,10 +4132,10 @@ export default function Dashboard({
                   data-export-hide="true"
                   onClick={handleFullscreen}
                   title={isFullscreen ? "Close fullscreen" : "Open fullscreen"}
-                  className="absolute right-4 top-4 z-20 grid h-10 w-10 place-items-center rounded-xl bg-white shadow-sm"
+                  className="absolute right-4 top-4 z-20 grid h-10 w-10 place-items-center rounded-xl bg-white shadow-sm transition hover:bg-red-50"
                   style={{
-                    border: "1px solid rgba(59,130,246,0.18)",
-                    color: isFullscreen ? "#dc2626" : "#1252a0",
+                    border: `1px solid ${accent}26`,
+                    color: isFullscreen ? "#dc2626" : accent,
                   }}
                 >
                   {isFullscreen ? (
@@ -4119,41 +4144,48 @@ export default function Dashboard({
                       <path d="M18 6L6 18" />
                     </svg>
                   ) : (
-                    iconSvg("fullscreen", false, "#1252a0")
+                    iconSvg("fullscreen", false, accent)
                   )}
                 </button>
 
                 <div ref={chartExportRef} className="relative flex min-h-0 flex-1 flex-col">
                 <div className={`dashboard-chart-header absolute inset-x-5 z-10 flex items-start gap-3 pr-14 ${isFullscreen ? "top-5" : "top-5"}`}>
                   {!isNoDataVisual ? (
-                    <div className="flex shrink-0 items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setValueMode("value")}
-                        className="rounded-full px-3 py-1.5 text-xs font-bold"
-                        style={{
-                          background:
-                            valueMode === "value" ? `${accent}15` : "white",
-                          border: `1px solid ${valueMode === "value" ? accent : "rgba(148,163,184,0.22)"}`,
-                          color: valueMode === "value" ? accent : "#475569",
-                        }}
-                      >
-                        {primaryValueModeLabel}
-                      </button>
-                      {canUsePercentMode ? (
+                    <div className="flex shrink-0 flex-col items-start gap-2">
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => setValueMode("percent")}
+                          onClick={() => setValueMode("value")}
                           className="rounded-full px-3 py-1.5 text-xs font-bold"
                           style={{
                             background:
-                              valueMode === "percent" ? `${accent}15` : "white",
-                            border: `1px solid ${valueMode === "percent" ? accent : "rgba(148,163,184,0.22)"}`,
-                            color: valueMode === "percent" ? accent : "#475569",
+                              valueMode === "value" ? `${accent}15` : "white",
+                            border: `1px solid ${valueMode === "value" ? accent : "rgba(148,163,184,0.22)"}`,
+                            color: valueMode === "value" ? accent : "#475569",
                           }}
                         >
-                          Percent
+                          {primaryValueModeLabel}
                         </button>
+                        {canUsePercentMode ? (
+                          <button
+                            type="button"
+                            onClick={() => setValueMode("percent")}
+                            className="rounded-full px-3 py-1.5 text-xs font-bold"
+                            style={{
+                              background:
+                                valueMode === "percent" ? `${accent}15` : "white",
+                              border: `1px solid ${valueMode === "percent" ? accent : "rgba(148,163,184,0.22)"}`,
+                              color: valueMode === "percent" ? accent : "#475569",
+                            }}
+                          >
+                            Percent
+                          </button>
+                        ) : null}
+                      </div>
+                      {chartDrillControlMessage ? (
+                        <div className="rounded-full px-2.5 py-1 text-left text-[11px] font-extrabold leading-tight" style={{ color: "#dc2626", background: "rgba(220,38,38,0.08)" }}>
+                          {chartDrillControlMessage}
+                        </div>
                       ) : null}
                     </div>
                   ) : null}
@@ -4163,7 +4195,7 @@ export default function Dashboard({
                       className="text-[1.18rem] font-extrabold leading-tight tracking-[0.01em]"
                       style={{ color: "#0f172a" }}
                     >
-                      {currentViewLabel}
+                      {chartHeaderTitle}
                     </div>
                     {!isNoDataVisual ? (
                       <div className="mt-2 flex flex-col items-center gap-1.5">
@@ -4173,29 +4205,25 @@ export default function Dashboard({
                             levels={activeVisualLevels}
                             drillPath={drillPath}
                             onPopTo={popDrillTo}
+                            accent={accent}
                           />
-                        ) : (
+                        ) : showNonDrillCategoryBadge ? (
                           <div
                             className="rounded-lg px-2.5 py-1.5 text-[13px] font-bold"
                             style={{
-                              background: "rgba(25,117,190,0.08)",
-                              color: "#1252a0",
+                              background: hexToRgba(accent, 0.08),
+                              color: accent,
                             }}
                           >
                             {nonDrillCategoryLabel}
                           </div>
-                        )}
+                        ) : null}
                         <div
                           className="text-[13px] font-semibold"
                           style={{ color: "#334155" }}
                         >
                           {chartContextSubtitle}
                         </div>
-                        {!chartHeaderUsesBreadcrumb ? (
-                          <div className="rounded-full px-2.5 py-1 text-[11px] font-extrabold" style={{ color: "#dc2626", background: "rgba(220,38,38,0.08)" }}>
-                            Drill down not available
-                          </div>
-                        ) : null}
                       </div>
                     ) : (
                       <div
@@ -4212,6 +4240,7 @@ export default function Dashboard({
                       <VisualToolbar
                         items={visualToolbarItems}
                         value={kpiView}
+                        accent={accent}
                         exportHidden
                         orientation="horizontal"
                         className="shrink-0"
@@ -4274,7 +4303,6 @@ export default function Dashboard({
                         yLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
                         interactive={!useStackedTimeSeriesBars && chartIsInteractive}
-                        drillHint={chartDrillHint}
                         seriesKeys={useStackedTimeSeriesBars ? timeSeriesKeysForChart : []}
                         seriesColors={chartSeriesColors}
                       />
@@ -4298,7 +4326,6 @@ export default function Dashboard({
                         metricLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
                         interactive={chartIsInteractive}
-                        drillHint={chartDrillHint}
                       />
                     ) : (
                       <div className="w-full pt-4">
@@ -4307,6 +4334,7 @@ export default function Dashboard({
                           rows={mainTableRows}
                           maxHeight={500}
                           onRowClick={!isMultiYearSelection && !isInstitutionGovernanceVisualActive && canDrillChart ? (row) => onDrillNext(row.name) : undefined}
+                          accent={accent}
                         />
                       </div>
                     )}
@@ -4339,14 +4367,14 @@ export default function Dashboard({
                               setSpeedDialOpen(false);
                             }}
                             className="dashboard-speed-action group relative z-[141] grid h-11 w-11 place-items-center rounded-2xl bg-white shadow-lg transition hover:-translate-y-0.5"
-                            style={{ color: "#0f172a", border: "1px solid rgba(15,42,94,0.14)" }}
+                            style={{ color: accent, border: `1px solid ${accent}1f` }}
                           >
                             <span
                               className="dashboard-speed-tooltip pointer-events-none absolute right-[calc(100%+10px)] top-1/2 z-[142] -translate-y-1/2 whitespace-nowrap rounded-xl border bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 opacity-0 shadow-sm transition"
                             >
                               {item.label}
                             </span>
-                            <span>{iconSvg(item.icon, false, "#0f172a")}</span>
+                            <span>{iconSvg(item.icon, false, accent)}</span>
                           </button>
                         ))
                       : null}
@@ -4354,7 +4382,7 @@ export default function Dashboard({
                       type="button"
                       onClick={() => setSpeedDialOpen((value) => !value)}
                       className="dashboard-speed-action group relative z-[141] grid h-12 w-12 place-items-center rounded-2xl text-3xl text-white shadow-lg"
-                      style={{ background: "#1e6cc8", lineHeight: 1 }}
+                      style={{ background: accent, lineHeight: 1 }}
                     >
                       <span
                         className="dashboard-speed-tooltip pointer-events-none absolute right-[calc(100%+10px)] top-1/2 z-[142] -translate-y-1/2 whitespace-nowrap rounded-xl border bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 opacity-0 shadow-sm transition"
@@ -4412,6 +4440,7 @@ export default function Dashboard({
             columns={detailTable.columns}
             rows={detailTable.rows}
             maxHeight={620}
+            accent={accent}
           />
         </div>
         <div className="mt-4 flex flex-wrap gap-3">
@@ -4509,12 +4538,11 @@ export default function Dashboard({
         <div className="mt-2 text-xs" style={{ color: "#64748b" }}>
           Last updated: {lastUpdatedLabel} • Last downloaded: {lastDownloadedLabel}
         </div>
-        <div className="mt-4 rounded-[24px] border p-4" style={{ borderColor: "rgba(59,130,246,0.12)", background: "rgba(248,250,252,0.85)" }}>
-          {dashboardInterpretation}
-        </div>
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
+            title="Copy to clipboard"
+            aria-label="Copy AI interpretation text to clipboard"
             onClick={async () => {
               const ok = await copyToClipboard(
                 `AI interpretation
@@ -4525,11 +4553,31 @@ ${String(dashboardInterpretation).replace(/<[^>]+>/g, " ")}`,
               );
               setNotice(ok ? "AI interpretation copied." : "Copy failed.");
             }}
-            className="rounded-2xl px-4 py-2 text-sm font-semibold"
-            style={{ color: "#1252a0", border: "1px solid rgba(59,130,246,0.18)", background: "white" }}
+            className="grid h-8 w-8 place-items-center rounded-xl text-slate-600 hover:text-blue-600"
+            style={{ background: "transparent" }}
           >
-            Copy AI interpretation
+            {iconSvg("copy", false, "#1252a0")}
           </button>
+          <button
+            type="button"
+            title="Download AI interpretation text"
+            aria-label="Download AI interpretation text"
+            onClick={() => {
+              const fileName = `${currentViewLabel.replace(/[/\\?%*:|"<>]/g, "-")}.txt`;
+              downloadText(
+                fileName,
+                `AI interpretation\n\n${currentViewLabel} • ${chartContextSubtitle}\n\n${String(dashboardInterpretation).replace(/<[^>]+>/g, " ")}`,
+              );
+              markDownloaded("Text file downloaded.");
+            }}
+            className="grid h-8 w-8 place-items-center rounded-xl text-slate-600 hover:text-blue-600"
+            style={{ background: "transparent" }}
+          >
+            {iconSvg("download", false, "#1252a0")}
+          </button>
+        </div>
+        <div className="mt-3 rounded-[24px] border p-4" style={{ borderColor: "rgba(59,130,246,0.12)", background: "rgba(248,250,252,0.85)" }}>
+          {dashboardInterpretation}
         </div>
       </Drawer>
 
