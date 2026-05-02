@@ -198,10 +198,11 @@ export default function BreakdownBar({
   drillHint = "",
   seriesKeys = [],
   seriesColors = [],
+  forceHorizontal = false,
 }) {
   const isPct = format === "pct";
   const stacked = Array.isArray(seriesKeys) && seriesKeys.length > 1;
-  const horizontal = !stacked && data.length > 7;
+  const horizontal = !stacked && (forceHorizontal || data.length > 7);
   const yAxisLabel = isPct ? `${yLabel} (%)` : yLabel;
   const palette = seriesColors.length ? seriesColors : generateColorShades(accent || "#1d4ed8", 6);
   const [selectedStackSegment, setSelectedStackSegment] = useState(null);

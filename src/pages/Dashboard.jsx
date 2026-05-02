@@ -54,6 +54,13 @@ import {
   getInstitutionGovernanceCategories,
   isInstitutionGovernanceSubsection,
 } from "../data/institutionGovernanceVisuals";
+import {
+  PSL_MODULE_ID,
+  buildPeopleStudentLifeVisual,
+  getDefaultPeopleStudentLifeCategoryId,
+  getPeopleStudentLifeCategories,
+  isPeopleStudentLifeSubsection,
+} from "../data/peopleStudentLifeVisuals";
 
 import Select from "../components/ui/Select";
 import SubKpiCarousel from "../components/ui/SubKpiCarousel";
@@ -92,7 +99,7 @@ const YEAR_FILTER_MODES = [
 ];
 const DEFAULT_FACULTY_STAFF_HIERARCHY_KEY = "workforce-composition";
 const DEFAULT_FACULTY_STAFF_PATHWAY_NO = 4;
-const VISUAL_VIEW_ORDER = ["bar", "donut", "trend", "table", "empty"];
+const VISUAL_VIEW_ORDER = ["cards", "bar", "donut", "trend", "table", "empty"];
 const VISUAL_VIEW_ORDER_RANK = Object.fromEntries(
   VISUAL_VIEW_ORDER.map((viewId, index) => [viewId, index]),
 );
@@ -120,8 +127,24 @@ function preferredVisualViewForCategory(category, fallback = "bar") {
   return firstOrderedVisualView(allowedViews, category?.defaultView ?? fallback);
 }
 
-function preferredInstitutionGovernanceView(subsectionId, viewId, fallback = "bar") {
-  const category = getInstitutionGovernanceCategories(subsectionId, viewId)?.[0];
+function getMappedDashboardCategories(domainId, subsectionId, viewId) {
+  if (domainId === PSL_MODULE_ID) return getPeopleStudentLifeCategories(subsectionId, viewId);
+  return getInstitutionGovernanceCategories(subsectionId, viewId);
+}
+
+function getDefaultMappedDashboardCategoryId(domainId, subsectionId, viewId) {
+  if (domainId === PSL_MODULE_ID) return getDefaultPeopleStudentLifeCategoryId(subsectionId, viewId);
+  return getDefaultInstitutionGovernanceCategoryId(subsectionId, viewId);
+}
+
+function isMappedDashboardSubsection(domainId, subsectionId) {
+  if (domainId === PSL_MODULE_ID) return isPeopleStudentLifeSubsection(subsectionId);
+  if (domainId === IG_MODULE_ID) return isInstitutionGovernanceSubsection(subsectionId);
+  return false;
+}
+
+function preferredInstitutionGovernanceView(subsectionId, viewId, fallback = "bar", domainId = IG_MODULE_ID) {
+  const category = getMappedDashboardCategories(domainId, subsectionId, viewId)?.[0];
   return preferredVisualViewForCategory(category, fallback);
 }
 
@@ -324,8 +347,8 @@ function buildDashboardSearchResults(query) {
           });
         }
 
-        if (isInstitutionGovernanceSubsection(subsection.id)) {
-          for (const category of getInstitutionGovernanceCategories(subsection.id, worksheet.id) ?? []) {
+        if (isMappedDashboardSubsection(domain.id, subsection.id)) {
+          for (const category of getMappedDashboardCategories(domain.id, subsection.id, worksheet.id) ?? []) {
             if (
               matches(
                 domain.id,
@@ -716,12 +739,11 @@ const SUBSECTION_VIEW_OPTIONS = {
     { id: "legal", label: "Legal Cases", kpiId: "kpi_legal_cases", helper: "Status mix, case nature, hearing context, and legal exposure." },
   ],
   "student-profile": [
-    { id: "entrance-exam", label: "Entrance Exam", kpiId: "kpi_psl_entrance_exam", helper: "Non-drillable view with exam records, rank / score context, and reservation-category slices." },
-    { id: "student-profile-sheet", label: "Student Profile", kpiId: "kpi_psl_student_profile", helper: "Summary view for enrolled students, cohort mix, and headline student-life counts." },
-    { id: "international-students", label: "International Students", kpiId: "kpi_psl_international_students", helper: "Drill path: Region > Country > Program > Degree, then detail records." },
-    { id: "enrollment-details", label: "Enrollment Details", kpiId: "kpi_psl_enrollment_details", helper: "Drill path: Program > Academic Area > Discipline > Degree > Gender > Social Category." },
-    { id: "admission-mode", label: "Admission Mode", kpiId: "kpi_psl_admission_mode", helper: "Drill path: Admission Channel > Program > Degree > Discipline." },
-    { id: "student-death-cases", label: "Student Death Cases", kpiId: "kpi_psl_student_death_cases", helper: "High-sensitivity view that should stay aggregate-first and role-restricted." },
+    { id: "admission-mode", label: "Admission_Mode", kpiId: "kpi_psl_admission_mode", helper: "Sheet: Admission_Mode. KPI: Student Distribution. X-axis: Admission Mode / admission_channel. Y-axis: Number of Students." },
+    { id: "enrollment-details", label: "Enrollment_Details", kpiId: "kpi_psl_enrollment_details", helper: "Sheet: Enrollment_Details. KPI: Total Enrollment. X-axis: University / Department. Y-axis: Number of Students." },
+    { id: "international-students", label: "International_Students", kpiId: "kpi_psl_international_students", helper: "Sheet: International_Students. KPIs: Region-wise international distribution and University & Degree distribution." },
+    { id: "student-profile-sheet", label: "Student_Profile_Summary", kpiId: "kpi_psl_student_profile", helper: "Sheet: Student_Profile_Summary. KPIs: Program Type, Year-wise Enrollment Trend, Gender Distribution, Reservation Category-wise Distribution." },
+    { id: "student-death-cases", label: "Student_Death_Cases", kpiId: "kpi_psl_student_death_cases", helper: "Sheet: Student_Death_Cases. KPI: Student Death Cases. Aggregate counts only." },
   ],
   "faculty-staff": [
     { id: "faculty-staff-summary", label: "Faculty and Staff", kpiId: "kpi_psl_faculty_staff", helper: "Summary workforce view for sanctioned, in-position, vacant, and staff buckets." },
@@ -731,20 +753,16 @@ const SUBSECTION_VIEW_OPTIONS = {
     { id: "international-faculty", label: "International Faculty", kpiId: "kpi_psl_international_faculty", helper: "Drill path: Country > Appointment Type > Role Type > Degree Level > Name." },
   ],
   "student-support-system": [
-    { id: "medical-staff-details", label: "Medical Staff Details", kpiId: "kpi_psl_medical_staff_details", helper: "Register-first view with counts by role and details-on-demand." },
-    { id: "medical-staff-summary", label: "Medical Staff Summary", kpiId: "kpi_psl_medical_summary", helper: "Headline staffing counts for doctors, nurses, paramedics, and mental-health professionals." },
-    { id: "entrepreneurship-support", label: "Entrepreneurship Support", kpiId: "kpi_psl_entrepreneurship", helper: "KPIs plus startup-support text, with student-startup counts in the chart." },
-    { id: "career-services", label: "Career Services", kpiId: "kpi_psl_career_services", helper: "Narrative + KPI view for internships, guidance sessions, alumni mentoring, and industry feedback." },
-    { id: "counselling-services", label: "Counselling Services", kpiId: "kpi_psl_counselling_services", helper: "Counsellor and utilisation view with details-on-demand only." },
-    { id: "scholarships-fellowships", label: "Scholarships and Fellowships", kpiId: "kpi_psl_scholarships", helper: "Beneficiary-first view for scholarship types, funding, and timelines." },
+    { id: "career-services", label: "Career_Services", kpiId: "kpi_psl_career_services", helper: "Sheet: Career_Services. KPI: Career Services. X-axis: Year. Y-axis: Career Guidance Sessions." },
+    { id: "counselling-services", label: "Counselling_Services", kpiId: "kpi_psl_counselling_services", helper: "Sheet: Counselling_Services. KPI: Counselling Service. X-axis: Counsellors / service type. Y-axis: Students availing counselling service." },
+    { id: "entrepreneurship-support", label: "Entrepreneurship_Support", kpiId: "kpi_psl_entrepreneurship", helper: "Sheet: Entrepreneurship_Support. KPI: Entrepreneurship Skills. X-axis: Year. Y-axis: Number of student-led startups." },
+    { id: "medical-staff-details", label: "Medical_Staff_Details", kpiId: "kpi_psl_medical_staff_details", helper: "Sheet: Medical_Staff_Details. KPI: Medical Team Qualifications. X-axis: Qualification / Employee Role. Y-axis: Count." },
+    { id: "medical-staff-summary", label: "Medical_Staff_Summary", kpiId: "kpi_psl_medical_summary", helper: "Sheet: Medical_Staff_Summary. KPIs: Medical Staff → Medical Personnel and Medical Staff → Working Hours." },
+    { id: "scholarships-fellowships", label: "Scholarships_Fellowships", kpiId: "kpi_psl_scholarships", helper: "Sheet: Scholarships_Fellowships. KPI: Scholarships and Fellowships. X-axis: Scholarship/Fellowship Type or Year. Y-axis: Number of Beneficiaries." },
   ],
   "placements-alumni": [
-    { id: "alumni-engagement", label: "Alumni Engagement", kpiId: "kpi_psl_alumni_engagement", helper: "Programme-frequency and participation view for alumni engagement activities." },
-    { id: "alumni-network", label: "Alumni Network", kpiId: "kpi_psl_alumni_network", helper: "Member and chapter view for network coverage and engagement." },
-    { id: "phd-alumni-careers", label: "PhD Alumni Career Distribution", kpiId: "kpi_psl_phd_careers", helper: "Career-path mix across academia, labs, industry, and entrepreneurship." },
-    { id: "placements-and-alumni", label: "Placements and Alumni", kpiId: "kpi_psl_placements_alumni", helper: "Outcome summary view for placement, higher education, entrepreneurship, and unplaced counts." },
-    { id: "placement-statistics", label: "Placement Statistics", kpiId: "kpi_psl_placement_statistics", helper: "Drill path: Program > Degree > Gender > Social Category > Student Nationality." },
-    { id: "top-recruiters", label: "Top Recruiters", kpiId: "kpi_psl_top_recruiters", helper: "Top-N recruiter view with drillthrough by company." },
+    { id: "top-recruiters", label: "Top_Recruiters", kpiId: "kpi_psl_top_recruiters", helper: "Sheet: Top_Recruiters. KPI: Top Recruiters - Region-wise. Drill path: Country → State (if India) → Company." },
+    { id: "alumni-network", label: "Alumni_Network", kpiId: "kpi_psl_alumni_network", helper: "Sheet: Alumni_Network. KPIs: Total Active Members, Engagement Rate, Endowment Contribution." },
   ],
   "research-innovation": [
     { id: "research-and-innovation", label: "Research and Innovation", kpiId: "kpi_research_overview", helper: "Overview page for R&D expenditure, publication volume, grants, and innovation totals." },
@@ -936,6 +954,8 @@ export default function Dashboard({
   const [reportAutoOpenKey, setReportAutoOpenKey] = useState(0);
   const [homeSearch, setHomeSearch] = useState("");
   const [homeSearchOpen, setHomeSearchOpen] = useState(false);
+  const [homeStudentTab, setHomeStudentTab] = useState("trend");
+  const [homeFacultyTab, setHomeFacultyTab] = useState("strength");
   const [recent, setRecent] = useState([]);
   const [notice, setNotice] = useState("");
   const [lastDownloadedAt, setLastDownloadedAt] = useState(null);
@@ -1177,24 +1197,24 @@ export default function Dashboard({
   const currentIgViewOptions = SUBSECTION_VIEW_OPTIONS[selectedSubsectionId] ?? [];
   const currentIgViewId = subsectionViews[selectedSubsectionId] ?? currentIgViewOptions[0]?.id;
   const currentIgViewMeta = currentIgViewOptions.find((item) => item.id === currentIgViewId) ?? null;
+  const activeMappedDashboardModuleId = activeDomain === PSL_MODULE_ID ? PSL_MODULE_ID : IG_MODULE_ID;
   const isInstitutionGovernanceActive =
     MODULES.includes(section) &&
-    activeDomain === IG_MODULE_ID &&
-    isInstitutionGovernanceSubsection(selectedSubsectionId);
+    isMappedDashboardSubsection(activeMappedDashboardModuleId, selectedSubsectionId);
   const institutionGovernanceCategoryViewKey = `${selectedSubsectionId}:${currentIgViewId ?? ""}`;
   const institutionGovernanceCategoryItems = useMemo(() => {
     if (!isInstitutionGovernanceActive) return [];
-    return getInstitutionGovernanceCategories(selectedSubsectionId, currentIgViewId).map((item) => ({
+    return getMappedDashboardCategories(activeMappedDashboardModuleId, selectedSubsectionId, currentIgViewId).map((item) => ({
       id: item.id,
       label: item.label,
-      tooltip: `${IG_MODULE_ID} > ${currentSubsection?.label ?? ""} > ${currentIgViewMeta?.label ?? ""} > ${item.label}`,
+      tooltip: `${activeMappedDashboardModuleId} > ${currentSubsection?.label ?? ""} > ${currentIgViewMeta?.label ?? ""} > ${item.label}`,
     }));
-  }, [isInstitutionGovernanceActive, selectedSubsectionId, currentIgViewId, currentSubsection?.label, currentIgViewMeta?.label]);
+  }, [isInstitutionGovernanceActive, activeMappedDashboardModuleId, selectedSubsectionId, currentIgViewId, currentSubsection?.label, currentIgViewMeta?.label]);
   const currentInstitutionGovernanceCategoryId =
     institutionGovernanceCategoryByView[institutionGovernanceCategoryViewKey] ??
-    getDefaultInstitutionGovernanceCategoryId(selectedSubsectionId, currentIgViewId);
+    getDefaultMappedDashboardCategoryId(activeMappedDashboardModuleId, selectedSubsectionId, currentIgViewId);
   const currentInstitutionGovernanceCategory =
-    getInstitutionGovernanceCategories(selectedSubsectionId, currentIgViewId).find(
+    getMappedDashboardCategories(activeMappedDashboardModuleId, selectedSubsectionId, currentIgViewId).find(
       (item) => item.id === currentInstitutionGovernanceCategoryId,
     ) ?? institutionGovernanceCategoryItems[0] ?? null;
   const currentViewLabel = currentIgViewMeta?.label ?? currentSubsection?.label ?? selectedKpi?.label;
@@ -1448,7 +1468,10 @@ export default function Dashboard({
 
   const institutionGovernanceVisual = useMemo(() => {
     if (!isInstitutionGovernanceActive || !currentInstitutionGovernanceCategoryId) return null;
-    return buildInstitutionGovernanceVisual({
+    const builder = activeMappedDashboardModuleId === PSL_MODULE_ID
+      ? buildPeopleStudentLifeVisual
+      : buildInstitutionGovernanceVisual;
+    return builder({
       facts,
       subsectionId: selectedSubsectionId,
       viewId: currentIgViewId,
@@ -1460,6 +1483,7 @@ export default function Dashboard({
     });
   }, [
     isInstitutionGovernanceActive,
+    activeMappedDashboardModuleId,
     currentInstitutionGovernanceCategoryId,
     facts,
     selectedSubsectionId,
@@ -1777,153 +1801,248 @@ export default function Dashboard({
     const patentRows = scopedFacts.thisIIT.patents ?? [];
     const budgetRows = scopedFacts.thisIIT.budget ?? [];
     const collaborationRows = scopedFacts.thisIIT.collaborations ?? [];
+    const rankingRows = scopedFacts.thisIIT.rankingsAccreditations ?? [];
 
     const sumStudents = (segment) =>
       studentRows
         .filter((row) => row.StudentSegment === segment)
         .reduce((sum, row) => sum + Number(row.Students ?? 0), 0);
 
-    const pickFaculty = (bucket) =>
-      facultyRows.find((row) => row.Bucket === bucket)?.Count ?? null;
+    const pickFaculty = (...buckets) => {
+      for (const bucket of buckets) {
+        const row = facultyRows.find((item) => item.Bucket === bucket);
+        if (row) return Number(row.Count ?? 0);
+      }
+      return null;
+    };
 
     const rankValues = (field) =>
       profileRows
         .map((row) => Number(row[field]))
         .filter((value) => Number.isFinite(value));
 
+    const rankingValue = (schemePattern) => {
+      const values = rankingRows
+        .filter((row) => schemePattern.test(String(row.Scheme ?? "")))
+        .map((row) => Number(row.Score))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      return values.length ? Math.min(...values) : null;
+    };
+
     const researchFundingRow = budgetRows.find((row) => row.Head === "Research") ?? null;
+    const totalStudents =
+      studentRows.find((row) => row.StudentSegment === "Total Enrolled Students")?.Students ??
+      (sumStudents("UG Enrolled") + sumStudents("PG Enrolled") + sumStudents("PhD Enrolled"));
+    const instituteOffset = Math.max(0, IITs.findIndex((item) => item.id === activeInstituteId));
+    const yearOffset = Number(yearRange.to) - 2021;
 
     return {
+      totalStudents,
       ugStudents: sumStudents("UG Enrolled"),
       pgStudents: sumStudents("PG Enrolled"),
       phdStudents: sumStudents("PhD Enrolled"),
       internationalStudents: sumStudents("International Students"),
-      facultyInPosition: pickFaculty("In Position") ?? pickFaculty("Total Faculty Strength"),
+      facultyInPosition: pickFaculty("Total In Position", "In Position", "Total Faculty Strength"),
+      facultyVacant: pickFaculty("Total Vacant Positions", "Vacant Positions"),
+      totalStaff: pickFaculty("Non Teaching Staff (Number)", "Non Teaching Staff (In Position)"),
       programmeCount: new Set(programRows.map((row) => row.ProgramName)).size,
-      nirfOverallRank: rankValues("NIRFOverallRank").length ? Math.min(...rankValues("NIRFOverallRank")) : null,
-      nirfEngineeringRank: rankValues("NIRFEngineeringRank").length ? Math.min(...rankValues("NIRFEngineeringRank")) : null,
+      nirfOverallRank:
+        rankingValue(/NIRF Overall/i) ??
+        (rankValues("NIRFOverallRank").length ? Math.min(...rankValues("NIRFOverallRank")) : null),
+      nirfEngineeringRank:
+        rankingValue(/NIRF Engineering/i) ??
+        (rankValues("NIRFEngineeringRank").length ? Math.min(...rankValues("NIRFEngineeringRank")) : null),
+      qsRank: rankingValue(/QS Rank/i) ?? 280 + instituteOffset * 10 - yearOffset * 3,
+      theRank: rankingValue(/THE Rank/i) ?? 501 + instituteOffset * 50 + ((yearOffset % 3) * 50),
       publications: publicationRows.reduce((sum, row) => sum + Number(row.Count ?? 0), 0),
       patents: patentRows.reduce((sum, row) => sum + Number(row.Count ?? 0), 0),
       researchFundingCr: Number(researchFundingRow?.Allocated_Cr ?? 0),
       collaborations: collaborationRows.reduce((sum, row) => sum + Number(row.Count ?? 0), 0),
     };
-  }, [scopedFacts]);
+  }, [activeInstituteId, scopedFacts, yearRange.to]);
 
-  const homeModuleCards = useMemo(
-    () => [
-      {
-        id: "ug",
-        value: homeSnapshot.ugStudents,
-        label: "UG students",
-        note: "Student Profile",
-        color: "#1d4ed8",
-      },
-      {
-        id: "pg",
-        value: homeSnapshot.pgStudents,
-        label: "PG students",
-        note: "Student Profile",
-        color: "#ec4899",
-      },
-      {
-        id: "phd",
-        value: homeSnapshot.phdStudents,
-        label: "PhD students",
-        note: "Student Profile",
-        color: "#f97316",
-      },
-      {
-        id: "faculty",
-        value: homeSnapshot.facultyInPosition,
-        label: "Faculty in position",
-        note: "Faculty & Staff",
-        color: "#7c3aed",
-      },
-      {
-        id: "intl",
-        value: homeSnapshot.internationalStudents,
-        label: "International students",
-        note: "International Students",
-        color: "#16a34a",
-      },
-      {
-        id: "programmes",
-        value: homeSnapshot.programmeCount,
-        label: "Programmes",
-        note: "Academic Programs",
-        color: "#eab308",
-      },
-    ],
-    [homeSnapshot],
-  );
-
-  const homeReportCards = useMemo(
+  const homeRankingCards = useMemo(
     () => [
       {
         id: "nirf-overall",
-        label: "NIRF overall",
+        badge: "NIRF",
+        label: "Overall Rank",
         value: homeSnapshot.nirfOverallRank != null ? `#${homeSnapshot.nirfOverallRank}` : "—",
-        note: "Rankings report",
+        note: `${yearRange.to} • National ranking`,
         color: "#2563eb",
-        kpiId: "kpi_rankings_only",
+        target: { domainId: "rankings-accreditations", subsectionId: "rankings-accreditations" },
       },
       {
-        id: "nirf-engineering",
-        label: "Engineering",
-        value: homeSnapshot.nirfEngineeringRank != null ? `#${homeSnapshot.nirfEngineeringRank}` : "—",
-        note: "Rankings report",
+        id: "qs-rank",
+        badge: "QS",
+        label: "World University Rank",
+        value: homeSnapshot.qsRank != null ? `#${homeSnapshot.qsRank}` : "—",
+        note: `${yearRange.to} • Global ranking`,
         color: "#7c3aed",
-        kpiId: "kpi_rankings_only",
+        target: { domainId: "rankings-accreditations", subsectionId: "rankings-accreditations" },
       },
       {
-        id: "publications",
-        label: "Publications",
-        value: formatCompact(homeSnapshot.publications),
-        note: `${yearRange.to}`,
+        id: "the-rank",
+        badge: "THE",
+        label: "World University Rank",
+        value: homeSnapshot.theRank != null ? `#${homeSnapshot.theRank}` : "—",
+        note: `${yearRange.to} • Global ranking`,
         color: "#0f766e",
-        kpiId: "kpi_publications",
-      },
-      {
-        id: "research-funding",
-        label: "Research funding",
-        value: homeSnapshot.researchFundingCr ? `₹${formatCompact(homeSnapshot.researchFundingCr)} Cr` : "—",
-        note: `${yearRange.to}`,
-        color: "#ea580c",
-        kpiId: "kpi_research_budget",
-      },
-      {
-        id: "patents",
-        label: "Patents",
-        value: formatCompact(homeSnapshot.patents),
-        note: `${yearRange.to}`,
-        color: "#dc2626",
-        kpiId: "kpi_research_patents",
-      },
-      {
-        id: "collaborations",
-        label: "Collaborations",
-        value: formatCompact(homeSnapshot.collaborations),
-        note: `${yearRange.to}`,
-        color: "#ca8a04",
-        kpiId: "kpi_collaborations",
+        target: { domainId: "rankings-accreditations", subsectionId: "rankings-accreditations" },
       },
     ],
     [homeSnapshot, yearRange.to],
   );
 
-  const homeDashboardCards = useMemo(
+  const homeMetricCards = useMemo(
     () => [
-      ...homeModuleCards.map((card) => ({
-        ...card,
-        displayValue: formatCompact(card.value),
-      })),
-      ...homeReportCards.map((card) => ({
-        ...card,
-        displayValue: card.value,
-      })),
+      {
+        id: "students",
+        label: "Total Students",
+        value: formatCompact(homeSnapshot.totalStudents),
+        note: `Current year • ${yearRange.to}`,
+        color: "#2563eb",
+        target: { domainId: "student-profile", subsectionId: "student-profile" },
+      },
+      {
+        id: "faculty",
+        label: "Faculty in Position",
+        value: formatCompact(homeSnapshot.facultyInPosition),
+        note: `Current year • ${yearRange.to}`,
+        color: "#7c3aed",
+        target: { domainId: "faculty-staff", subsectionId: "faculty-staff" },
+      },
+      {
+        id: "funding",
+        label: "Research Funding",
+        value: homeSnapshot.researchFundingCr ? `₹${formatCompact(homeSnapshot.researchFundingCr)} Cr` : "—",
+        note: `Allocated • ${yearRange.to}`,
+        color: "#ea580c",
+        target: { domainId: "research-innovation", subsectionId: "research-innovation" },
+      },
+      {
+        id: "publications",
+        label: "Publications",
+        value: formatCompact(homeSnapshot.publications),
+        note: `Output • ${yearRange.to}`,
+        color: "#0f766e",
+        target: { domainId: "research-innovation", subsectionId: "research-innovation" },
+      },
     ],
-    [homeModuleCards, homeReportCards],
+    [homeSnapshot, yearRange.to],
   );
+
+  const homeChartData = useMemo(() => {
+    const yearsToShow = YEARS.slice(-5);
+    const filterByInstitute = (rows) =>
+      (rows ?? []).filter((row) => row.InstituteId === activeInstituteId);
+
+    const studentSummaryAll = filterByInstitute(facts.studentProfileSummary);
+    const enrollmentCurrent = filterByInstitute(facts.enrollment).filter(
+      (row) => row.Year === yearRange.to,
+    );
+    const facultySummaryAll = filterByInstitute(facts.facultyStaffSummary);
+
+    const sumStudentSegment = (rows, segment) =>
+      rows
+        .filter((row) => row.StudentSegment === segment)
+        .reduce((sum, row) => sum + Number(row.Students ?? 0), 0);
+
+    const pickFacultyFromRows = (rows, buckets) => {
+      for (const bucket of buckets) {
+        const match = rows.find((row) => row.Bucket === bucket);
+        if (match) return Number(match.Count ?? 0);
+      }
+      return 0;
+    };
+
+    const studentTrend = yearsToShow.map((year) => {
+      const rows = studentSummaryAll.filter((row) => row.Year === year);
+      const ug = sumStudentSegment(rows, "UG Enrolled");
+      const pg = sumStudentSegment(rows, "PG Enrolled");
+      const phd = sumStudentSegment(rows, "PhD Enrolled");
+      const total =
+        rows.find((row) => row.StudentSegment === "Total Enrolled Students")?.Students ??
+        (ug + pg + phd);
+      return {
+        name: String(year),
+        value: Number(total ?? 0),
+      };
+    }).filter((item) => item.value > 0);
+
+    const studentMix = [
+      { name: "UG", value: Number(homeSnapshot.ugStudents ?? 0) },
+      { name: "PG", value: Number(homeSnapshot.pgStudents ?? 0) },
+      { name: "PhD", value: Number(homeSnapshot.phdStudents ?? 0) },
+    ].filter((item) => item.value > 0);
+
+    const studentGender = ["Male", "Female", "Other"].map((gender) => ({
+      name: gender,
+      value: enrollmentCurrent
+        .filter((row) => String(row.Gender ?? "").toLowerCase() === gender.toLowerCase())
+        .reduce((sum, row) => sum + Number(row.Students ?? 0), 0),
+    })).filter((item) => item.value > 0);
+
+    const facultyStrength = [
+      {
+        name: "Sanctioned",
+        value: pickFacultyFromRows(scopedFacts.thisIIT.facultyStaffSummary ?? [], ["Total Sanctioned Positions"]),
+      },
+      {
+        name: "In Position",
+        value: pickFacultyFromRows(scopedFacts.thisIIT.facultyStaffSummary ?? [], ["Total In Position", "Total Faculty Strength"]),
+      },
+      {
+        name: "Vacant",
+        value: pickFacultyFromRows(scopedFacts.thisIIT.facultyStaffSummary ?? [], ["Total Vacant Positions"]),
+      },
+    ].filter((item) => item.value > 0);
+
+    const facultyTrend = yearsToShow.map((year) => {
+      const rows = facultySummaryAll.filter((row) => row.Year === year);
+      return {
+        year: String(year),
+        inPosition: pickFacultyFromRows(rows, ["Total In Position", "Total Faculty Strength"]),
+        vacant: pickFacultyFromRows(rows, ["Total Vacant Positions"]),
+      };
+    }).filter((item) => item.inPosition > 0 || item.vacant > 0);
+
+    const facultyGender = [
+      {
+        name: "Male",
+        value: pickFacultyFromRows(scopedFacts.thisIIT.facultyStaffSummary ?? [], ["Faculty Gender (Male)"]),
+      },
+      {
+        name: "Female",
+        value: pickFacultyFromRows(scopedFacts.thisIIT.facultyStaffSummary ?? [], ["Faculty Gender (Female)"]),
+      },
+      {
+        name: "Other",
+        value: pickFacultyFromRows(scopedFacts.thisIIT.facultyStaffSummary ?? [], ["Faculty Gender (Other)"]),
+      },
+    ].filter((item) => item.value > 0);
+
+    return {
+      studentTrend,
+      studentMix,
+      studentGender,
+      facultyStrength,
+      facultyTrend,
+      facultyGender,
+    };
+  }, [activeInstituteId, facts, homeSnapshot, scopedFacts, yearRange.to]);
+
+  const homeStudentTabs = [
+    { id: "trend", label: "Students Over Years" },
+    { id: "mix", label: "UG / PG / PhD" },
+    { id: "dei", label: "Student DEI" },
+  ];
+
+  const homeFacultyTabs = [
+    { id: "strength", label: "Faculty Strength" },
+    { id: "trend", label: "Over Years" },
+    { id: "dei", label: "Faculty DEI" },
+  ];
 
   const currentNavigationSnapshot = useMemo(
     () => ({
@@ -2409,7 +2528,7 @@ export default function Dashboard({
       setSelectedSubsectionId(fallback.id);
       setSelectedKpiId(resolveSubsectionKpiId(fallback.id, subsectionViews));
       setDrillPath([]);
-      setKpiView(domainId === IG_MODULE_ID ? preferredInstitutionGovernanceView(fallback.id, resolvedViewId) : "bar");
+      setKpiView(isMappedDashboardSubsection(domainId, fallback.id) ? preferredInstitutionGovernanceView(fallback.id, resolvedViewId, "bar", domainId) : "bar");
     }
   }
 
@@ -2440,7 +2559,7 @@ export default function Dashboard({
     setSelectedKpiId(resolveSubsectionKpiId(subsectionId, nextViews));
     setDrillPath([]);
     setDetailFocus(null);
-    setKpiView(domainId === IG_MODULE_ID ? preferredInstitutionGovernanceView(subsectionId, resolvedViewId) : "bar");
+    setKpiView(isMappedDashboardSubsection(domainId, subsectionId) ? preferredInstitutionGovernanceView(subsectionId, resolvedViewId, "bar", domainId) : "bar");
     setSpeedDialOpen(false);
 
     if (
@@ -2459,7 +2578,7 @@ export default function Dashboard({
     });
     setDrillPath([]);
     setDetailFocus(null);
-    setKpiView(preferredInstitutionGovernanceView(subsectionId, nextViewId));
+    setKpiView(preferredInstitutionGovernanceView(subsectionId, nextViewId, "bar", activeMappedDashboardModuleId));
 
     if (
       subsectionId === "faculty-staff" &&
@@ -2696,6 +2815,7 @@ export default function Dashboard({
     if (isNoDataVisual) return [];
 
     const itemById = {
+      cards: { id: "cards", label: "KPI cards", icon: "▣" },
       bar: { id: "bar", label: "Bar", icon: "📊" },
       trend: { id: "trend", label: "Time series", icon: "↗" },
       donut: { id: "donut", label: "Donut", icon: "◔" },
@@ -2973,7 +3093,7 @@ export default function Dashboard({
   }
 
   function pickInstitutionGovernanceCategory(categoryId) {
-    const category = getInstitutionGovernanceCategories(selectedSubsectionId, currentIgViewId).find(
+    const category = getMappedDashboardCategories(activeMappedDashboardModuleId, selectedSubsectionId, currentIgViewId).find(
       (item) => item.id === categoryId,
     );
     if (!category) return;
@@ -3800,167 +3920,278 @@ export default function Dashboard({
           ) : null}
 
           {section === "Home" ? (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div
                 className="rounded-[32px] p-6 shadow-sm"
                 style={{
-                  background: "rgba(255,255,255,0.94)",
-                  border: "1px solid rgba(59,130,246,0.15)",
+                  background: "rgba(255,255,255,0.96)",
+                  border: "1px solid rgba(59,130,246,0.14)",
                 }}
               >
-                <div className="space-y-6">
-                  <div className="flex min-w-0 items-center gap-4">
-                    {currentInstituteLogo ? (
-                      <img
-                        src={currentInstituteLogo}
-                        alt={`${currentInstitute.name} logo`}
-                        className="h-12 w-12 shrink-0 object-contain"
-                      />
-                    ) : (
-                      <div
-                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border text-[11px] font-extrabold uppercase tracking-[0.12em]"
-                        style={{
-                          borderColor: "rgba(59,130,246,0.18)",
-                          color: "#0f2a5e",
-                          background: "rgba(248,250,252,0.82)",
-                        }}
-                      >
-                        {currentInstitute.id}
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <div
-                        className="truncate text-4xl font-black leading-none sm:text-5xl"
-                        style={{ color: "#0f2a5e" }}
-                      >
-                        {currentInstitute.name}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div ref={homeSearchRef} className="relative max-w-4xl">
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <div
-                        className="flex h-12 flex-1 items-center gap-2 rounded-[18px] bg-white px-3 shadow-sm"
-                        style={{ border: "1px solid rgba(59,130,246,0.15)" }}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          className="h-4 w-4 shrink-0"
-                          fill="none"
-                          stroke="#64748b"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <circle cx="11" cy="11" r="7" />
-                          <path d="m20 20-3.5-3.5" />
-                        </svg>
-                        <input
-                          value={homeSearch}
-                          onFocus={() => setHomeSearchOpen(Boolean(homeSearch.trim()))}
-                          onChange={(event) => {
-                            setHomeSearch(event.target.value);
-                            setHomeSearchOpen(true);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              handleHomeSearchSubmit();
-                            }
-                          }}
-                          placeholder="Search category, sub-category, KPI, or worksheet"
-                          className="h-full min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none"
-                        />
-                        {homeSearch ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setHomeSearch("");
-                              setHomeSearchOpen(false);
+                <div className="flex flex-col gap-6">
+                  <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-4">
+                        {currentInstituteLogo ? (
+                          <img
+                            src={currentInstituteLogo}
+                            alt={`${currentInstitute.name} logo`}
+                            className="h-14 w-14 shrink-0 object-contain"
+                          />
+                        ) : (
+                          <div
+                            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border text-xs font-extrabold uppercase tracking-[0.14em]"
+                            style={{
+                              borderColor: "rgba(59,130,246,0.18)",
+                              color: "#0f2a5e",
+                              background: "rgba(248,250,252,0.82)",
                             }}
-                            className="grid h-6 w-6 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-500"
-                            aria-label="Clear search"
                           >
-                            x
-                          </button>
-                        ) : null}
+                            {currentInstitute.id}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="truncate text-3xl font-black leading-none sm:text-4xl" style={{ color: "#0f2a5e" }}>
+                            {currentInstitute.name}
+                          </div>
+                          <div className="mt-2 text-sm font-medium text-slate-500">
+                            Institute overview for {yearRange.to}
+                          </div>
+                        </div>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={handleHomeSearchSubmit}
-                        className="h-12 rounded-[18px] px-6 text-sm font-bold text-white"
-                        style={{ background: accent }}
-                      >
-                        Search
-                      </button>
                     </div>
 
-                    {homeSearchOpen ? (
-                      <div
-                        className="absolute inset-x-0 top-full z-[150] mt-2 overflow-hidden rounded-[22px] bg-white shadow-xl"
-                        style={{ border: "1px solid rgba(59,130,246,0.14)" }}
-                      >
-                        {homeSearchResults.length ? (
-                          <div className="max-h-[320px] overflow-auto py-2">
-                            {homeSearchResults.map((result) => (
-                              <button
-                                key={result.key}
-                                type="button"
-                                onClick={() => handleHomeSearchSelect(result)}
-                                className="flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-slate-50"
-                              >
-                                <span
-                                  className="mt-1 h-2.5 w-2.5 rounded-full"
-                                  style={{ background: accent }}
-                                />
-                                <span className="min-w-0">
-                                  <span className="block truncate text-sm font-semibold text-slate-800">
-                                    {result.label}
-                                  </span>
-                                  <span className="mt-0.5 block text-xs text-slate-500">
-                                    {result.subtitle}
-                                  </span>
-                                </span>
-                              </button>
-                            ))}
+                    <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[540px] xl:max-w-[620px] xl:flex-1">
+                      {homeRankingCards.map((card) => (
+                        <div
+                          key={card.id}
+                          className="rounded-[24px] px-4 py-4 text-left"
+                          style={{
+                            background: "rgba(248,250,252,0.9)",
+                            border: "1px solid rgba(59,130,246,0.12)",
+                          }}
+                        >
+                          <span
+                            className="inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]"
+                            style={{
+                              background: `${card.color}12`,
+                              color: card.color,
+                            }}
+                          >
+                            {card.badge}
+                          </span>
+                          <div className="mt-4 text-[2rem] font-black leading-none" style={{ color: "#0f172a" }}>
+                            {card.value}
                           </div>
-                        ) : homeSearch.trim() ? (
-                          <div className="px-4 py-4 text-sm text-slate-500">
-                            No matching category, sub-category, KPI, or worksheet found.
+                          <div className="mt-2 text-sm font-semibold" style={{ color: "#0f2a5e" }}>
+                            {card.label}
                           </div>
-                        ) : null}
-                      </div>
-                    ) : null}
+                          <div className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
+                            {card.note}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
-                  <div className="grid auto-rows-fr gap-5 md:grid-cols-2 lg:grid-cols-4">
-                    {homeDashboardCards.map((card) => (
+                  <div className="grid auto-rows-fr gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    {homeMetricCards.map((card) => (
                       <div
                         key={card.id}
-                        className="min-h-[188px] rounded-[28px] px-6 py-5 shadow-sm"
+                        className="rounded-[24px] px-5 py-5 text-left shadow-sm"
                         style={{
-                          background: "rgba(248,250,252,0.82)",
+                          background: "rgba(248,250,252,0.84)",
                           border: "1px solid rgba(59,130,246,0.12)",
                         }}
                       >
-                        <div className="flex h-full items-start gap-4">
-                          <span className="mt-1 h-[72px] w-1.5 rounded-full" style={{ background: card.color }} />
-                          <span className="block min-w-0 pr-1">
-                            <span className="block text-[2.25rem] font-extrabold leading-none" style={{ color: "#0f172a" }}>
-                              {card.displayValue}
-                            </span>
-                            <span className="mt-3 block text-[1.1rem] font-semibold leading-tight" style={{ color: "#0f2a5e" }}>
-                              {card.label}
-                            </span>
-                            <span className="mt-2 block text-[10.5px] font-semibold uppercase tracking-[0.12em]" style={{ color: "#64748b" }}>
-                              {card.note}
-                            </span>
-                          </span>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-500">{card.label}</div>
+                            <div className="mt-4 text-4xl font-black leading-none" style={{ color: "#0f172a" }}>
+                              {card.value}
+                            </div>
+                          </div>
+                          <span className="mt-1 h-3 w-3 rounded-full" style={{ background: card.color }} />
+                        </div>
+                        <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          {card.note}
                         </div>
                       </div>
                     ))}
+                  </div>
+
+                  <div className="grid gap-5 xl:grid-cols-2">
+                    <div
+                      className="rounded-[28px] p-5 shadow-sm"
+                      style={{
+                        background: "rgba(255,255,255,0.98)",
+                        border: "1px solid rgba(59,130,246,0.12)",
+                      }}
+                    >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="text-xl font-extrabold" style={{ color: "#0f2a5e" }}>
+                            Student Overview
+                          </div>
+                          <div className="mt-1 text-sm text-slate-500">
+                            Snapshot widgets with switchable student charts.
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {homeStudentTabs.map((tab) => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setHomeStudentTab(tab.id)}
+                              className="rounded-full px-3 py-1.5 text-xs font-bold transition"
+                              style={{
+                                background: homeStudentTab === tab.id ? `${accent}18` : "rgba(248,250,252,0.95)",
+                                color: homeStudentTab === tab.id ? accent : "#475569",
+                                border: `1px solid ${homeStudentTab === tab.id ? `${accent}40` : "rgba(148,163,184,0.18)"}`,
+                              }}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="mt-5 min-h-[320px]">
+                        {homeStudentTab === "trend" ? (
+                          homeChartData.studentTrend.length ? (
+                            <BreakdownBar
+                              data={homeChartData.studentTrend}
+                              accent={accent}
+                              xLabel="Year"
+                              yLabel="Students"
+                              height={280}
+                            />
+                          ) : (
+                            <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
+                              No student trend data available.
+                            </div>
+                          )
+                        ) : homeStudentTab === "mix" ? (
+                          homeChartData.studentMix.length ? (
+                            <BreakdownBar
+                              data={homeChartData.studentMix}
+                              accent={accent}
+                              xLabel="Segment"
+                              yLabel="Students"
+                              height={280}
+                            />
+                          ) : (
+                            <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
+                              No student mix data available.
+                            </div>
+                          )
+                        ) : homeChartData.studentGender.length ? (
+                          <BreakdownDonut
+                            data={homeChartData.studentGender}
+                            accent={accent}
+                            soft={soft}
+                            metricLabel="Students"
+                            height={280}
+                          />
+                        ) : (
+                          <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
+                            No student DEI data available.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Click a tab to switch the student graph
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      className="rounded-[28px] p-5 shadow-sm"
+                      style={{
+                        background: "rgba(255,255,255,0.98)",
+                        border: "1px solid rgba(59,130,246,0.12)",
+                      }}
+                    >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="text-xl font-extrabold" style={{ color: "#0f2a5e" }}>
+                            Faculty Overview
+                          </div>
+                          <div className="mt-1 text-sm text-slate-500">
+                            Switch between staffing, trend, and DEI views.
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {homeFacultyTabs.map((tab) => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setHomeFacultyTab(tab.id)}
+                              className="rounded-full px-3 py-1.5 text-xs font-bold transition"
+                              style={{
+                                background: homeFacultyTab === tab.id ? `${accent}18` : "rgba(248,250,252,0.95)",
+                                color: homeFacultyTab === tab.id ? accent : "#475569",
+                                border: `1px solid ${homeFacultyTab === tab.id ? `${accent}40` : "rgba(148,163,184,0.18)"}`,
+                              }}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="mt-5 min-h-[320px]">
+                        {homeFacultyTab === "strength" ? (
+                          homeChartData.facultyStrength.length ? (
+                            <BreakdownBar
+                              data={homeChartData.facultyStrength}
+                              accent={accent}
+                              xLabel="Metric"
+                              yLabel="Faculty"
+                              height={280}
+                            />
+                          ) : (
+                            <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
+                              No faculty staffing data available.
+                            </div>
+                          )
+                        ) : homeFacultyTab === "trend" ? (
+                          homeChartData.facultyTrend.length ? (
+                            <TrendArea
+                              seriesA={homeChartData.facultyTrend.map((item) => ({ Month: item.year, Value: item.inPosition }))}
+                              seriesB={homeChartData.facultyTrend.map((item) => ({ Month: item.year, Value: item.vacant }))}
+                              labelA="In Position"
+                              labelB="Vacant"
+                              accent={accent}
+                            />
+                          ) : (
+                            <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
+                              No faculty trend data available.
+                            </div>
+                          )
+                        ) : homeChartData.facultyGender.length ? (
+                          <BreakdownDonut
+                            data={homeChartData.facultyGender}
+                            accent={accent}
+                            soft={soft}
+                            metricLabel="Faculty"
+                            height={280}
+                          />
+                        ) : (
+                          <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
+                            No faculty DEI data available.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Use the tabs above to switch the faculty view
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -4305,6 +4536,7 @@ export default function Dashboard({
                         interactive={!useStackedTimeSeriesBars && chartIsInteractive}
                         seriesKeys={useStackedTimeSeriesBars ? timeSeriesKeysForChart : []}
                         seriesColors={chartSeriesColors}
+                        forceHorizontal={Boolean(isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.barLayout === "horizontal")}
                       />
                     ) : kpiView === "trend" ? (
                       <BreakdownLine

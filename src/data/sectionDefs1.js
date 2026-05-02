@@ -15,6 +15,7 @@ export const DOMAIN_DEFS = [
     icon: "people",
     children: [
       { id: "student-profile", label: "Student Profile", kpiId: "kpi_psl_student_profile" },
+      { id: "faculty-staff", label: "Faculty & Staff", kpiId: "kpi_psl_faculty_staff" },
       { id: "student-support-system", label: "Student Support System", kpiId: "kpi_psl_medical_summary" },
       { id: "placements-alumni", label: "Placements & Alumni", kpiId: "kpi_psl_placements_alumni" },
     ],

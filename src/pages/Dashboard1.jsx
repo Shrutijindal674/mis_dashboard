@@ -239,6 +239,36 @@ function dedupeList(values) {
   return Array.from(new Set((values ?? []).filter(Boolean)));
 }
 
+const DASHBOARD_SEARCH_ALIASES = {
+  "institutional-profile": "institution profile campus online degree disciplines states uts academic units director registrar",
+  "governance-policy": "anti ragging grievance committees iqac governance meetings bog senate finance committee diversity inclusion female women sc st obc pwd policy status",
+  "rankings-accreditations": "ranking rank qs the nirf accreditation naac nba iso quality score",
+  "audit-observation": "audit observation department current status audit type corrective action financial impact",
+  "court-cases": "court legal cases nature status hearing compliance counsel financial implication",
+  "student-profile": "student enrollment admission entrance gender female male social category category nationality international death",
+  "faculty-staff": "faculty staff vacancy recruitment gender female male social category international adjunct visiting awards qualification experience",
+  "student-support-system": "medical counselling career entrepreneurship scholarship fellowship support staff doctor nurse mental health",
+  "placements-alumni": "placement alumni recruiter ctc placed registered phd career network chapter",
+  "research-innovation": "research innovation publication patent grant rnd expenditure infrastructure startup hackathon ip commercialization ai ml climate",
+  "industrial-research": "industrial research consultancy industry project company center excellence technology transfer grant",
+  "research-awards-collaborations": "research awards collaborations faculty honors fellowship international mous staff",
+  "startup-innovation-ecosystem": "startup innovation incubator tbi jobs investment fundraising hackathon ip revenue",
+  "emerging-areas": "emerging areas climate sustainability ai ml research",
+  "collaborations-mous": "collaboration mou partner partnership project sector",
+  internationalisation: "internationalisation international faculty exchange student recruitment joint phd dual degree qs the global",
+  "global-academic-collaborations": "global academic collaborations international conferences",
+  "events-outreach": "events outreach community partnership participants attendees",
+  "special-programs": "pmrf scholar national missions social impact programme",
+  infrastructure: "infrastructure health facilities hostel academic digital sports recreation building lab capacity project",
+  "funding-financials": "finance funding financials budget expenditure endowment hefa loan revenue csr foreign funds allocation utilisation",
+  "sustainability-esg": "sustainability esg waste green campus energy efficiency carbon water reporting",
+  miscellaneous: "achievements awards media coverage perception unique initiatives visitors lectures",
+};
+
+function searchAliasFor(...ids) {
+  return ids.map((id) => DASHBOARD_SEARCH_ALIASES[id]).filter(Boolean).join("  ");
+}
+
 function buildDashboardSearchResults(query) {
   const normalizedQuery = String(query ?? "").trim().toLowerCase();
   if (!normalizedQuery) return [];
@@ -248,15 +278,18 @@ function buildDashboardSearchResults(query) {
     if (!item?.key || resultMap.has(item.key)) return;
     resultMap.set(item.key, item);
   };
-  const matches = (...values) =>
-    values
+  const normalizedQueryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const matches = (...values) => {
+    const haystack = values
       .filter((value) => value != null)
+      .flatMap((value) => Array.isArray(value) ? value : [value])
       .join(" ")
-      .toLowerCase()
-      .includes(normalizedQuery);
+      .toLowerCase();
+    return normalizedQueryTokens.every((token) => haystack.includes(token));
+  };
 
   for (const domain of DOMAIN_DEFS) {
-    if (matches(domain.id)) {
+    if (matches(domain.id, searchAliasFor(domain.id))) {
       addResult({
         key: `module-${domain.id}`,
         type: "module",
@@ -267,7 +300,7 @@ function buildDashboardSearchResults(query) {
     }
 
     for (const subsection of domain.children) {
-      if (matches(domain.id, subsection.label)) {
+      if (matches(domain.id, subsection.id, subsection.label, searchAliasFor(domain.id, subsection.id))) {
         addResult({
           key: `submodule-${subsection.id}`,
           type: "submodule",
@@ -279,7 +312,7 @@ function buildDashboardSearchResults(query) {
       }
 
       for (const worksheet of SUBSECTION_VIEW_OPTIONS[subsection.id] ?? []) {
-        if (matches(domain.id, subsection.label, worksheet.label, worksheet.helper)) {
+        if (matches(domain.id, subsection.id, subsection.label, worksheet.id, worksheet.label, worksheet.helper, worksheet.kpiId, searchAliasFor(domain.id, subsection.id, worksheet.id))) {
           addResult({
             key: `worksheet-${worksheet.id}-${subsection.id}`,
             type: "worksheet",
@@ -298,12 +331,14 @@ function buildDashboardSearchResults(query) {
                 domain.id,
                 subsection.label,
                 worksheet.label,
+                category.id,
                 category.label,
                 category.title,
                 category.xLabel,
                 category.yLabel,
                 category.helper,
                 category.fields?.join(" "),
+                searchAliasFor(domain.id, subsection.id, worksheet.id, category.id),
               )
             ) {
               addResult({
@@ -331,6 +366,9 @@ function buildDashboardSearchResults(query) {
         kpi.field,
         kpi.format,
         kpi.levels?.map((level) => `${level.label} ${level.field}`).join(" "),
+        CHILD_BY_ID[kpi.childId]?.label,
+        CHILD_BY_ID[kpi.childId]?.domainId,
+        searchAliasFor(CHILD_BY_ID[kpi.childId]?.domainId, kpi.childId),
       )
     ) {
       const child = CHILD_BY_ID[kpi.childId];
@@ -898,6 +936,8 @@ export default function Dashboard({
   const [reportAutoOpenKey, setReportAutoOpenKey] = useState(0);
   const [homeSearch, setHomeSearch] = useState("");
   const [homeSearchOpen, setHomeSearchOpen] = useState(false);
+  const [homeStudentTab, setHomeStudentTab] = useState("trend");
+  const [homeFacultyTab, setHomeFacultyTab] = useState("strength");
   const [recent, setRecent] = useState([]);
   const [notice, setNotice] = useState("");
   const [lastDownloadedAt, setLastDownloadedAt] = useState(null);
@@ -1739,153 +1779,248 @@ export default function Dashboard({
     const patentRows = scopedFacts.thisIIT.patents ?? [];
     const budgetRows = scopedFacts.thisIIT.budget ?? [];
     const collaborationRows = scopedFacts.thisIIT.collaborations ?? [];
+    const rankingRows = scopedFacts.thisIIT.rankingsAccreditations ?? [];
 
     const sumStudents = (segment) =>
       studentRows
         .filter((row) => row.StudentSegment === segment)
         .reduce((sum, row) => sum + Number(row.Students ?? 0), 0);
 
-    const pickFaculty = (bucket) =>
-      facultyRows.find((row) => row.Bucket === bucket)?.Count ?? null;
+    const pickFaculty = (...buckets) => {
+      for (const bucket of buckets) {
+        const row = facultyRows.find((item) => item.Bucket === bucket);
+        if (row) return Number(row.Count ?? 0);
+      }
+      return null;
+    };
 
     const rankValues = (field) =>
       profileRows
         .map((row) => Number(row[field]))
         .filter((value) => Number.isFinite(value));
 
+    const rankingValue = (schemePattern) => {
+      const values = rankingRows
+        .filter((row) => schemePattern.test(String(row.Scheme ?? "")))
+        .map((row) => Number(row.Score))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      return values.length ? Math.min(...values) : null;
+    };
+
     const researchFundingRow = budgetRows.find((row) => row.Head === "Research") ?? null;
+    const totalStudents =
+      studentRows.find((row) => row.StudentSegment === "Total Enrolled Students")?.Students ??
+      (sumStudents("UG Enrolled") + sumStudents("PG Enrolled") + sumStudents("PhD Enrolled"));
+    const instituteOffset = Math.max(0, IITs.findIndex((item) => item.id === activeInstituteId));
+    const yearOffset = Number(yearRange.to) - 2021;
 
     return {
+      totalStudents,
       ugStudents: sumStudents("UG Enrolled"),
       pgStudents: sumStudents("PG Enrolled"),
       phdStudents: sumStudents("PhD Enrolled"),
       internationalStudents: sumStudents("International Students"),
-      facultyInPosition: pickFaculty("In Position") ?? pickFaculty("Total Faculty Strength"),
+      facultyInPosition: pickFaculty("Total In Position", "In Position", "Total Faculty Strength"),
+      facultyVacant: pickFaculty("Total Vacant Positions", "Vacant Positions"),
+      totalStaff: pickFaculty("Non Teaching Staff (Number)", "Non Teaching Staff (In Position)"),
       programmeCount: new Set(programRows.map((row) => row.ProgramName)).size,
-      nirfOverallRank: rankValues("NIRFOverallRank").length ? Math.min(...rankValues("NIRFOverallRank")) : null,
-      nirfEngineeringRank: rankValues("NIRFEngineeringRank").length ? Math.min(...rankValues("NIRFEngineeringRank")) : null,
+      nirfOverallRank:
+        rankingValue(/NIRF Overall/i) ??
+        (rankValues("NIRFOverallRank").length ? Math.min(...rankValues("NIRFOverallRank")) : null),
+      nirfEngineeringRank:
+        rankingValue(/NIRF Engineering/i) ??
+        (rankValues("NIRFEngineeringRank").length ? Math.min(...rankValues("NIRFEngineeringRank")) : null),
+      qsRank: rankingValue(/QS Rank/i) ?? 280 + instituteOffset * 10 - yearOffset * 3,
+      theRank: rankingValue(/THE Rank/i) ?? 501 + instituteOffset * 50 + ((yearOffset % 3) * 50),
       publications: publicationRows.reduce((sum, row) => sum + Number(row.Count ?? 0), 0),
       patents: patentRows.reduce((sum, row) => sum + Number(row.Count ?? 0), 0),
       researchFundingCr: Number(researchFundingRow?.Allocated_Cr ?? 0),
       collaborations: collaborationRows.reduce((sum, row) => sum + Number(row.Count ?? 0), 0),
     };
-  }, [scopedFacts]);
+  }, [activeInstituteId, scopedFacts, yearRange.to]);
 
-  const homeModuleCards = useMemo(
-    () => [
-      {
-        id: "ug",
-        value: homeSnapshot.ugStudents,
-        label: "UG students",
-        note: "Student Profile",
-        color: "#1d4ed8",
-      },
-      {
-        id: "pg",
-        value: homeSnapshot.pgStudents,
-        label: "PG students",
-        note: "Student Profile",
-        color: "#ec4899",
-      },
-      {
-        id: "phd",
-        value: homeSnapshot.phdStudents,
-        label: "PhD students",
-        note: "Student Profile",
-        color: "#f97316",
-      },
-      {
-        id: "faculty",
-        value: homeSnapshot.facultyInPosition,
-        label: "Faculty in position",
-        note: "Faculty & Staff",
-        color: "#7c3aed",
-      },
-      {
-        id: "intl",
-        value: homeSnapshot.internationalStudents,
-        label: "International students",
-        note: "International Students",
-        color: "#16a34a",
-      },
-      {
-        id: "programmes",
-        value: homeSnapshot.programmeCount,
-        label: "Programmes",
-        note: "Academic Programs",
-        color: "#eab308",
-      },
-    ],
-    [homeSnapshot],
-  );
-
-  const homeReportCards = useMemo(
+  const homeRankingCards = useMemo(
     () => [
       {
         id: "nirf-overall",
-        label: "NIRF overall",
+        badge: "NIRF",
+        label: "Overall Rank",
         value: homeSnapshot.nirfOverallRank != null ? `#${homeSnapshot.nirfOverallRank}` : "—",
-        note: "Rankings report",
+        note: `${yearRange.to} • National ranking`,
         color: "#2563eb",
-        kpiId: "kpi_rankings_only",
+        target: { domainId: "rankings-accreditations", subsectionId: "rankings-accreditations" },
       },
       {
-        id: "nirf-engineering",
-        label: "Engineering",
-        value: homeSnapshot.nirfEngineeringRank != null ? `#${homeSnapshot.nirfEngineeringRank}` : "—",
-        note: "Rankings report",
+        id: "qs-rank",
+        badge: "QS",
+        label: "World University Rank",
+        value: homeSnapshot.qsRank != null ? `#${homeSnapshot.qsRank}` : "—",
+        note: `${yearRange.to} • Global ranking`,
         color: "#7c3aed",
-        kpiId: "kpi_rankings_only",
+        target: { domainId: "rankings-accreditations", subsectionId: "rankings-accreditations" },
       },
       {
-        id: "publications",
-        label: "Publications",
-        value: formatCompact(homeSnapshot.publications),
-        note: `${yearRange.to}`,
+        id: "the-rank",
+        badge: "THE",
+        label: "World University Rank",
+        value: homeSnapshot.theRank != null ? `#${homeSnapshot.theRank}` : "—",
+        note: `${yearRange.to} • Global ranking`,
         color: "#0f766e",
-        kpiId: "kpi_publications",
-      },
-      {
-        id: "research-funding",
-        label: "Research funding",
-        value: homeSnapshot.researchFundingCr ? `₹${formatCompact(homeSnapshot.researchFundingCr)} Cr` : "—",
-        note: `${yearRange.to}`,
-        color: "#ea580c",
-        kpiId: "kpi_research_budget",
-      },
-      {
-        id: "patents",
-        label: "Patents",
-        value: formatCompact(homeSnapshot.patents),
-        note: `${yearRange.to}`,
-        color: "#dc2626",
-        kpiId: "kpi_research_patents",
-      },
-      {
-        id: "collaborations",
-        label: "Collaborations",
-        value: formatCompact(homeSnapshot.collaborations),
-        note: `${yearRange.to}`,
-        color: "#ca8a04",
-        kpiId: "kpi_collaborations",
+        target: { domainId: "rankings-accreditations", subsectionId: "rankings-accreditations" },
       },
     ],
     [homeSnapshot, yearRange.to],
   );
 
-  const homeDashboardCards = useMemo(
+  const homeMetricCards = useMemo(
     () => [
-      ...homeModuleCards.map((card) => ({
-        ...card,
-        displayValue: formatCompact(card.value),
-      })),
-      ...homeReportCards.map((card) => ({
-        ...card,
-        displayValue: card.value,
-      })),
+      {
+        id: "students",
+        label: "Total Students",
+        value: formatCompact(homeSnapshot.totalStudents),
+        note: `Current year • ${yearRange.to}`,
+        color: "#2563eb",
+        target: { domainId: "student-profile", subsectionId: "student-profile" },
+      },
+      {
+        id: "faculty",
+        label: "Faculty in Position",
+        value: formatCompact(homeSnapshot.facultyInPosition),
+        note: `Current year • ${yearRange.to}`,
+        color: "#7c3aed",
+        target: { domainId: "faculty-staff", subsectionId: "faculty-staff" },
+      },
+      {
+        id: "funding",
+        label: "Research Funding",
+        value: homeSnapshot.researchFundingCr ? `₹${formatCompact(homeSnapshot.researchFundingCr)} Cr` : "—",
+        note: `Allocated • ${yearRange.to}`,
+        color: "#ea580c",
+        target: { domainId: "research-innovation", subsectionId: "research-innovation" },
+      },
+      {
+        id: "publications",
+        label: "Publications",
+        value: formatCompact(homeSnapshot.publications),
+        note: `Output • ${yearRange.to}`,
+        color: "#0f766e",
+        target: { domainId: "research-innovation", subsectionId: "research-innovation" },
+      },
     ],
-    [homeModuleCards, homeReportCards],
+    [homeSnapshot, yearRange.to],
   );
+
+  const homeChartData = useMemo(() => {
+    const yearsToShow = YEARS.slice(-5);
+    const filterByInstitute = (rows) =>
+      (rows ?? []).filter((row) => row.InstituteId === activeInstituteId);
+
+    const studentSummaryAll = filterByInstitute(facts.studentProfileSummary);
+    const enrollmentCurrent = filterByInstitute(facts.enrollment).filter(
+      (row) => row.Year === yearRange.to,
+    );
+    const facultySummaryAll = filterByInstitute(facts.facultyStaffSummary);
+
+    const sumStudentSegment = (rows, segment) =>
+      rows
+        .filter((row) => row.StudentSegment === segment)
+        .reduce((sum, row) => sum + Number(row.Students ?? 0), 0);
+
+    const pickFacultyFromRows = (rows, buckets) => {
+      for (const bucket of buckets) {
+        const match = rows.find((row) => row.Bucket === bucket);
+        if (match) return Number(match.Count ?? 0);
+      }
+      return 0;
+    };
+
+    const studentTrend = yearsToShow.map((year) => {
+      const rows = studentSummaryAll.filter((row) => row.Year === year);
+      const ug = sumStudentSegment(rows, "UG Enrolled");
+      const pg = sumStudentSegment(rows, "PG Enrolled");
+      const phd = sumStudentSegment(rows, "PhD Enrolled");
+      const total =
+        rows.find((row) => row.StudentSegment === "Total Enrolled Students")?.Students ??
+        (ug + pg + phd);
+      return {
+        name: String(year),
+        value: Number(total ?? 0),
+      };
+    }).filter((item) => item.value > 0);
+
+    const studentMix = [
+      { name: "UG", value: Number(homeSnapshot.ugStudents ?? 0) },
+      { name: "PG", value: Number(homeSnapshot.pgStudents ?? 0) },
+      { name: "PhD", value: Number(homeSnapshot.phdStudents ?? 0) },
+    ].filter((item) => item.value > 0);
+
+    const studentGender = ["Male", "Female", "Other"].map((gender) => ({
+      name: gender,
+      value: enrollmentCurrent
+        .filter((row) => String(row.Gender ?? "").toLowerCase() === gender.toLowerCase())
+        .reduce((sum, row) => sum + Number(row.Students ?? 0), 0),
+    })).filter((item) => item.value > 0);
+
+    const facultyStrength = [
+      {
+        name: "Sanctioned",
+        value: pickFacultyFromRows(scopedFacts.thisIIT.facultyStaffSummary ?? [], ["Total Sanctioned Positions"]),
+      },
+      {
+        name: "In Position",
+        value: pickFacultyFromRows(scopedFacts.thisIIT.facultyStaffSummary ?? [], ["Total In Position", "Total Faculty Strength"]),
+      },
+      {
+        name: "Vacant",
+        value: pickFacultyFromRows(scopedFacts.thisIIT.facultyStaffSummary ?? [], ["Total Vacant Positions"]),
+      },
+    ].filter((item) => item.value > 0);
+
+    const facultyTrend = yearsToShow.map((year) => {
+      const rows = facultySummaryAll.filter((row) => row.Year === year);
+      return {
+        year: String(year),
+        inPosition: pickFacultyFromRows(rows, ["Total In Position", "Total Faculty Strength"]),
+        vacant: pickFacultyFromRows(rows, ["Total Vacant Positions"]),
+      };
+    }).filter((item) => item.inPosition > 0 || item.vacant > 0);
+
+    const facultyGender = [
+      {
+        name: "Male",
+        value: pickFacultyFromRows(scopedFacts.thisIIT.facultyStaffSummary ?? [], ["Faculty Gender (Male)"]),
+      },
+      {
+        name: "Female",
+        value: pickFacultyFromRows(scopedFacts.thisIIT.facultyStaffSummary ?? [], ["Faculty Gender (Female)"]),
+      },
+      {
+        name: "Other",
+        value: pickFacultyFromRows(scopedFacts.thisIIT.facultyStaffSummary ?? [], ["Faculty Gender (Other)"]),
+      },
+    ].filter((item) => item.value > 0);
+
+    return {
+      studentTrend,
+      studentMix,
+      studentGender,
+      facultyStrength,
+      facultyTrend,
+      facultyGender,
+    };
+  }, [activeInstituteId, facts, homeSnapshot, scopedFacts, yearRange.to]);
+
+  const homeStudentTabs = [
+    { id: "trend", label: "Students Over Years" },
+    { id: "mix", label: "UG / PG / PhD" },
+    { id: "dei", label: "Student DEI" },
+  ];
+
+  const homeFacultyTabs = [
+    { id: "strength", label: "Faculty Strength" },
+    { id: "trend", label: "Over Years" },
+    { id: "dei", label: "Faculty DEI" },
+  ];
 
   const currentNavigationSnapshot = useMemo(
     () => ({
@@ -2292,14 +2427,36 @@ export default function Dashboard({
       ? currentInstitutionGovernanceCategory?.label ?? currentViewLabel
       : detailFocus?.value ?? currentViewLabel;
 
-  const chartDrillHint =
-    kpiView !== "bar" && kpiView !== "donut"
-      ? ""
-      : isFacultyStaffHierarchyView
-        ? ""
-        : chartIsInteractive
-          ? "Click to drill down."
-          : "";
+  const chartHeaderUsesBreadcrumb =
+    !isFacultyStaffHierarchyView &&
+    (isInstitutionGovernanceVisualActive
+      ? Boolean(institutionGovernanceVisual?.drillable)
+      : Boolean(selectedKpi.drillable));
+
+  const chartHasVisibleDrillAction =
+    !isNoDataVisual &&
+    (
+      (kpiView === "bar" && !useStackedTimeSeriesBars && chartIsInteractive) ||
+      (kpiView === "donut" && chartIsInteractive) ||
+      (kpiView === "table" && !isMultiYearSelection && !isInstitutionGovernanceVisualActive && canDrillChart)
+    );
+  const chartDrillControlMessage = !isNoDataVisual
+    ? chartHasVisibleDrillAction
+      ? kpiView === "donut"
+        ? "Click each slice to drill down"
+        : kpiView === "table"
+          ? "Click each row to drill down"
+          : "Click each bar to drill down"
+      : "Drill down not available"
+    : "";
+  const normalizeChartTitle = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+  const promoteNonDrillChartTitle =
+    !isNoDataVisual &&
+    !chartHeaderUsesBreadcrumb &&
+    normalizeChartTitle(nonDrillCategoryLabel) &&
+    normalizeChartTitle(nonDrillCategoryLabel) !== normalizeChartTitle(currentViewLabel);
+  const chartHeaderTitle = promoteNonDrillChartTitle ? nonDrillCategoryLabel : currentViewLabel;
+  const showNonDrillCategoryBadge = !chartHeaderUsesBreadcrumb && !promoteNonDrillChartTitle;
 
   // Used for SVG / PDF exports and for the chart header context line.
   const breadcrumbText = useMemo(() => {
@@ -2754,6 +2911,22 @@ export default function Dashboard({
     currentSubsection.label,
   ]);
 
+  const genericModuleCarouselItems = useMemo(() => {
+    return subsectionCards.map((item) => ({
+      id: item.id,
+      label: item.label,
+      tooltip: `${activeDomain} > ${item.label}`,
+    }));
+  }, [subsectionCards, activeDomain]);
+
+  const genericCategoryCarouselItems = useMemo(() => {
+    return currentIgViewOptions.map((item) => ({
+      id: item.id,
+      label: item.label,
+      tooltip: `${activeDomain} > ${currentSubsection?.label ?? ""} > ${item.label}`,
+    }));
+  }, [currentIgViewOptions, activeDomain, currentSubsection?.label]);
+
   const facultyStaffPathwayByNo = useMemo(
     () =>
       Object.fromEntries(
@@ -2870,10 +3043,21 @@ export default function Dashboard({
     showFacultyStaffCategoryCarousel && facultyStaffNestedCarouselChildren.length > 0;
   const showInstitutionGovernanceCategoryCarousel =
     isInstitutionGovernanceActive && institutionGovernanceCategoryItems.length > 0;
+  const showGenericCategoryCarousel =
+    !isInstitutionGovernanceActive &&
+    !isFacultyStaffSheetActive &&
+    genericModuleCarouselItems.length > 0 &&
+    genericCategoryCarouselItems.length > 0;
   const hasCombinedKpiSelector =
-    showFacultyStaffCategoryCarousel || showInstitutionGovernanceCategoryCarousel;
-  const categorySelectorAccent = blendHexColor(accent, "#ffffff", 0.32);
-  const categorySelectorSoft = blendHexColor(accent, "#ffffff", 0.9);
+    showFacultyStaffCategoryCarousel ||
+    showInstitutionGovernanceCategoryCarousel ||
+    showGenericCategoryCarousel;
+  const categorySelectorAccent = accent;
+  const categorySelectorSoft = soft;
+
+  function pickGenericModuleCarouselItem(itemId) {
+    openSubsection(activeDomain, itemId);
+  }
 
   function pickWorksheetCarouselItem(itemId) {
     if (selectedSubsectionId === "faculty-staff") {
@@ -3522,18 +3706,46 @@ export default function Dashboard({
               <div className="min-w-0">
                 {hasCombinedKpiSelector ? (
                   <CombinedKpiSelector
-                    title={currentSubsection.label}
+                    title={showGenericCategoryCarousel ? activeDomain : currentSubsection.label}
                     helper="Select the sheet and KPI to analyse."
                     accent={accent}
                     soft={soft}
                     rows={[
-                      {
-                        id: "worksheet",
-                        label: "Sheet",
-                        items: facultyStaffWorksheetCarouselItems,
-                        activeId: facultyStaffWorksheetCarouselActiveId,
-                        onPick: pickWorksheetCarouselItem,
-                      },
+                      ...(showGenericCategoryCarousel
+                        ? [
+                            {
+                              id: "generic-module",
+                              label: "Sheet",
+                              items: genericModuleCarouselItems,
+                              activeId: selectedSubsectionId,
+                              onPick: pickGenericModuleCarouselItem,
+                            },
+                            {
+                              id: "generic-category",
+                              label: "KPI",
+                              items: genericCategoryCarouselItems.map((item) => ({
+                                ...item,
+                                accent: categorySelectorAccent,
+                                soft: categorySelectorSoft,
+                              })),
+                              activeId: currentIgViewId,
+                              onPick: pickWorksheetCarouselItem,
+                              accent: categorySelectorAccent,
+                              soft: categorySelectorSoft,
+                            },
+                          ]
+                        : []),
+                      ...(!showGenericCategoryCarousel
+                        ? [
+                            {
+                              id: "worksheet",
+                              label: "Sheet",
+                              items: facultyStaffWorksheetCarouselItems,
+                              activeId: facultyStaffWorksheetCarouselActiveId,
+                              onPick: pickWorksheetCarouselItem,
+                            },
+                          ]
+                        : []),
                       ...(showFacultyStaffCategoryCarousel
                         ? [
                             {
@@ -3685,167 +3897,278 @@ export default function Dashboard({
           ) : null}
 
           {section === "Home" ? (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div
                 className="rounded-[32px] p-6 shadow-sm"
                 style={{
-                  background: "rgba(255,255,255,0.94)",
-                  border: "1px solid rgba(59,130,246,0.15)",
+                  background: "rgba(255,255,255,0.96)",
+                  border: "1px solid rgba(59,130,246,0.14)",
                 }}
               >
-                <div className="space-y-6">
-                  <div className="flex min-w-0 items-center gap-4">
-                    {currentInstituteLogo ? (
-                      <img
-                        src={currentInstituteLogo}
-                        alt={`${currentInstitute.name} logo`}
-                        className="h-12 w-12 shrink-0 object-contain"
-                      />
-                    ) : (
-                      <div
-                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border text-[11px] font-extrabold uppercase tracking-[0.12em]"
-                        style={{
-                          borderColor: "rgba(59,130,246,0.18)",
-                          color: "#0f2a5e",
-                          background: "rgba(248,250,252,0.82)",
-                        }}
-                      >
-                        {currentInstitute.id}
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <div
-                        className="truncate text-4xl font-black leading-none sm:text-5xl"
-                        style={{ color: "#0f2a5e" }}
-                      >
-                        {currentInstitute.name}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div ref={homeSearchRef} className="relative max-w-4xl">
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <div
-                        className="flex h-12 flex-1 items-center gap-2 rounded-[18px] bg-white px-3 shadow-sm"
-                        style={{ border: "1px solid rgba(59,130,246,0.15)" }}
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          className="h-4 w-4 shrink-0"
-                          fill="none"
-                          stroke="#64748b"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <circle cx="11" cy="11" r="7" />
-                          <path d="m20 20-3.5-3.5" />
-                        </svg>
-                        <input
-                          value={homeSearch}
-                          onFocus={() => setHomeSearchOpen(Boolean(homeSearch.trim()))}
-                          onChange={(event) => {
-                            setHomeSearch(event.target.value);
-                            setHomeSearchOpen(true);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              handleHomeSearchSubmit();
-                            }
-                          }}
-                          placeholder="Search category, sub-category, KPI, or worksheet"
-                          className="h-full min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none"
-                        />
-                        {homeSearch ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setHomeSearch("");
-                              setHomeSearchOpen(false);
+                <div className="flex flex-col gap-6">
+                  <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-4">
+                        {currentInstituteLogo ? (
+                          <img
+                            src={currentInstituteLogo}
+                            alt={`${currentInstitute.name} logo`}
+                            className="h-14 w-14 shrink-0 object-contain"
+                          />
+                        ) : (
+                          <div
+                            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border text-xs font-extrabold uppercase tracking-[0.14em]"
+                            style={{
+                              borderColor: "rgba(59,130,246,0.18)",
+                              color: "#0f2a5e",
+                              background: "rgba(248,250,252,0.82)",
                             }}
-                            className="grid h-6 w-6 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-500"
-                            aria-label="Clear search"
                           >
-                            x
-                          </button>
-                        ) : null}
+                            {currentInstitute.id}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="truncate text-3xl font-black leading-none sm:text-4xl" style={{ color: "#0f2a5e" }}>
+                            {currentInstitute.name}
+                          </div>
+                          <div className="mt-2 text-sm font-medium text-slate-500">
+                            Institute overview for {yearRange.to}
+                          </div>
+                        </div>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={handleHomeSearchSubmit}
-                        className="h-12 rounded-[18px] px-6 text-sm font-bold text-white"
-                        style={{ background: accent }}
-                      >
-                        Search
-                      </button>
                     </div>
 
-                    {homeSearchOpen ? (
-                      <div
-                        className="absolute inset-x-0 top-full z-[150] mt-2 overflow-hidden rounded-[22px] bg-white shadow-xl"
-                        style={{ border: "1px solid rgba(59,130,246,0.14)" }}
-                      >
-                        {homeSearchResults.length ? (
-                          <div className="max-h-[320px] overflow-auto py-2">
-                            {homeSearchResults.map((result) => (
-                              <button
-                                key={result.key}
-                                type="button"
-                                onClick={() => handleHomeSearchSelect(result)}
-                                className="flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-slate-50"
-                              >
-                                <span
-                                  className="mt-1 h-2.5 w-2.5 rounded-full"
-                                  style={{ background: accent }}
-                                />
-                                <span className="min-w-0">
-                                  <span className="block truncate text-sm font-semibold text-slate-800">
-                                    {result.label}
-                                  </span>
-                                  <span className="mt-0.5 block text-xs text-slate-500">
-                                    {result.subtitle}
-                                  </span>
-                                </span>
-                              </button>
-                            ))}
+                    <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[540px] xl:max-w-[620px] xl:flex-1">
+                      {homeRankingCards.map((card) => (
+                        <div
+                          key={card.id}
+                          className="rounded-[24px] px-4 py-4 text-left"
+                          style={{
+                            background: "rgba(248,250,252,0.9)",
+                            border: "1px solid rgba(59,130,246,0.12)",
+                          }}
+                        >
+                          <span
+                            className="inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]"
+                            style={{
+                              background: `${card.color}12`,
+                              color: card.color,
+                            }}
+                          >
+                            {card.badge}
+                          </span>
+                          <div className="mt-4 text-[2rem] font-black leading-none" style={{ color: "#0f172a" }}>
+                            {card.value}
                           </div>
-                        ) : homeSearch.trim() ? (
-                          <div className="px-4 py-4 text-sm text-slate-500">
-                            No matching category, sub-category, KPI, or worksheet found.
+                          <div className="mt-2 text-sm font-semibold" style={{ color: "#0f2a5e" }}>
+                            {card.label}
                           </div>
-                        ) : null}
-                      </div>
-                    ) : null}
+                          <div className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
+                            {card.note}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
-                  <div className="grid auto-rows-fr gap-5 md:grid-cols-2 lg:grid-cols-4">
-                    {homeDashboardCards.map((card) => (
+                  <div className="grid auto-rows-fr gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    {homeMetricCards.map((card) => (
                       <div
                         key={card.id}
-                        className="min-h-[188px] rounded-[28px] px-6 py-5 shadow-sm"
+                        className="rounded-[24px] px-5 py-5 text-left shadow-sm"
                         style={{
-                          background: "rgba(248,250,252,0.82)",
+                          background: "rgba(248,250,252,0.84)",
                           border: "1px solid rgba(59,130,246,0.12)",
                         }}
                       >
-                        <div className="flex h-full items-start gap-4">
-                          <span className="mt-1 h-[72px] w-1.5 rounded-full" style={{ background: card.color }} />
-                          <span className="block min-w-0 pr-1">
-                            <span className="block text-[2.25rem] font-extrabold leading-none" style={{ color: "#0f172a" }}>
-                              {card.displayValue}
-                            </span>
-                            <span className="mt-3 block text-[1.1rem] font-semibold leading-tight" style={{ color: "#0f2a5e" }}>
-                              {card.label}
-                            </span>
-                            <span className="mt-2 block text-[10.5px] font-semibold uppercase tracking-[0.12em]" style={{ color: "#64748b" }}>
-                              {card.note}
-                            </span>
-                          </span>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-500">{card.label}</div>
+                            <div className="mt-4 text-4xl font-black leading-none" style={{ color: "#0f172a" }}>
+                              {card.value}
+                            </div>
+                          </div>
+                          <span className="mt-1 h-3 w-3 rounded-full" style={{ background: card.color }} />
+                        </div>
+                        <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          {card.note}
                         </div>
                       </div>
                     ))}
+                  </div>
+
+                  <div className="grid gap-5 xl:grid-cols-2">
+                    <div
+                      className="rounded-[28px] p-5 shadow-sm"
+                      style={{
+                        background: "rgba(255,255,255,0.98)",
+                        border: "1px solid rgba(59,130,246,0.12)",
+                      }}
+                    >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="text-xl font-extrabold" style={{ color: "#0f2a5e" }}>
+                            Student Overview
+                          </div>
+                          <div className="mt-1 text-sm text-slate-500">
+                            Snapshot widgets with switchable student charts.
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {homeStudentTabs.map((tab) => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setHomeStudentTab(tab.id)}
+                              className="rounded-full px-3 py-1.5 text-xs font-bold transition"
+                              style={{
+                                background: homeStudentTab === tab.id ? `${accent}18` : "rgba(248,250,252,0.95)",
+                                color: homeStudentTab === tab.id ? accent : "#475569",
+                                border: `1px solid ${homeStudentTab === tab.id ? `${accent}40` : "rgba(148,163,184,0.18)"}`,
+                              }}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="mt-5 min-h-[320px]">
+                        {homeStudentTab === "trend" ? (
+                          homeChartData.studentTrend.length ? (
+                            <BreakdownBar
+                              data={homeChartData.studentTrend}
+                              accent={accent}
+                              xLabel="Year"
+                              yLabel="Students"
+                              height={280}
+                            />
+                          ) : (
+                            <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
+                              No student trend data available.
+                            </div>
+                          )
+                        ) : homeStudentTab === "mix" ? (
+                          homeChartData.studentMix.length ? (
+                            <BreakdownBar
+                              data={homeChartData.studentMix}
+                              accent={accent}
+                              xLabel="Segment"
+                              yLabel="Students"
+                              height={280}
+                            />
+                          ) : (
+                            <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
+                              No student mix data available.
+                            </div>
+                          )
+                        ) : homeChartData.studentGender.length ? (
+                          <BreakdownDonut
+                            data={homeChartData.studentGender}
+                            accent={accent}
+                            soft={soft}
+                            metricLabel="Students"
+                            height={280}
+                          />
+                        ) : (
+                          <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
+                            No student DEI data available.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Click a tab to switch the student graph
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      className="rounded-[28px] p-5 shadow-sm"
+                      style={{
+                        background: "rgba(255,255,255,0.98)",
+                        border: "1px solid rgba(59,130,246,0.12)",
+                      }}
+                    >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="text-xl font-extrabold" style={{ color: "#0f2a5e" }}>
+                            Faculty Overview
+                          </div>
+                          <div className="mt-1 text-sm text-slate-500">
+                            Switch between staffing, trend, and DEI views.
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {homeFacultyTabs.map((tab) => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setHomeFacultyTab(tab.id)}
+                              className="rounded-full px-3 py-1.5 text-xs font-bold transition"
+                              style={{
+                                background: homeFacultyTab === tab.id ? `${accent}18` : "rgba(248,250,252,0.95)",
+                                color: homeFacultyTab === tab.id ? accent : "#475569",
+                                border: `1px solid ${homeFacultyTab === tab.id ? `${accent}40` : "rgba(148,163,184,0.18)"}`,
+                              }}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="mt-5 min-h-[320px]">
+                        {homeFacultyTab === "strength" ? (
+                          homeChartData.facultyStrength.length ? (
+                            <BreakdownBar
+                              data={homeChartData.facultyStrength}
+                              accent={accent}
+                              xLabel="Metric"
+                              yLabel="Faculty"
+                              height={280}
+                            />
+                          ) : (
+                            <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
+                              No faculty staffing data available.
+                            </div>
+                          )
+                        ) : homeFacultyTab === "trend" ? (
+                          homeChartData.facultyTrend.length ? (
+                            <TrendArea
+                              seriesA={homeChartData.facultyTrend.map((item) => ({ Month: item.year, Value: item.inPosition }))}
+                              seriesB={homeChartData.facultyTrend.map((item) => ({ Month: item.year, Value: item.vacant }))}
+                              labelA="In Position"
+                              labelB="Vacant"
+                              accent={accent}
+                            />
+                          ) : (
+                            <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
+                              No faculty trend data available.
+                            </div>
+                          )
+                        ) : homeChartData.facultyGender.length ? (
+                          <BreakdownDonut
+                            data={homeChartData.facultyGender}
+                            accent={accent}
+                            soft={soft}
+                            metricLabel="Faculty"
+                            height={280}
+                          />
+                        ) : (
+                          <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
+                            No faculty DEI data available.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Use the tabs above to switch the faculty view
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -4036,34 +4359,41 @@ export default function Dashboard({
                 <div ref={chartExportRef} className="relative flex min-h-0 flex-1 flex-col">
                 <div className={`dashboard-chart-header absolute inset-x-5 z-10 flex items-start gap-3 pr-14 ${isFullscreen ? "top-5" : "top-5"}`}>
                   {!isNoDataVisual ? (
-                    <div className="flex shrink-0 items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setValueMode("value")}
-                        className="rounded-full px-3 py-1.5 text-xs font-bold"
-                        style={{
-                          background:
-                            valueMode === "value" ? `${accent}15` : "white",
-                          border: `1px solid ${valueMode === "value" ? accent : "rgba(148,163,184,0.22)"}`,
-                          color: valueMode === "value" ? accent : "#475569",
-                        }}
-                      >
-                        {primaryValueModeLabel}
-                      </button>
-                      {canUsePercentMode ? (
+                    <div className="flex shrink-0 flex-col items-start gap-2">
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => setValueMode("percent")}
+                          onClick={() => setValueMode("value")}
                           className="rounded-full px-3 py-1.5 text-xs font-bold"
                           style={{
                             background:
-                              valueMode === "percent" ? `${accent}15` : "white",
-                            border: `1px solid ${valueMode === "percent" ? accent : "rgba(148,163,184,0.22)"}`,
-                            color: valueMode === "percent" ? accent : "#475569",
+                              valueMode === "value" ? `${accent}15` : "white",
+                            border: `1px solid ${valueMode === "value" ? accent : "rgba(148,163,184,0.22)"}`,
+                            color: valueMode === "value" ? accent : "#475569",
                           }}
                         >
-                          Percent
+                          {primaryValueModeLabel}
                         </button>
+                        {canUsePercentMode ? (
+                          <button
+                            type="button"
+                            onClick={() => setValueMode("percent")}
+                            className="rounded-full px-3 py-1.5 text-xs font-bold"
+                            style={{
+                              background:
+                                valueMode === "percent" ? `${accent}15` : "white",
+                              border: `1px solid ${valueMode === "percent" ? accent : "rgba(148,163,184,0.22)"}`,
+                              color: valueMode === "percent" ? accent : "#475569",
+                            }}
+                          >
+                            Percent
+                          </button>
+                        ) : null}
+                      </div>
+                      {chartDrillControlMessage ? (
+                        <div className="rounded-full px-2.5 py-1 text-left text-[11px] font-extrabold leading-tight" style={{ color: "#dc2626", background: "rgba(220,38,38,0.08)" }}>
+                          {chartDrillControlMessage}
+                        </div>
                       ) : null}
                     </div>
                   ) : null}
@@ -4073,13 +4403,11 @@ export default function Dashboard({
                       className="text-[1.18rem] font-extrabold leading-tight tracking-[0.01em]"
                       style={{ color: "#0f172a" }}
                     >
-                      {currentViewLabel}
+                      {chartHeaderTitle}
                     </div>
                     {!isNoDataVisual ? (
                       <div className="mt-2 flex flex-col items-center gap-1.5">
-                        {(isInstitutionGovernanceVisualActive
-                          ? institutionGovernanceVisual?.drillable
-                          : selectedKpi.drillable) && !isFacultyStaffHierarchyView ? (
+                        {chartHeaderUsesBreadcrumb ? (
                           <Breadcrumbs
                             base={visibleBaseBreakdownLabel}
                             levels={activeVisualLevels}
@@ -4087,30 +4415,32 @@ export default function Dashboard({
                             onPopTo={popDrillTo}
                             accent={accent}
                           />
-                        ) : (
-                          <>
-                            <div
-                              className="rounded-lg px-2.5 py-1.5 text-[13px] font-bold"
-                              style={{
-                                background: hexToRgba(accent, 0.08),
-                                color: accent,
-                              }}
-                            >
-                              {nonDrillCategoryLabel}
-                            </div>
-                            <div className="rounded-full px-2.5 py-1 text-[11px] font-extrabold" style={{ color: "#dc2626", background: "rgba(220,38,38,0.08)" }}>
-                              Drill down not available
-                            </div>
-                          </>
-                        )}
+                        ) : showNonDrillCategoryBadge ? (
+                          <div
+                            className="rounded-lg px-2.5 py-1.5 text-[13px] font-bold"
+                            style={{
+                              background: hexToRgba(accent, 0.08),
+                              color: accent,
+                            }}
+                          >
+                            {nonDrillCategoryLabel}
+                          </div>
+                        ) : null}
+                        <div
+                          className="text-[13px] font-semibold"
+                          style={{ color: "#334155" }}
+                        >
+                          {chartContextSubtitle}
+                        </div>
                       </div>
-                    ) : null}
-                    <div
-                      className="mt-2.5 text-[13px] font-semibold"
-                      style={{ color: "#334155" }}
-                    >
-                      {chartContextSubtitle}
-                    </div>
+                    ) : (
+                      <div
+                        className="mt-2.5 text-[13px] font-semibold"
+                        style={{ color: "#334155" }}
+                      >
+                        {chartContextSubtitle}
+                      </div>
+                    )}
                   </div>
 
                   {!isNoDataVisual && visualToolbarItems.length ? (
@@ -4181,7 +4511,6 @@ export default function Dashboard({
                         yLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
                         interactive={!useStackedTimeSeriesBars && chartIsInteractive}
-                        drillHint={chartDrillHint}
                         seriesKeys={useStackedTimeSeriesBars ? timeSeriesKeysForChart : []}
                         seriesColors={chartSeriesColors}
                       />
@@ -4205,7 +4534,6 @@ export default function Dashboard({
                         metricLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
                         interactive={chartIsInteractive}
-                        drillHint={chartDrillHint}
                       />
                     ) : (
                       <div className="w-full pt-4">

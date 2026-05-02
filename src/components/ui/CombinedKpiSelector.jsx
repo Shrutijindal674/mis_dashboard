@@ -252,11 +252,11 @@ export default function CombinedKpiSelector({ title, helper, rows, accent, soft 
         {visibleRows.map((row) => (
           <div
             key={row.id}
-            className="grid min-h-[58px] items-center gap-1 px-3 py-2.5 sm:grid-cols-[max-content_minmax(0,1fr)]"
+            className="grid min-h-[58px] items-center gap-2 px-3 py-2.5 sm:grid-cols-[120px_minmax(0,1fr)]"
           >
             <div className="flex items-center sm:justify-start">
-              <div className="grid grid-cols-[max-content_auto] items-center gap-x-1 text-[12px] font-extrabold leading-tight" style={{ color: "#334155" }}>
-                <span className="whitespace-nowrap">{String(row.label).replace(/:$/, "")}</span>
+              <div className="grid grid-cols-[minmax(0,max-content)_auto] items-center gap-x-1 text-[12px] font-extrabold leading-tight" style={{ color: "#334155" }}>
+                <span className="whitespace-nowrap text-right min-w-[88px]">{String(row.label).replace(/:$/, "")}</span>
                 <span>:</span>
               </div>
             </div>
