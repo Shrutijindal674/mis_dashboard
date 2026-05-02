@@ -3,6 +3,7 @@ import workbookFacts from "./data/workbookFacts";
 import peopleStudentLifeFacts from "./data/peopleStudentLifeFacts";
 import researchInnovationFacts from "./data/researchInnovationFacts";
 import collaborationOutreachFacts from "./data/collaborationOutreachFacts";
+import infrastructureFinanceFacts from "./data/infrastructureFinanceFacts";
 import { IITs } from "./constants";
 
 import Landing from "./pages/Landing";
@@ -27,11 +28,13 @@ export default function App() {
     ...peopleStudentLifeFacts,
     ...researchInnovationFacts,
     ...collaborationOutreachFacts,
+    ...infrastructureFinanceFacts,
     meta: {
       ...(workbookFacts.meta ?? {}),
       peopleStudentLife: peopleStudentLifeFacts.meta,
       researchInnovation: researchInnovationFacts.meta,
       collaborationOutreach: collaborationOutreachFacts.meta,
+      infrastructureFinance: infrastructureFinanceFacts.meta,
     },
   }), []);
 

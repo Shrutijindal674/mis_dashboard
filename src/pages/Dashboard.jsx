@@ -75,6 +75,13 @@ import {
   getCollaborationOutreachCategories,
   isCollaborationOutreachSubsection,
 } from "../data/collaborationOutreachVisuals";
+import {
+  IF_MODULE_ID,
+  buildInfrastructureFinanceVisual,
+  getDefaultInfrastructureFinanceCategoryId,
+  getInfrastructureFinanceCategories,
+  isInfrastructureFinanceSubsection,
+} from "../data/infrastructureFinanceVisuals";
 
 import Select from "../components/ui/Select";
 import SubKpiCarousel from "../components/ui/SubKpiCarousel";
@@ -145,6 +152,7 @@ function getMappedDashboardCategories(domainId, subsectionId, viewId) {
   if (domainId === PSL_MODULE_ID) return getPeopleStudentLifeCategories(subsectionId, viewId);
   if (domainId === RI_MODULE_ID) return getResearchInnovationCategories(subsectionId, viewId);
   if (domainId === CO_MODULE_ID) return getCollaborationOutreachCategories(subsectionId, viewId);
+  if (domainId === IF_MODULE_ID) return getInfrastructureFinanceCategories(subsectionId, viewId);
   return getInstitutionGovernanceCategories(subsectionId, viewId);
 }
 
@@ -152,6 +160,7 @@ function getDefaultMappedDashboardCategoryId(domainId, subsectionId, viewId) {
   if (domainId === PSL_MODULE_ID) return getDefaultPeopleStudentLifeCategoryId(subsectionId, viewId);
   if (domainId === RI_MODULE_ID) return getDefaultResearchInnovationCategoryId(subsectionId, viewId);
   if (domainId === CO_MODULE_ID) return getDefaultCollaborationOutreachCategoryId(subsectionId, viewId);
+  if (domainId === IF_MODULE_ID) return getDefaultInfrastructureFinanceCategoryId(subsectionId, viewId);
   return getDefaultInstitutionGovernanceCategoryId(subsectionId, viewId);
 }
 
@@ -159,6 +168,7 @@ function isMappedDashboardSubsection(domainId, subsectionId) {
   if (domainId === PSL_MODULE_ID) return isPeopleStudentLifeSubsection(subsectionId);
   if (domainId === RI_MODULE_ID) return isResearchInnovationSubsection(subsectionId);
   if (domainId === CO_MODULE_ID) return isCollaborationOutreachSubsection(subsectionId);
+  if (domainId === IF_MODULE_ID) return isInfrastructureFinanceSubsection(subsectionId);
   if (domainId === IG_MODULE_ID) return isInstitutionGovernanceSubsection(subsectionId);
   return false;
 }
@@ -1217,7 +1227,9 @@ export default function Dashboard({
       ? RI_MODULE_ID
       : activeDomain === CO_MODULE_ID
         ? CO_MODULE_ID
-        : IG_MODULE_ID;
+        : activeDomain === IF_MODULE_ID
+          ? IF_MODULE_ID
+          : IG_MODULE_ID;
   const isInstitutionGovernanceActive =
     MODULES.includes(section) &&
     isMappedDashboardSubsection(activeMappedDashboardModuleId, selectedSubsectionId);
@@ -1497,7 +1509,9 @@ export default function Dashboard({
         ? buildResearchInnovationVisual
         : activeMappedDashboardModuleId === CO_MODULE_ID
           ? buildCollaborationOutreachVisual
-          : buildInstitutionGovernanceVisual;
+          : activeMappedDashboardModuleId === IF_MODULE_ID
+            ? buildInfrastructureFinanceVisual
+            : buildInstitutionGovernanceVisual;
     return builder({
       facts,
       subsectionId: selectedSubsectionId,

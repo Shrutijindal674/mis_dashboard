@@ -46,8 +46,7 @@ export const DOMAIN_DEFS = [
     children: [
       { id: "infrastructure", label: "Infrastructure", kpiId: "kpi_budget_utilisation" },
       { id: "funding-financials", label: "Funding & Financials", kpiId: "kpi_total_budget" },
-      { id: "sustainability-esg", label: "Sustainability & ESG", kpiId: "kpi_budget_utilisation" },
-      { id: "miscellaneous", label: "Miscellaneous", kpiId: "kpi_total_budget" },
+      { id: "miscellaneous", label: "Miscellaneous", kpiId: "kpi_infra_collab_drill" },
     ],
   },
 ];
