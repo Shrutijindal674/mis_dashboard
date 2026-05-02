@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import workbookFacts from "./data/workbookFacts";
+import peopleStudentLifeFacts from "./data/peopleStudentLifeFacts";
 import { IITs } from "./constants";
 
 import Landing from "./pages/Landing";
@@ -19,7 +20,14 @@ function appSnapshotKey(snapshot) {
 }
 
 export default function App() {
-  const facts = workbookFacts;
+  const facts = useMemo(() => ({
+    ...workbookFacts,
+    ...peopleStudentLifeFacts,
+    meta: {
+      ...(workbookFacts.meta ?? {}),
+      peopleStudentLife: peopleStudentLifeFacts.meta,
+    },
+  }), []);
 
   const [page, setPage] = useState("landing"); // landing | map | dashboard
   const [role, setRole] = useState(null);

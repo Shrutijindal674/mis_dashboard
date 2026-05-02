@@ -246,8 +246,8 @@ export default function BreakdownBar({
             layout={horizontal ? "vertical" : "horizontal"}
             margin={
               horizontal
-                ? { top: 24, right: 28, left: 112, bottom: 18 }
-                : { top: 24, right: 24, left: 44, bottom: 72 }
+                ? { top: 24, right: 24, left: 112, bottom: 18 }
+                : { top: 40, right: 24, left: 44, bottom: 42 }
             }
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" />

@@ -23,11 +23,10 @@ export const DOMAIN_DEFS = [
     id: "Research & Innovation",
     icon: "research",
     children: [
-      { id: "research-innovation", label: "Research & Innovation", kpiId: "kpi_publications" },
-      { id: "industrial-research", label: "Industrial Research", kpiId: "kpi_patents_granted" },
-      { id: "research-awards-collaborations", label: "Research Awards and Collaborations", kpiId: "kpi_patents_granted" },
-      { id: "startup-innovation-ecosystem", label: "Startup Innovation Ecosystem", kpiId: "kpi_patents_granted" },
-      { id: "emerging-areas", label: "Emerging Areas", kpiId: "kpi_publications" },
+      { id: "industrial-research", label: "Industrial Research", kpiId: "kpi_research_overview" },
+      { id: "research-awards-collaborations", label: "Research Awards and Collaborations", kpiId: "kpi_research_collab_drill" },
+      { id: "research-innovation", label: "Research & Innovation", kpiId: "kpi_research_overview" },
+      { id: "startup-innovation-ecosystem", label: "Startup Innovation Ecosystem", kpiId: "kpi_research_patents" },
     ],
   },
   {

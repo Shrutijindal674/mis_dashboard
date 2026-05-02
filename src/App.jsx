@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import workbookFacts from "./data/workbookFacts";
 import peopleStudentLifeFacts from "./data/peopleStudentLifeFacts";
+import researchInnovationFacts from "./data/researchInnovationFacts";
 import { IITs } from "./constants";
 
 import Landing from "./pages/Landing";
@@ -23,9 +24,11 @@ export default function App() {
   const facts = useMemo(() => ({
     ...workbookFacts,
     ...peopleStudentLifeFacts,
+    ...researchInnovationFacts,
     meta: {
       ...(workbookFacts.meta ?? {}),
       peopleStudentLife: peopleStudentLifeFacts.meta,
+      researchInnovation: researchInnovationFacts.meta,
     },
   }), []);
 

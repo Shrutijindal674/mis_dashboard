@@ -61,6 +61,13 @@ import {
   getPeopleStudentLifeCategories,
   isPeopleStudentLifeSubsection,
 } from "../data/peopleStudentLifeVisuals";
+import {
+  RI_MODULE_ID,
+  buildResearchInnovationVisual,
+  getDefaultResearchInnovationCategoryId,
+  getResearchInnovationCategories,
+  isResearchInnovationSubsection,
+} from "../data/researchInnovationVisuals";
 
 import Select from "../components/ui/Select";
 import SubKpiCarousel from "../components/ui/SubKpiCarousel";
@@ -129,16 +136,19 @@ function preferredVisualViewForCategory(category, fallback = "bar") {
 
 function getMappedDashboardCategories(domainId, subsectionId, viewId) {
   if (domainId === PSL_MODULE_ID) return getPeopleStudentLifeCategories(subsectionId, viewId);
+  if (domainId === RI_MODULE_ID) return getResearchInnovationCategories(subsectionId, viewId);
   return getInstitutionGovernanceCategories(subsectionId, viewId);
 }
 
 function getDefaultMappedDashboardCategoryId(domainId, subsectionId, viewId) {
   if (domainId === PSL_MODULE_ID) return getDefaultPeopleStudentLifeCategoryId(subsectionId, viewId);
+  if (domainId === RI_MODULE_ID) return getDefaultResearchInnovationCategoryId(subsectionId, viewId);
   return getDefaultInstitutionGovernanceCategoryId(subsectionId, viewId);
 }
 
 function isMappedDashboardSubsection(domainId, subsectionId) {
   if (domainId === PSL_MODULE_ID) return isPeopleStudentLifeSubsection(subsectionId);
+  if (domainId === RI_MODULE_ID) return isResearchInnovationSubsection(subsectionId);
   if (domainId === IG_MODULE_ID) return isInstitutionGovernanceSubsection(subsectionId);
   return false;
 }
@@ -1197,7 +1207,7 @@ export default function Dashboard({
   const currentIgViewOptions = SUBSECTION_VIEW_OPTIONS[selectedSubsectionId] ?? [];
   const currentIgViewId = subsectionViews[selectedSubsectionId] ?? currentIgViewOptions[0]?.id;
   const currentIgViewMeta = currentIgViewOptions.find((item) => item.id === currentIgViewId) ?? null;
-  const activeMappedDashboardModuleId = activeDomain === PSL_MODULE_ID ? PSL_MODULE_ID : IG_MODULE_ID;
+  const activeMappedDashboardModuleId = activeDomain === PSL_MODULE_ID ? PSL_MODULE_ID : activeDomain === RI_MODULE_ID ? RI_MODULE_ID : IG_MODULE_ID;
   const isInstitutionGovernanceActive =
     MODULES.includes(section) &&
     isMappedDashboardSubsection(activeMappedDashboardModuleId, selectedSubsectionId);
@@ -1327,6 +1337,7 @@ export default function Dashboard({
         courtCases: thisYear(facts.courtCases ?? []),
         entranceExam: thisYear(facts.entranceExam ?? []),
         studentProfileSummary: thisYear(facts.studentProfileSummary ?? []),
+        studentProfileSummaryWide: thisYear(facts.studentProfileSummaryWide ?? []),
         intlStudentRecords: thisYear(facts.intlStudentRecords ?? []),
         enrollmentDetails: thisYear(facts.enrollmentDetails ?? []),
         admissionMode: thisYear(facts.admissionMode ?? []),
@@ -1366,6 +1377,7 @@ export default function Dashboard({
         courtCases: allThisYear(facts.courtCases ?? []),
         entranceExam: allThisYear(facts.entranceExam ?? []),
         studentProfileSummary: allThisYear(facts.studentProfileSummary ?? []),
+        studentProfileSummaryWide: allThisYear(facts.studentProfileSummaryWide ?? []),
         intlStudentRecords: allThisYear(facts.intlStudentRecords ?? []),
         enrollmentDetails: allThisYear(facts.enrollmentDetails ?? []),
         admissionMode: allThisYear(facts.admissionMode ?? []),
@@ -1408,6 +1420,7 @@ export default function Dashboard({
           courtCases: prevYearRows(facts.courtCases ?? []),
           entranceExam: prevYearRows(facts.entranceExam ?? []),
           studentProfileSummary: prevYearRows(facts.studentProfileSummary ?? []),
+          studentProfileSummaryWide: prevYearRows(facts.studentProfileSummaryWide ?? []),
           intlStudentRecords: prevYearRows(facts.intlStudentRecords ?? []),
           enrollmentDetails: prevYearRows(facts.enrollmentDetails ?? []),
           admissionMode: prevYearRows(facts.admissionMode ?? []),
@@ -1470,7 +1483,9 @@ export default function Dashboard({
     if (!isInstitutionGovernanceActive || !currentInstitutionGovernanceCategoryId) return null;
     const builder = activeMappedDashboardModuleId === PSL_MODULE_ID
       ? buildPeopleStudentLifeVisual
-      : buildInstitutionGovernanceVisual;
+      : activeMappedDashboardModuleId === RI_MODULE_ID
+        ? buildResearchInnovationVisual
+        : buildInstitutionGovernanceVisual;
     return builder({
       facts,
       subsectionId: selectedSubsectionId,
@@ -1793,7 +1808,9 @@ export default function Dashboard({
   }, [scopedFacts, selectedKpi]);
 
   const homeSnapshot = useMemo(() => {
-    const studentRows = scopedFacts.thisIIT.studentProfileSummary ?? [];
+    const studentRowsWide = scopedFacts.thisIIT.studentProfileSummaryWide ?? [];
+    const studentRowsSummary = scopedFacts.thisIIT.studentProfileSummary ?? [];
+    const studentRows = studentRowsWide.length ? studentRowsWide : studentRowsSummary;
     const facultyRows = scopedFacts.thisIIT.facultyStaffSummary ?? [];
     const profileRows = scopedFacts.thisIIT.institutionalProfile ?? [];
     const programRows = scopedFacts.thisIIT.academicPrograms ?? [];
@@ -1803,10 +1820,8 @@ export default function Dashboard({
     const collaborationRows = scopedFacts.thisIIT.collaborations ?? [];
     const rankingRows = scopedFacts.thisIIT.rankingsAccreditations ?? [];
 
-    const sumStudents = (segment) =>
-      studentRows
-        .filter((row) => row.StudentSegment === segment)
-        .reduce((sum, row) => sum + Number(row.Students ?? 0), 0);
+    const sumStudents = (field) =>
+      studentRows.reduce((sum, row) => sum + Number(row[field] ?? 0), 0);
 
     const pickFaculty = (...buckets) => {
       for (const bucket of buckets) {
@@ -1830,18 +1845,22 @@ export default function Dashboard({
     };
 
     const researchFundingRow = budgetRows.find((row) => row.Head === "Research") ?? null;
-    const totalStudents =
-      studentRows.find((row) => row.StudentSegment === "Total Enrolled Students")?.Students ??
-      (sumStudents("UG Enrolled") + sumStudents("PG Enrolled") + sumStudents("PhD Enrolled"));
+    const hasWideStudentProfile = studentRows.length > 0 && Object.prototype.hasOwnProperty.call(studentRows[0], "TotalEnrolledStudents");
+    const totalStudents = hasWideStudentProfile
+      ? sumStudents("TotalEnrolledStudents")
+      : studentRows.find((row) =>
+          ["Total Enrolled Students", "Total enrolled students"].includes(String(row.StudentSegment ?? "")),
+        )?.Students ??
+        (sumStudents("UG Enrolled") + sumStudents("PG Enrolled") + sumStudents("PhD Enrolled"));
     const instituteOffset = Math.max(0, IITs.findIndex((item) => item.id === activeInstituteId));
     const yearOffset = Number(yearRange.to) - 2021;
 
     return {
       totalStudents,
-      ugStudents: sumStudents("UG Enrolled"),
-      pgStudents: sumStudents("PG Enrolled"),
-      phdStudents: sumStudents("PhD Enrolled"),
-      internationalStudents: sumStudents("International Students"),
+      ugStudents: hasWideStudentProfile ? sumStudents("UgEnrolled") : sumStudents("UG Enrolled"),
+      pgStudents: hasWideStudentProfile ? sumStudents("PgEnrolled") : sumStudents("PG Enrolled"),
+      phdStudents: hasWideStudentProfile ? sumStudents("PhdEnrolled") : sumStudents("PhD Enrolled"),
+      internationalStudents: hasWideStudentProfile ? sumStudents("TotalInternationalStudents") : sumStudents("International Students"),
       facultyInPosition: pickFaculty("Total In Position", "In Position", "Total Faculty Strength"),
       facultyVacant: pickFaculty("Total Vacant Positions", "Vacant Positions"),
       totalStaff: pickFaculty("Non Teaching Staff (Number)", "Non Teaching Staff (In Position)"),
@@ -1937,10 +1956,8 @@ export default function Dashboard({
     const filterByInstitute = (rows) =>
       (rows ?? []).filter((row) => row.InstituteId === activeInstituteId);
 
-    const studentSummaryAll = filterByInstitute(facts.studentProfileSummary);
-    const enrollmentCurrent = filterByInstitute(facts.enrollment).filter(
-      (row) => row.Year === yearRange.to,
-    );
+    const studentSummaryAll = filterByInstitute(facts.studentProfileSummaryWide ?? facts.studentProfileSummary ?? []);
+    const enrollmentCurrent = scopedFacts.thisIIT.enrollmentDetails ?? [];
     const facultySummaryAll = filterByInstitute(facts.facultyStaffSummary);
 
     const sumStudentSegment = (rows, segment) =>
@@ -1958,12 +1975,14 @@ export default function Dashboard({
 
     const studentTrend = yearsToShow.map((year) => {
       const rows = studentSummaryAll.filter((row) => row.Year === year);
-      const ug = sumStudentSegment(rows, "UG Enrolled");
-      const pg = sumStudentSegment(rows, "PG Enrolled");
-      const phd = sumStudentSegment(rows, "PhD Enrolled");
-      const total =
-        rows.find((row) => row.StudentSegment === "Total Enrolled Students")?.Students ??
-        (ug + pg + phd);
+      const total = rows.some((row) => Number(row.TotalEnrolledStudents ?? 0) > 0)
+        ? rows.reduce((sum, row) => sum + Number(row.TotalEnrolledStudents ?? 0), 0)
+        : rows.find((row) =>
+            ["Total Enrolled Students", "Total enrolled students"].includes(
+              String(row.StudentSegment ?? ""),
+            ),
+          )?.Students ??
+          rows.reduce((sum, row) => sum + Number(row.Students ?? 0), 0);
       return {
         name: String(year),
         value: Number(total ?? 0),
@@ -1980,7 +1999,7 @@ export default function Dashboard({
       name: gender,
       value: enrollmentCurrent
         .filter((row) => String(row.Gender ?? "").toLowerCase() === gender.toLowerCase())
-        .reduce((sum, row) => sum + Number(row.Students ?? 0), 0),
+        .reduce((sum, row) => sum + Number(row.Enrollment ?? 0), 0),
     })).filter((item) => item.value > 0);
 
     const facultyStrength = [
@@ -3936,11 +3955,11 @@ export default function Dashboard({
                           <img
                             src={currentInstituteLogo}
                             alt={`${currentInstitute.name} logo`}
-                            className="h-14 w-14 shrink-0 object-contain"
+                            className="h-24 w-24 shrink-0 object-contain"
                           />
                         ) : (
                           <div
-                            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border text-xs font-extrabold uppercase tracking-[0.14em]"
+                            className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full border text-base font-extrabold uppercase tracking-[0.14em]"
                             style={{
                               borderColor: "rgba(59,130,246,0.18)",
                               color: "#0f2a5e",
@@ -3951,11 +3970,8 @@ export default function Dashboard({
                           </div>
                         )}
                         <div className="min-w-0">
-                          <div className="truncate text-3xl font-black leading-none sm:text-4xl" style={{ color: "#0f2a5e" }}>
+                          <div className="truncate text-5xl font-black leading-none sm:text-6xl" style={{ color: "#0f2a5e" }}>
                             {currentInstitute.name}
-                          </div>
-                          <div className="mt-2 text-sm font-medium text-slate-500">
-                            Institute overview for {yearRange.to}
                           </div>
                         </div>
                       </div>
@@ -3965,28 +3981,28 @@ export default function Dashboard({
                       {homeRankingCards.map((card) => (
                         <div
                           key={card.id}
-                          className="rounded-[24px] px-4 py-4 text-left"
+                          className="rounded-[18px] px-3 py-3 text-left"
                           style={{
-                            background: "rgba(248,250,252,0.9)",
-                            border: "1px solid rgba(59,130,246,0.12)",
+                            background: "rgba(248,250,252,0.92)",
+                            border: "1px solid rgba(148,163,184,0.18)",
                           }}
                         >
                           <span
-                            className="inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]"
+                            className="inline-flex rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em]"
                             style={{
-                              background: `${card.color}12`,
+                              background: `${card.color}18`,
                               color: card.color,
                             }}
                           >
                             {card.badge}
                           </span>
-                          <div className="mt-4 text-[2rem] font-black leading-none" style={{ color: "#0f172a" }}>
+                          <div className="mt-3 text-[1.9rem] font-black leading-none" style={{ color: "#0f172a" }}>
                             {card.value}
                           </div>
                           <div className="mt-2 text-sm font-semibold" style={{ color: "#0f2a5e" }}>
                             {card.label}
                           </div>
-                          <div className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
+                          <div className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">
                             {card.note}
                           </div>
                         </div>
@@ -3994,47 +4010,44 @@ export default function Dashboard({
                     </div>
                   </div>
 
-                  <div className="grid auto-rows-fr gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-4 mt-0">
                     {homeMetricCards.map((card) => (
                       <div
                         key={card.id}
-                        className="rounded-[24px] px-5 py-5 text-left shadow-sm"
+                        className="rounded-[18px] px-3 py-2 text-left shadow-sm"
                         style={{
-                          background: "rgba(248,250,252,0.84)",
-                          border: "1px solid rgba(59,130,246,0.12)",
+                          background: "rgba(248,250,252,0.9)",
+                          border: "1px solid rgba(148,163,184,0.18)",
                         }}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <div className="text-sm font-semibold text-slate-500">{card.label}</div>
-                            <div className="mt-4 text-4xl font-black leading-none" style={{ color: "#0f172a" }}>
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{card.label}</div>
+                            <div className="mt-1 text-3xl font-black leading-none" style={{ color: "#0f172a" }}>
                               {card.value}
                             </div>
                           </div>
                           <span className="mt-1 h-3 w-3 rounded-full" style={{ background: card.color }} />
                         </div>
-                        <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
                           {card.note}
                         </div>
                       </div>
                     ))}
                   </div>
 
-                  <div className="grid gap-5 xl:grid-cols-2">
+                  <div className="grid gap-5 xl:grid-cols-2 mt-0">
                     <div
-                      className="rounded-[28px] p-5 shadow-sm"
+                      className="rounded-[24px] p-4 shadow-sm"
                       style={{
                         background: "rgba(255,255,255,0.98)",
-                        border: "1px solid rgba(59,130,246,0.12)",
+                        border: "1px solid rgba(148,163,184,0.18)",
                       }}
                     >
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                           <div className="text-xl font-extrabold" style={{ color: "#0f2a5e" }}>
                             Student Overview
-                          </div>
-                          <div className="mt-1 text-sm text-slate-500">
-                            Snapshot widgets with switchable student charts.
                           </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -4056,7 +4069,7 @@ export default function Dashboard({
                         </div>
                       </div>
 
-                      <div className="mt-5 min-h-[320px]">
+                      <div className="mt-16 min-h-[520px] pb-0">
                         {homeStudentTab === "trend" ? (
                           homeChartData.studentTrend.length ? (
                             <BreakdownBar
@@ -4064,7 +4077,7 @@ export default function Dashboard({
                               accent={accent}
                               xLabel="Year"
                               yLabel="Students"
-                              height={280}
+                              height={520}
                             />
                           ) : (
                             <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
@@ -4078,7 +4091,7 @@ export default function Dashboard({
                               accent={accent}
                               xLabel="Segment"
                               yLabel="Students"
-                              height={280}
+                              height={520}
                             />
                           ) : (
                             <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
@@ -4099,12 +4112,6 @@ export default function Dashboard({
                           </div>
                         )}
                       </div>
-
-                      <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
-                        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                          Click a tab to switch the student graph
-                        </div>
-                      </div>
                     </div>
 
                     <div
@@ -4118,9 +4125,6 @@ export default function Dashboard({
                         <div>
                           <div className="text-xl font-extrabold" style={{ color: "#0f2a5e" }}>
                             Faculty Overview
-                          </div>
-                          <div className="mt-1 text-sm text-slate-500">
-                            Switch between staffing, trend, and DEI views.
                           </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -4142,7 +4146,7 @@ export default function Dashboard({
                         </div>
                       </div>
 
-                      <div className="mt-5 min-h-[320px]">
+                      <div className="mt-16 min-h-[520px] pb-0">
                         {homeFacultyTab === "strength" ? (
                           homeChartData.facultyStrength.length ? (
                             <BreakdownBar
@@ -4150,7 +4154,7 @@ export default function Dashboard({
                               accent={accent}
                               xLabel="Metric"
                               yLabel="Faculty"
-                              height={280}
+                              height={520}
                             />
                           ) : (
                             <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
@@ -4184,12 +4188,6 @@ export default function Dashboard({
                             No faculty DEI data available.
                           </div>
                         )}
-                      </div>
-
-                      <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
-                        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                          Use the tabs above to switch the faculty view
-                        </div>
                       </div>
                     </div>
                   </div>
