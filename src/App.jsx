@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import workbookFacts from "./data/workbookFacts";
 import peopleStudentLifeFacts from "./data/peopleStudentLifeFacts";
 import researchInnovationFacts from "./data/researchInnovationFacts";
+import collaborationOutreachFacts from "./data/collaborationOutreachFacts";
 import { IITs } from "./constants";
 
 import Landing from "./pages/Landing";
@@ -25,10 +26,12 @@ export default function App() {
     ...workbookFacts,
     ...peopleStudentLifeFacts,
     ...researchInnovationFacts,
+    ...collaborationOutreachFacts,
     meta: {
       ...(workbookFacts.meta ?? {}),
       peopleStudentLife: peopleStudentLifeFacts.meta,
       researchInnovation: researchInnovationFacts.meta,
+      collaborationOutreach: collaborationOutreachFacts.meta,
     },
   }), []);
 

@@ -33,11 +33,11 @@ export const DOMAIN_DEFS = [
     id: "Collaborations & Outreach",
     icon: "outreach",
     children: [
-      { id: "collaborations-mous", label: "Collaborations & MoUs", kpiId: "kpi_collaborations" },
-      { id: "internationalisation", label: "Internationalisation", kpiId: "kpi_international_students" },
-      { id: "global-academic-collaborations", label: "Global Academic Collaborations", kpiId: "kpi_collaborations" },
-      { id: "events-outreach", label: "Events & Outreach", kpiId: "kpi_collaborations" },
-      { id: "special-programs", label: "Special Programs", kpiId: "kpi_collaborations" },
+      { id: "collaborations-mous", label: "Collaborations & MoUs", kpiId: "kpi_outreach_collab" },
+      { id: "events-outreach", label: "Events & Outreach", kpiId: "kpi_outreach_events" },
+      { id: "global-academic-collaborations", label: "Global Academic Collaborations", kpiId: "kpi_outreach_events" },
+      { id: "internationalisation", label: "Internationalisation", kpiId: "kpi_outreach_programs" },
+      { id: "special-programs", label: "Special Programs", kpiId: "kpi_outreach_programs" },
     ],
   },
   {

@@ -84,28 +84,22 @@ export const SUBSECTION_VIEW_OPTIONS = {
     { id: "tech-biz-incubators", label: "Tech_Biz_Incubators", kpiId: "kpi_research_patents", helper: "Sheet: Tech_Biz_Incubators. KPIs: Top 5 Technology Business Incubators by Startups Supported." },
   ],
   "collaborations-mous": [
-    { id: "collaborations-details", label: "Collaborations Details", kpiId: "kpi_outreach_collab_drill", helper: "Drill path: Partner Type > Partner Name > Project." },
-    { id: "collaborations-and-mous", label: "Collaborations and MoUs", kpiId: "kpi_outreach_collab", helper: "Flat portfolio view for MoU category mix with filter-only interactions." },
-  ],
-  internationalisation: [
-    { id: "qs-the-rankings", label: "QS & THE Rankings Participation", kpiId: "kpi_outreach_rankings", helper: "Rank participation and year comparisons should stay non-drillable." },
-    { id: "global-faculty-exchange", label: "Global Faculty Exchange", kpiId: "kpi_outreach_collab", helper: "Inbound and outbound exchange view with trend-style filtering." },
-    { id: "international-student-recruitment", label: "International Student Recruitment", kpiId: "kpi_outreach_students", helper: "Country-level recruitment summary with filtered detail access only." },
-    { id: "joint-phd-dual-degree", label: "Joint PhD & Dual Degree", kpiId: "kpi_outreach_programs", helper: "Programme reference view with university and enrolment counts, without hierarchy drilldown." },
-  ],
-  "global-academic-collaborations": [
-    { id: "international-conferences", label: "International Conferences", kpiId: "kpi_outreach_events", helper: "Conference register with role-based grouping and details-on-demand." },
+    { id: "co-mous-summary", label: "CO_MoUs_Summary", kpiId: "kpi_outreach_collab", helper: "Sheet: CO_MoUs_Summary. KPIs: Industry-Sponsored Research Overview; Collaboration Partnerships Overview; Joint Academic Programs; Industry Revenue Breakdown." },
+    { id: "co-collaboration-details", label: "CO_Collaboration_Details", kpiId: "kpi_outreach_collab_drill", helper: "Sheet: CO_Collaboration_Details. KPIs: Geographical Distribution, Institutional Financial Contributions, Faculty Participation, Collaboration Duration." },
   ],
   "events-outreach": [
-    { id: "community-outreach", label: "Community Outreach", kpiId: "kpi_outreach_events", helper: "Audience and feedback summary with flat filtering." },
-    { id: "partnerships-outreach", label: "Partnerships & Outreach", kpiId: "kpi_outreach_collab", helper: "Participants-by-event-type view with detail drawer available on demand." },
-    { id: "events-summary", label: "Events Summary", kpiId: "kpi_outreach_events", helper: "Trend-first summary for events and attendees across years." },
+    { id: "co-events-summary", label: "CO_Events_Summary", kpiId: "kpi_outreach_events", helper: "Sheet: CO_Events_Summary. KPIs: Engagement & Investment Activities; Innovation & Global Programs." },
+    { id: "co-partnerships-outreach", label: "CO_Partnerships_Outreach", kpiId: "kpi_outreach_events", helper: "Sheet: CO_Partnerships_Outreach. KPIs: Domestic vs International Collaborations; Campus Fest Distribution; Fest Participation Analysis; Academic Events and Outreach Activities." },
+  ],
+  "global-academic-collaborations": [
+    { id: "co-intl-conferences", label: "CO_Intl_Conferences", kpiId: "kpi_outreach_events", helper: "Sheet: CO_Intl_Conferences. KPI: Top 5 Research Conferences." },
+  ],
+  internationalisation: [
+    { id: "co-joint-programs", label: "CO_Joint_Programs", kpiId: "kpi_outreach_programs", helper: "Sheet: CO_Joint_Programs. KPIs: Regional Breakdown of Programs; Geographic Distribution of Students." },
   ],
   "special-programs": [
-    { id: "pmrf-program", label: "PMRF Program", kpiId: "kpi_outreach_programs", helper: "Programme view for PMRF-linked faculty and research areas; keep flat and table-friendly." },
-    { id: "pmrf-scholar-details", label: "PMRF Scholar Details", kpiId: "kpi_outreach_programs_drill", helper: "Drill path: Year > Institute > Scholar." },
-    { id: "national-missions", label: "National Missions", kpiId: "kpi_outreach_collab_drill", helper: "Drill path: Mission > Faculty." },
-    { id: "social-impact-work", label: "Social Impact Work", kpiId: "kpi_outreach_events", helper: "Initiative and beneficiary summary with no hierarchy drilldown." },
+    { id: "co-pmrf-program", label: "CO_PMRF_Program", kpiId: "kpi_outreach_programs", helper: "Sheet: CO_PMRF_Program. KPIs: Gender Distribution; Category-wise Distribution; Scholar Progress; Patent Portfolio; Publications; Startups." },
+    { id: "co-pmrf-scholar-details", label: "CO_PMRF_Scholar_Details", kpiId: "kpi_outreach_programs_drill", helper: "Sheet: CO_PMRF_Scholar_Details. KPIs: Patents Filed; Patent Distribution; Journal Publications; Conference Publications; Citation Performance; H-Index Analysis." },
   ],
   infrastructure: [
     { id: "health-facilities-summary", label: "Health Facilities Summary", kpiId: "kpi_infra_budget", helper: "Facility counts by type should stay filter-only with details available manually." },

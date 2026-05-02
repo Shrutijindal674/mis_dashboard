@@ -4772,8 +4772,65 @@ function finalize(category, state) {
   };
 }
 
+export 
+
+const RI_SHEET_FALLBACKS = {
+  "coe-industry": { label: "CoE_Industry", factKey: "coeIndustry" },
+  "faculty-consultancy": { label: "Faculty_Consultancy", factKey: "facultyConsultancy" },
+  "industrial-grants": { label: "Industrial_Grants", factKey: "industrialGrants" },
+  "industrial-projects": { label: "Industrial_Projects", factKey: "industrialProjects" },
+  "industry-research-summary": { label: "Industry_Research_Summary", factKey: "industryResearchSummary" },
+  "phd-industry-funded": { label: "PhD_Industry_Funded", factKey: "phdIndustryFunded" },
+  "tech-transfers": { label: "Tech_Transfers", factKey: "techTransfers" },
+  "honors-fellowships": { label: "Honors_Fellowships", factKey: "honorsFellowships" },
+  "research-mous": { label: "Research_MoUs", factKey: "researchMoUs" },
+  "research-awards": { label: "Research_Awards", factKey: "researchAwards" },
+  "intl-collaborations": { label: "Intl_Collaborations", factKey: "intlCollaborations" },
+  "research-staff": { label: "Research_Staff", factKey: "researchStaff" },
+  "foreign-funding-grants": { label: "Foreign_Funding_Grants", factKey: "foreignFundingGrants" },
+  "patents-details": { label: "Patents_Details", factKey: "patentsDetails" },
+  "rd-expenditure": { label: "RD_Expenditure", factKey: "rdExpenditure" },
+  "research-grants": { label: "Research_Grants", factKey: "researchGrants" },
+  "research-infrastructure": { label: "Research_Infrastructure", factKey: "researchInfrastructure" },
+  "research-innovation": { label: "Research_Innovation", factKey: "researchInnovation" },
+  "fundraising-investment": { label: "Fundraising_Investment", factKey: "fundraisingInvestment" },
+  "hackathons-challenges": { label: "Hackathons_Challenges", factKey: "hackathonsChallenges" },
+  "iit-stake-startups": { label: "IIT_Stake_Startups", factKey: "iitStakeStartups" },
+  "innovation-ip-data": { label: "Innovation_IP_Data", factKey: "innovationIpData" },
+  "ip-commercialization": { label: "IP_Commercialization", factKey: "ipCommercialization" },
+  "startup-jobs-impact": { label: "Startup_Jobs_Impact", factKey: "startupJobsImpact" },
+  "startups-incubated": { label: "Startups_Incubated", factKey: "startupsIncubated" },
+  "tech-biz-incubators": { label: "Tech_Biz_Incubators", factKey: "techBizIncubators" },
+};
+
+function buildResearchInnovationSheetFallback(viewId) {
+  const fallback = RI_SHEET_FALLBACKS[viewId];
+  if (!fallback) return null;
+  return {
+    id: `${viewId}-sheet-overview`,
+    label: fallback.label,
+    sheet: fallback.label,
+    factKey: fallback.factKey,
+    defaultView: "cards",
+    allowedViews: ["cards", "table"],
+    xLabel: fallback.label,
+    yLabel: "Records",
+    format: "number",
+    allowPercent: false,
+    levels: [],
+    isWide: true,
+    measures: [{ field: "__count", label: "Records", type: "calculated" }],
+    primaryMeasure: "__count",
+    aggregation: "count",
+    emptyMessage: `No ${fallback.label} records are available for the selected institute/year.`,
+  };
+}
+
 export function getResearchInnovationCategories(subsectionId, viewId) {
-  return CATEGORY_CONFIG[subsectionId]?.[viewId] ?? [];
+  const categories = CATEGORY_CONFIG[subsectionId]?.[viewId] ?? [];
+  if (categories.length) return categories;
+  const fallback = buildResearchInnovationSheetFallback(viewId);
+  return fallback ? [fallback] : [];
 }
 
 export function getDefaultResearchInnovationCategoryId(subsectionId, viewId) {
