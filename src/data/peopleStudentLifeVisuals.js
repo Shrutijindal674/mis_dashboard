@@ -144,8 +144,8 @@ const CATEGORY_CONFIG = {
       {
         id: "career-services-sessions",
         label: "Career Services",
-        defaultView: "cards",
-        allowedViews: ["cards", "bar", "trend", "table"],
+        defaultView: "bar",
+        allowedViews: ["bar", "trend", "table"],
         xLabel: "Year",
         yLabel: "Career Guidance Sessions",
         format: "number",
@@ -221,8 +221,8 @@ const CATEGORY_CONFIG = {
       {
         id: "scholarships-fellowships-beneficiaries",
         label: "Scholarships and Fellowships",
-        defaultView: "cards",
-        allowedViews: ["cards", "bar", "table"],
+        defaultView: "bar",
+        allowedViews: ["bar", "table"],
         xLabel: "Scholarship / Fellowship Type",
         yLabel: "Number of Beneficiaries",
         format: "number",
@@ -534,7 +534,6 @@ function uniqueViews(views) {
 }
 
 function deriveAllowedViews(category, state) {
-  const hasCards = Boolean(state.cards?.length);
   const hasBreakdown = Boolean(state.breakdown?.length);
   const hasTrend = Boolean(state.trend?.length || state.timeSeriesRows?.length);
   const hasTable = Boolean(state.tableRows?.length || state.detailRows?.length);
@@ -542,7 +541,6 @@ function deriveAllowedViews(category, state) {
     ? category.allowedViews
     : ["bar", "donut", "trend", "table"];
   const views = [];
-  if (hasCards) views.push("cards");
   if (hasBreakdown) views.push("bar");
   if (hasBreakdown) views.push("donut");
   if (hasTrend) views.push("trend");
@@ -827,3 +825,5 @@ export function buildPeopleStudentLifeVisual({
 }
 
 export { PSL_MODULE_ID };
+
+

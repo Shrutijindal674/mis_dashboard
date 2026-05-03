@@ -9,7 +9,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_MoUs_Summary",
         factKey: "coMoUsSummary",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Category",
         yLabel: "Count / Amount",
         isWide: true,
@@ -34,7 +34,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_MoUs_Summary",
         factKey: "coMoUsSummary",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Collaboration Type",
         yLabel: "Number of Collaborations",
         isWide: true,
@@ -51,7 +51,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_MoUs_Summary",
         factKey: "coMoUsSummary",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Program Category",
         yLabel: "Total Programs",
         isWide: true,
@@ -68,7 +68,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_MoUs_Summary",
         factKey: "coMoUsSummary",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Industry Engagement Metrics",
         yLabel: "Count",
         isWide: true,
@@ -86,7 +86,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_MoUs_Summary",
         factKey: "coMoUsSummary",
         defaultView: "donut",
-        allowedViews: ["cards", "donut", "bar", "table"],
+        allowedViews: ["donut", "bar", "table"],
         xLabel: "Industrial Research Grant Amount",
         yLabel: "Industry Consultancy Income",
         isWide: true,
@@ -105,7 +105,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_Collaboration_Details",
         factKey: "coCollaborationDetails",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Geographical Hierarchy (Region)",
         yLabel: "Number of Collaborations",
         levels: [
@@ -125,7 +125,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_Collaboration_Details",
         factKey: "coCollaborationDetails",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Geographical Hierarchy (Region)",
         yLabel: "Financial Contribution (₹ Cr)",
         levels: [
@@ -145,7 +145,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_Collaboration_Details",
         factKey: "coCollaborationDetails",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Geographical Hierarchy (Region)",
         yLabel: "Faculty Count",
         levels: [
@@ -165,7 +165,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_Collaboration_Details",
         factKey: "coCollaborationDetails",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Geographical Hierarchy (Region)",
         yLabel: "Collaboration Duration (Years)",
         levels: [
@@ -189,7 +189,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_Events_Summary",
         factKey: "coEventsSummary",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Engagement Type",
         yLabel: "Number of Activities",
         isWide: true,
@@ -208,7 +208,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_Events_Summary",
         factKey: "coEventsSummary",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Program Type",
         yLabel: "Number of Programs",
         isWide: true,
@@ -227,7 +227,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_Partnerships_Outreach",
         factKey: "coPartnershipsOutreach",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Collaboration Type",
         yLabel: "Number of Collaborations",
         isWide: true,
@@ -244,7 +244,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_Partnerships_Outreach",
         factKey: "coPartnershipsOutreach",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Festival Type",
         yLabel: "Number of Festivals",
         isWide: true,
@@ -261,7 +261,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_Partnerships_Outreach",
         factKey: "coPartnershipsOutreach",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Fest Type",
         yLabel: "Number of Participants",
         isWide: true,
@@ -278,7 +278,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_Partnerships_Outreach",
         factKey: "coPartnershipsOutreach",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Event / Activity Type",
         yLabel: "Number of Events",
         isWide: true,
@@ -300,7 +300,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_Intl_Conferences",
         factKey: "coIntlConferences",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Conference Name",
         yLabel: "Papers Presented (Count)",
         xField: "conference_name",
@@ -319,7 +319,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_Joint_Programs",
         factKey: "coJointPrograms",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Geographic Region",
         yLabel: "Total Programs",
         levels: [
@@ -337,7 +337,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_Joint_Programs",
         factKey: "coJointPrograms",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Geographic Region",
         yLabel: "Number of Students",
         levels: [
@@ -359,7 +359,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_PMRF_Program",
         factKey: "coPmrfProgram",
         defaultView: "donut",
-        allowedViews: ["cards", "donut", "bar", "table"],
+        allowedViews: ["donut", "bar", "table"],
         xLabel: "Gender",
         yLabel: "Number of Scholars (Count)",
         isWide: true,
@@ -376,7 +376,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_PMRF_Program",
         factKey: "coPmrfProgram",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Category",
         yLabel: "Number of Scholars (Count)",
         isWide: true,
@@ -396,7 +396,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_PMRF_Program",
         factKey: "coPmrfProgram",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Scholar Progress",
         yLabel: "Number of Scholars (Count)",
         isWide: true,
@@ -413,7 +413,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_PMRF_Program",
         factKey: "coPmrfProgram",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Patent Category",
         yLabel: "Number of Patents (Count)",
         isWide: true,
@@ -430,7 +430,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_PMRF_Program",
         factKey: "coPmrfProgram",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Publication Type",
         yLabel: "Number of Publications (Count)",
         isWide: true,
@@ -446,8 +446,8 @@ const CATEGORY_CONFIG = {
         label: "Startups",
         sheet: "CO_PMRF_Program",
         factKey: "coPmrfProgram",
-        defaultView: "cards",
-        allowedViews: ["cards", "bar", "table"],
+        defaultView: "bar",
+        allowedViews: ["bar", "table"],
         xLabel: "Startups Initiated",
         yLabel: "Startup Count",
         isWide: true,
@@ -463,7 +463,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_PMRF_Scholar_Details",
         factKey: "coPmrfScholarDetails",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Academic Hierarchy",
         yLabel: "Number of Patents Filed",
         levels: [
@@ -481,7 +481,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_PMRF_Scholar_Details",
         factKey: "coPmrfScholarDetails",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Academic Hierarchy",
         yLabel: "Number of Patents Granted",
         levels: [
@@ -499,7 +499,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_PMRF_Scholar_Details",
         factKey: "coPmrfScholarDetails",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Academic Hierarchy",
         yLabel: "Number of Journal Publications",
         levels: [
@@ -517,7 +517,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_PMRF_Scholar_Details",
         factKey: "coPmrfScholarDetails",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Academic Hierarchy",
         yLabel: "Number of Conference Publications",
         levels: [
@@ -535,7 +535,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_PMRF_Scholar_Details",
         factKey: "coPmrfScholarDetails",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Academic Hierarchy",
         yLabel: "Number of Citations",
         levels: [
@@ -553,7 +553,7 @@ const CATEGORY_CONFIG = {
         sheet: "CO_PMRF_Scholar_Details",
         factKey: "coPmrfScholarDetails",
         defaultView: "bar",
-        allowedViews: ["cards", "bar", "table"],
+        allowedViews: ["bar", "table"],
         xLabel: "Academic Hierarchy",
         yLabel: "H-Index",
         levels: [
@@ -686,9 +686,8 @@ function uniqueViews(views) {
 }
 
 function deriveAllowedViews(category, state) {
-  const requestedViews = Array.isArray(category.allowedViews) && category.allowedViews.length ? category.allowedViews : ["cards", "bar", "table"];
+  const requestedViews = Array.isArray(category.allowedViews) && category.allowedViews.length ? category.allowedViews : ["bar", "donut", "trend", "table"];
   const views = [];
-  if (state.cards?.length) views.push("cards");
   if (state.breakdown?.length) views.push("bar");
   if (state.breakdown?.length && requestedViews.includes("donut")) views.push("donut");
   if (state.trend?.length) views.push("trend");
@@ -793,8 +792,8 @@ function buildFallbackCategory(subsectionId, viewId) {
     label: sheetLabels[viewId],
     sheet: sheetLabels[viewId],
     factKey: factKeys[viewId],
-    defaultView: "cards",
-    allowedViews: ["cards", "table"],
+    defaultView: "bar",
+    allowedViews: ["table"],
     xLabel: sheetLabels[viewId],
     yLabel: "Records",
     measures: [{ field: "__count", label: "Records", type: "calculated" }],
@@ -881,3 +880,5 @@ export function buildCollaborationOutreachVisual({
 }
 
 export { CO_MODULE_ID };
+
+

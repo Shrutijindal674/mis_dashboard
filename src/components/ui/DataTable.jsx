@@ -42,22 +42,22 @@ export default function DataTable({ columns, rows, maxHeight = 520, onRowClick, 
     });
   }
 
-  const headerBg = hexToRgba(accent, 0.08);
+  const headerBg = hexToRgba(accent, 0.96);
   const stripBg = hexToRgba(accent, 0.045);
   const activeArrowColor = accent;
 
   return (
     <div className="overflow-auto rounded-2xl border border-zinc-200" style={{ maxHeight }}>
       <table className="w-full border-collapse text-sm">
-        <thead className="sticky top-0" style={{ background: headerBg }}>
+        <thead className="sticky top-0 z-20" style={{ background: headerBg }}>
           <tr>
             {columns.map((c) => {
               const active = sortState.key === c.key;
               return (
                 <th
                   key={c.key}
-                  className="border-b border-zinc-200 px-3 py-2 text-center text-xs text-zinc-800"
-                  style={{ fontWeight: 800 }}
+                  className="border-b border-zinc-200 px-3 py-2 text-center text-xs text-white"
+                  style={{ fontWeight: 800, background: headerBg, position: "sticky", top: 0, zIndex: 20 }}
                 >
                   <button
                     type="button"

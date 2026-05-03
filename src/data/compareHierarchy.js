@@ -56,7 +56,7 @@ export const SUBSECTION_VIEW_OPTIONS = {
     { id: "industrial-projects", label: "Industrial_Projects", kpiId: "kpi_research_overview", helper: "Sheet: Industrial_Projects. KPIs: Industrial Research Projects by University → Status → Department → Faculty; Industrial Research Projects by Continent → Country." },
     { id: "industry-research-summary", label: "Industry_Research_Summary", kpiId: "kpi_research_overview", helper: "Sheet: Industry_Research_Summary. KPIs: Industry Sponsored Projects vs Grants Received; Value of Industry Projects vs Grants vs Consultancy Revenue; CoEs, MoUs and Consultancy Activity Summary." },
     { id: "phd-industry-funded", label: "PhD_Industry_Funded", kpiId: "kpi_research_overview", helper: "Sheet: PhD_Industry_Funded. KPIs: Total PhD Scholars: Fully vs Partially Industry Funded; Industry Partners and University Partners Funding PhDs." },
-    { id: "tech-transfers", label: "Tech_Transfers", kpiId: "kpi_research_overview", helper: "Sheet: Tech_Transfers. KPIs: Technology Transfers by University → Department → Faculty." },
+    { id: "tech-transfers", label: "Tech_Transfers", kpiId: "kpi_research_overview", helper: "Sheet: Tech_Transfers. KPI: Technology Transfers by University." },
   ],
   "research-awards-collaborations": [
     { id: "honors-fellowships", label: "Honors_Fellowships", kpiId: "kpi_research_collab_drill", helper: "Sheet: Honors_Fellowships. KPIs: Faculty Honors and Fellowships by University → Department → Faculty." },
@@ -68,20 +68,20 @@ export const SUBSECTION_VIEW_OPTIONS = {
   "research-innovation": [
     { id: "foreign-funding-grants", label: "Foreign_Funding_Grants", kpiId: "kpi_research_overview", helper: "Sheet: Foreign_Funding_Grants. KPIs: Foreign Funding Research Grants by Region → Country." },
     { id: "patents-details", label: "Patents_Details", kpiId: "kpi_research_overview", helper: "Sheet: Patents_Details. KPIs: Patents by Institute → Status → Patent Type → Department → Faculty; Patents by Region → Country → Status; Number of Patents by Patent Type; Number of Patents by Status." },
-    { id: "rd-expenditure", label: "RD_Expenditure", kpiId: "kpi_research_overview", helper: "Sheet: RD_Expenditure. KPIs: R&D Expenditure and Budget Allocation Over Time." },
+    { id: "rd-expenditure", label: "RD_Expenditure", kpiId: "kpi_research_overview", helper: "Sheet: RD_Expenditure. KPI: R&D Expenditure and Budget Allocation." },
     { id: "research-grants", label: "Research_Grants", kpiId: "kpi_research_overview", helper: "Sheet: Research_Grants. KPIs: Research Grants: Count, Value, Average Size, Foreign Grants." },
     { id: "research-infrastructure", label: "Research_Infrastructure", kpiId: "kpi_research_overview", helper: "Sheet: Research_Infrastructure. KPIs: Top 3 Research Parks by Companies Hosted." },
     { id: "research-innovation", label: "Research_Innovation", kpiId: "kpi_research_overview", helper: "Sheet: Research_Innovation. KPIs: Patents Filed: Total → National vs International; Research Funding Breakdown by Source; Research Funding vs Expenditure (CapEx / OpEx); Patents Filed vs Granted vs Licensed vs Commercialised; Citations Overview: Total, Per Faculty, Per Paper, H-Index; Patents Commercialised vs Revenue Generated from Patents; Publications: Q1 Journals vs Conference Papers vs Books; Startups Incubated: Count, Jobs Generated, Annual Revenue; Research Staff: Associates, Project Staff, Staff-Student Ratio; Technology Transfers, Consultancy, Industry Grants and Projects; Research Awards: National, International, Young Researcher, Industry; Industry Engagement: Sectors, Outcomes/Products/Patents, CoEs; Utilised vs Sanctioned Amount (KPI)." },
   ],
   "startup-innovation-ecosystem": [
     { id: "fundraising-investment", label: "Fundraising_Investment", kpiId: "kpi_research_patents", helper: "Sheet: Fundraising_Investment. KPIs: Total Funds Raised Over Time." },
-    { id: "hackathons-challenges", label: "Hackathons_Challenges", kpiId: "kpi_research_patents", helper: "Sheet: Hackathons_Challenges. KPIs: Hackathons and Innovation Challenges Conducted." },
-    { id: "iit-stake-startups", label: "IIT_Stake_Startups", kpiId: "kpi_research_patents", helper: "Sheet: IIT_Stake_Startups. KPIs: IIT Stake in Startups: Count vs Portfolio Value." },
+    { id: "hackathons-challenges", label: "Hackathons_Challenges", kpiId: "kpi_research_patents", helper: "Sheet: Hackathons_Challenges. KPI: Hackathons and Innovation Challenges Conducted." },
+    { id: "iit-stake-startups", label: "IIT_Stake_Startups", kpiId: "kpi_research_patents", helper: "Sheet: IIT_Stake_Startups. KPI: IIT Stake in Startups." },
     { id: "innovation-ip-data", label: "Innovation_IP_Data", kpiId: "kpi_research_patents", helper: "Sheet: Innovation_IP_Data. KPIs: Patents Filed vs Granted." },
-    { id: "ip-commercialization", label: "IP_Commercialization", kpiId: "kpi_research_patents", helper: "Sheet: IP_Commercialization. KPIs: IP Commercialization Revenue and Technologies Licensed." },
+    { id: "ip-commercialization", label: "IP_Commercialization", kpiId: "kpi_research_patents", helper: "Sheet: IP_Commercialization. KPI: IP Commercialization Revenue and Technologies Licensed." },
     { id: "startup-jobs-impact", label: "Startup_Jobs_Impact", kpiId: "kpi_research_patents", helper: "Sheet: Startup_Jobs_Impact. KPIs: Startup Jobs: Direct vs Indirect." },
-    { id: "startups-incubated", label: "Startups_Incubated", kpiId: "kpi_research_patents", helper: "Sheet: Startups_Incubated. KPIs: Startups Incubated: Total vs Research-Based vs Women-Led." },
-    { id: "tech-biz-incubators", label: "Tech_Biz_Incubators", kpiId: "kpi_research_patents", helper: "Sheet: Tech_Biz_Incubators. KPIs: Top 5 Technology Business Incubators by Startups Supported." },
+    { id: "startups-incubated", label: "Startups_Incubated", kpiId: "kpi_research_patents", helper: "Sheet: Startups_Incubated. KPI: Startups Incubated." },
+    { id: "tech-biz-incubators", label: "Tech_Biz_Incubators", kpiId: "kpi_research_patents", helper: "Sheet: Tech_Biz_Incubators. KPI: Technology Business Incubators." },
   ],
   "collaborations-mous": [
     { id: "co-mous-summary", label: "CO_MoUs_Summary", kpiId: "kpi_outreach_collab", helper: "Sheet: CO_MoUs_Summary. KPIs: Industry-Sponsored Research Overview; Collaboration Partnerships Overview; Joint Academic Programs; Industry Revenue Breakdown." },
@@ -104,19 +104,19 @@ export const SUBSECTION_VIEW_OPTIONS = {
   infrastructure: [
     { id: "academic-infrastructure", label: "Academic_Infrastructure", kpiId: "kpi_infra_budget", helper: "Sheet: Academic_Infrastructure. KPI: Classrooms Over Time." },
     { id: "hostel-infrastructure", label: "Hostel_Infrastructure", kpiId: "kpi_infra_budget", helper: "Sheet: Hostel_Infrastructure. KPIs: Hostel Capacity and Occupancy; Hostel Occupancy Rate." },
-    { id: "infrastructure-summary", label: "Infrastructure_Summary", kpiId: "kpi_budget_utilisation", helper: "Sheet: Infrastructure_Summary. KPIs: Ongoing Infrastructure Projects Count; Sanctioned Budget; Infrastructure Utilisation Rate." },
-    { id: "ongoing-infrastructure-projects", label: "Ongoing_Infrastructure_Projects", kpiId: "kpi_infra_budget_drill", helper: "Sheet: Ongoing_Infrastructure_Projects. KPIs: Top 5 Infrastructure Projects by Physical Progress; Top 5 Infrastructure Projects by Financial Progress." },
+    { id: "infrastructure-summary", label: "Infrastructure_Summary", kpiId: "kpi_budget_utilisation", helper: "Sheet: Infrastructure_Summary. KPIs: Infrastructure Utilisation Rate; Ongoing Infrastructure Projects Count; Sanctioned Budget." },
+    { id: "ongoing-infrastructure-projects", label: "Ongoing_Infrastructure_Projects", kpiId: "kpi_infra_budget_drill", helper: "Sheet: Ongoing_Infrastructure_Projects. KPIs: Top 5 Infrastructure Projects by Financial Progress; Top 5 Infrastructure Projects by Physical Progress." },
   ],
   "funding-financials": [
     { id: "endowment-fund", label: "Endowment_Fund", kpiId: "kpi_infra_budget_drill", helper: "Sheet: Endowment_Fund. KPIs: Top 5 Endowment Funds by Corpus; Interest Coverage Ratio; Annual Yield." },
-    { id: "funding-financials", label: "Funding_Financials", kpiId: "kpi_total_budget", helper: "Sheet: Funding_Financials. KPIs: Budget Allocation by Source; Budget Allocation by Type; HEFA Sanctioned vs Pending; Endowment Corpus vs Annual Yield; External Funds by Source; External Funding Agency and Donor Counts; Budget Utilisation Rate; Budget Carry Forward Amount." },
+    { id: "funding-financials", label: "Funding_Financials", kpiId: "kpi_total_budget", helper: "Sheet: Funding_Financials. KPIs: Budget Allocation by Source; Budget Allocation by Type; Budget Carry Forward Amount; Budget Utilisation Rate; Endowment Corpus vs Annual Yield; External Funding Agency and Donor Count; External Funds by Source; HEFA Sanction vs Pending." },
     { id: "hefa-loan-details", label: "HEFA_Loan_Details", kpiId: "kpi_infra_budget_drill", helper: "Sheet: HEFA_Loan_Details. KPIs: Top 5 HEFA Loans by Interest Rate; Funds Utilised; Utilisation Rate." },
     { id: "foreign-funding", label: "Foreign_Funding", kpiId: "kpi_infra_collab_drill", helper: "Sheet: Foreign_Funding. KPI: Foreign Funding Agencies by Geography." },
     { id: "industry-csr-funds", label: "Industry_CSR_Funds", kpiId: "kpi_infra_collab_drill", helper: "Sheet: Industry_CSR_Funds. KPI: CSR Grants by Geography and Purpose." },
     { id: "internal-revenue", label: "Internal_Revenue", kpiId: "kpi_infra_budget", helper: "Sheet: Internal_Revenue. KPI: Internal Revenue Generated." },
   ],
   miscellaneous: [
-    { id: "institutional-awards", label: "Institutional_Awards", kpiId: "kpi_infra_collab_drill", helper: "Sheet: Institutional_Awards. KPIs: Awards by Geography; Awards by Department and Faculty." },
+    { id: "institutional-awards", label: "Institutional_Awards", kpiId: "kpi_infra_collab_drill", helper: "Sheet: Institutional_Awards. KPIs: Awards by Department and Faculty; Awards by Geography." },
   ],
 };
 

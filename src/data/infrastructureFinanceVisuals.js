@@ -94,6 +94,32 @@ const CATEGORY_CONFIG = {
     ],
     "infrastructure-summary": [
       {
+        "id": "infrastructure-utilisation-rate",
+        "label": "Infrastructure Utilisation Rate",
+        "sheet": "Infrastructure_Summary",
+        "factKey": "infrastructureSummary",
+        "defaultView": "trend",
+        "allowedViews": [
+          "cards",
+          "trend",
+          "bar",
+          "table"
+        ],
+        "xLabel": "Year",
+        "yLabel": "Utilisation Rate (%)",
+        "measures": [
+          {
+            "field": "total_utilisation_rate",
+            "label": "Infrastructure Utilisation Rate",
+            "type": "Percent"
+          }
+        ],
+        "primaryMeasure": "total_utilisation_rate",
+        "aggregation": "avg",
+        "xField": "Year",
+        "format": "pct"
+      },
+      {
         "id": "ongoing-infrastructure-projects-count",
         "label": "Ongoing Infrastructure Projects Count",
         "sheet": "Infrastructure_Summary",
@@ -142,61 +168,9 @@ const CATEGORY_CONFIG = {
         "primaryMeasure": "total_sanctioned_budget",
         "aggregation": "sum",
         "xField": "Year"
-      },
-      {
-        "id": "infrastructure-utilisation-rate",
-        "label": "Infrastructure Utilisation Rate",
-        "sheet": "Infrastructure_Summary",
-        "factKey": "infrastructureSummary",
-        "defaultView": "trend",
-        "allowedViews": [
-          "cards",
-          "trend",
-          "bar",
-          "table"
-        ],
-        "xLabel": "Year",
-        "yLabel": "Utilisation Rate (%)",
-        "measures": [
-          {
-            "field": "total_utilisation_rate",
-            "label": "Infrastructure Utilisation Rate",
-            "type": "Percent"
-          }
-        ],
-        "primaryMeasure": "total_utilisation_rate",
-        "aggregation": "avg",
-        "xField": "Year",
-        "format": "pct"
       }
     ],
     "ongoing-infrastructure-projects": [
-      {
-        "id": "top-5-infrastructure-projects-by-physical-progress",
-        "label": "Top 5 Infrastructure Projects by Physical Progress",
-        "sheet": "Ongoing_Infrastructure_Projects",
-        "factKey": "ongoingInfrastructureProjects",
-        "defaultView": "bar",
-        "allowedViews": [
-          "cards",
-          "bar",
-          "table"
-        ],
-        "xLabel": "Project Name",
-        "yLabel": "Physical Progress (%)",
-        "measures": [
-          {
-            "field": "physical_progress__completed",
-            "label": "Physical Progress",
-            "type": "Percent"
-          }
-        ],
-        "primaryMeasure": "physical_progress__completed",
-        "aggregation": "avg",
-        "xField": "project_name",
-        "topN": 5,
-        "format": "pct"
-      },
       {
         "id": "top-5-infrastructure-projects-by-financial-progress",
         "label": "Top 5 Infrastructure Projects by Financial Progress",
@@ -218,6 +192,32 @@ const CATEGORY_CONFIG = {
           }
         ],
         "primaryMeasure": "financial_progress__spent",
+        "aggregation": "avg",
+        "xField": "project_name",
+        "topN": 5,
+        "format": "pct"
+      },
+      {
+        "id": "top-5-infrastructure-projects-by-physical-progress",
+        "label": "Top 5 Infrastructure Projects by Physical Progress",
+        "sheet": "Ongoing_Infrastructure_Projects",
+        "factKey": "ongoingInfrastructureProjects",
+        "defaultView": "bar",
+        "allowedViews": [
+          "cards",
+          "bar",
+          "table"
+        ],
+        "xLabel": "Project Name",
+        "yLabel": "Physical Progress (%)",
+        "measures": [
+          {
+            "field": "physical_progress__completed",
+            "label": "Physical Progress",
+            "type": "Percent"
+          }
+        ],
+        "primaryMeasure": "physical_progress__completed",
         "aggregation": "avg",
         "xField": "project_name",
         "topN": 5,
@@ -254,7 +254,7 @@ const CATEGORY_CONFIG = {
       },
       {
         "id": "top-5-endowment-funds-by-interest-coverage-ratio",
-        "label": "Interest Coverage Ratio",
+        "label": "Top 5 Endowment Funds by Interest Coverage Ratio",
         "sheet": "Endowment_Fund",
         "factKey": "endowmentFund",
         "defaultView": "bar",
@@ -279,7 +279,7 @@ const CATEGORY_CONFIG = {
       },
       {
         "id": "top-5-endowment-funds-by-annual-yield",
-        "label": "Annual Yield",
+        "label": "Top 5 Endowment Funds by Annual Yield",
         "sheet": "Endowment_Fund",
         "factKey": "endowmentFund",
         "defaultView": "bar",
@@ -373,33 +373,55 @@ const CATEGORY_CONFIG = {
         "isWide": true
       },
       {
-        "id": "hefa-sanctioned-vs-pending",
-        "label": "HEFA Sanctioned vs Pending",
+        "id": "budget-carry-forward-amount",
+        "label": "Budget Carry Forward Amount",
         "sheet": "Funding_Financials",
         "factKey": "fundingFinancials",
-        "defaultView": "bar",
+        "defaultView": "trend",
         "allowedViews": [
           "cards",
+          "trend",
           "bar",
           "table"
         ],
-        "xLabel": "HEFA Status",
-        "yLabel": "Amount Sanctioned / Pending (Rs. Crore)",
+        "xLabel": "Year",
+        "yLabel": "Carry Forward Amount (Rs. Crore)",
         "measures": [
           {
-            "field": "total_sanctioned_amount_hefa",
-            "label": "Sanctioned",
-            "type": "Currency"
-          },
-          {
-            "field": "total_pending_amount_hefa",
-            "label": "Pending",
+            "field": "budget_carry_forward_amount",
+            "label": "Carry Forward Amount",
             "type": "Currency"
           }
         ],
-        "primaryMeasure": "total_sanctioned_amount_hefa",
+        "primaryMeasure": "budget_carry_forward_amount",
         "aggregation": "sum",
-        "isWide": true
+        "xField": "Year"
+      },
+      {
+        "id": "budget-utilisation-rate",
+        "label": "Budget Utilisation Rate",
+        "sheet": "Funding_Financials",
+        "factKey": "fundingFinancials",
+        "defaultView": "trend",
+        "allowedViews": [
+          "cards",
+          "trend",
+          "bar",
+          "table"
+        ],
+        "xLabel": "Year",
+        "yLabel": "Utilisation Rate (%)",
+        "measures": [
+          {
+            "field": "total_utilisation_rate",
+            "label": "Budget Utilisation Rate",
+            "type": "Percent"
+          }
+        ],
+        "primaryMeasure": "total_utilisation_rate",
+        "aggregation": "avg",
+        "xField": "Year",
+        "format": "pct"
       },
       {
         "id": "endowment-corpus-vs-annual-yield",
@@ -427,6 +449,40 @@ const CATEGORY_CONFIG = {
           }
         ],
         "primaryMeasure": "total_endowment_fund_corpus",
+        "aggregation": "sum",
+        "isWide": true
+      },
+      {
+        "id": "external-funding-agency-and-donor-counts",
+        "label": "External Funding Agency and Donor Count",
+        "sheet": "Funding_Financials",
+        "factKey": "fundingFinancials",
+        "defaultView": "bar",
+        "allowedViews": [
+          "cards",
+          "bar",
+          "table"
+        ],
+        "xLabel": "Year",
+        "yLabel": "Number of Donors / Agencies",
+        "measures": [
+          {
+            "field": "donor_count_industrycsr",
+            "label": "Industry/CSR Donors",
+            "type": "Int"
+          },
+          {
+            "field": "granting_agency_count_national",
+            "label": "National Agencies",
+            "type": "Int"
+          },
+          {
+            "field": "granting_agency_count_international",
+            "label": "International Agencies",
+            "type": "Float"
+          }
+        ],
+        "primaryMeasure": "donor_count_industrycsr",
         "aggregation": "sum",
         "isWide": true
       },
@@ -466,8 +522,8 @@ const CATEGORY_CONFIG = {
         "isWide": true
       },
       {
-        "id": "external-funding-agency-and-donor-counts",
-        "label": "External Funding Agency and Donor Counts",
+        "id": "hefa-sanctioned-vs-pending",
+        "label": "HEFA Sanction vs Pending",
         "sheet": "Funding_Financials",
         "factKey": "fundingFinancials",
         "defaultView": "bar",
@@ -476,158 +532,23 @@ const CATEGORY_CONFIG = {
           "bar",
           "table"
         ],
-        "xLabel": "Year",
-        "yLabel": "Number of Donors / Agencies",
+        "xLabel": "HEFA Status",
+        "yLabel": "Amount Sanctioned / Pending (Rs. Crore)",
         "measures": [
           {
-            "field": "donor_count_industrycsr",
-            "label": "Industry/CSR Donors",
-            "type": "Int"
+            "field": "total_sanctioned_amount_hefa",
+            "label": "Sanctioned",
+            "type": "Currency"
           },
           {
-            "field": "granting_agency_count_national",
-            "label": "National Agencies",
-            "type": "Int"
-          },
-          {
-            "field": "granting_agency_count_international",
-            "label": "International Agencies",
-            "type": "Float"
+            "field": "total_pending_amount_hefa",
+            "label": "Pending",
+            "type": "Currency"
           }
         ],
-        "primaryMeasure": "donor_count_industrycsr",
+        "primaryMeasure": "total_sanctioned_amount_hefa",
         "aggregation": "sum",
         "isWide": true
-      },
-      {
-        "id": "budget-utilisation-rate",
-        "label": "Budget Utilisation Rate",
-        "sheet": "Funding_Financials",
-        "factKey": "fundingFinancials",
-        "defaultView": "trend",
-        "allowedViews": [
-          "cards",
-          "trend",
-          "bar",
-          "table"
-        ],
-        "xLabel": "Year",
-        "yLabel": "Utilisation Rate (%)",
-        "measures": [
-          {
-            "field": "total_utilisation_rate",
-            "label": "Budget Utilisation Rate",
-            "type": "Percent"
-          }
-        ],
-        "primaryMeasure": "total_utilisation_rate",
-        "aggregation": "avg",
-        "xField": "Year",
-        "format": "pct"
-      },
-      {
-        "id": "budget-carry-forward-amount",
-        "label": "Budget Carry Forward Amount",
-        "sheet": "Funding_Financials",
-        "factKey": "fundingFinancials",
-        "defaultView": "trend",
-        "allowedViews": [
-          "cards",
-          "trend",
-          "bar",
-          "table"
-        ],
-        "xLabel": "Year",
-        "yLabel": "Carry Forward Amount (Rs. Crore)",
-        "measures": [
-          {
-            "field": "budget_carry_forward_amount",
-            "label": "Carry Forward Amount",
-            "type": "Currency"
-          }
-        ],
-        "primaryMeasure": "budget_carry_forward_amount",
-        "aggregation": "sum",
-        "xField": "Year"
-      }
-    ],
-    "hefa-loan-details": [
-      {
-        "id": "top-5-hefa-loans-by-interest-rate",
-        "label": "Top 5 HEFA Loans by Interest Rate",
-        "sheet": "HEFA_Loan_Details",
-        "factKey": "hefaLoanDetails",
-        "defaultView": "bar",
-        "allowedViews": [
-          "cards",
-          "bar",
-          "table"
-        ],
-        "xLabel": "Grant Name",
-        "yLabel": "Interest Rate (%)",
-        "measures": [
-          {
-            "field": "interest_rate",
-            "label": "Interest Rate",
-            "type": "Percent"
-          }
-        ],
-        "primaryMeasure": "interest_rate",
-        "aggregation": "avg",
-        "xField": "grant_name",
-        "topN": 5,
-        "format": "pct"
-      },
-      {
-        "id": "top-5-hefa-loans-by-funds-utilised",
-        "label": "Funds Utilised",
-        "sheet": "HEFA_Loan_Details",
-        "factKey": "hefaLoanDetails",
-        "defaultView": "bar",
-        "allowedViews": [
-          "cards",
-          "bar",
-          "table"
-        ],
-        "xLabel": "Grant Name",
-        "yLabel": "Funds Utilised (Rs. Crore)",
-        "measures": [
-          {
-            "field": "funds_utilised_inr_crore",
-            "label": "Funds Utilised",
-            "type": "Currency"
-          }
-        ],
-        "primaryMeasure": "funds_utilised_inr_crore",
-        "aggregation": "sum",
-        "xField": "grant_name",
-        "topN": 5
-      },
-      {
-        "id": "top-5-hefa-loans-by-utilisation-rate",
-        "label": "Utilisation Rate",
-        "sheet": "HEFA_Loan_Details",
-        "factKey": "hefaLoanDetails",
-        "defaultView": "bar",
-        "allowedViews": [
-          "cards",
-          "bar",
-          "table"
-        ],
-        "xLabel": "Top 5 HEFA Loans by Utilisation Rate",
-        "yLabel": "Utilisation Rate (%)",
-        "measures": [
-          {
-            "field": "utilisation_rate",
-            "label": "Utilisation Rate",
-            "type": "Percent"
-          }
-        ],
-        "primaryMeasure": "utilisation_rate",
-        "aggregation": "avg",
-        "xField": "grant_name",
-        "topN": 5,
-        "format": "pct"
       }
     ],
     "foreign-funding": [
@@ -671,6 +592,85 @@ const CATEGORY_CONFIG = {
             "field": "granting_agency"
           }
         ]
+      }
+    ],
+    "hefa-loan-details": [
+      {
+        "id": "top-5-hefa-loans-by-interest-rate",
+        "label": "Top 5 HEFA Loans by Interest Rate",
+        "sheet": "HEFA_Loan_Details",
+        "factKey": "hefaLoanDetails",
+        "defaultView": "bar",
+        "allowedViews": [
+          "cards",
+          "bar",
+          "table"
+        ],
+        "xLabel": "Grant Name",
+        "yLabel": "Interest Rate (%)",
+        "measures": [
+          {
+            "field": "interest_rate",
+            "label": "Interest Rate",
+            "type": "Percent"
+          }
+        ],
+        "primaryMeasure": "interest_rate",
+        "aggregation": "avg",
+        "xField": "grant_name",
+        "topN": 5,
+        "format": "pct"
+      },
+      {
+        "id": "top-5-hefa-loans-by-funds-utilised",
+        "label": "Top 5 HEFA Loans by Funds Utilised",
+        "sheet": "HEFA_Loan_Details",
+        "factKey": "hefaLoanDetails",
+        "defaultView": "bar",
+        "allowedViews": [
+          "cards",
+          "bar",
+          "table"
+        ],
+        "xLabel": "Grant Name",
+        "yLabel": "Funds Utilised (Rs. Crore)",
+        "measures": [
+          {
+            "field": "funds_utilised_inr_crore",
+            "label": "Funds Utilised",
+            "type": "Currency"
+          }
+        ],
+        "primaryMeasure": "funds_utilised_inr_crore",
+        "aggregation": "sum",
+        "xField": "grant_name",
+        "topN": 5
+      },
+      {
+        "id": "top-5-hefa-loans-by-utilisation-rate",
+        "label": "Top 5 HEFA Loans by Utilisation Rate",
+        "sheet": "HEFA_Loan_Details",
+        "factKey": "hefaLoanDetails",
+        "defaultView": "bar",
+        "allowedViews": [
+          "cards",
+          "bar",
+          "table"
+        ],
+        "xLabel": "Grant Name",
+        "yLabel": "Utilisation Rate (%)",
+        "measures": [
+          {
+            "field": "utilisation_rate",
+            "label": "Utilisation Rate",
+            "type": "Percent"
+          }
+        ],
+        "primaryMeasure": "utilisation_rate",
+        "aggregation": "avg",
+        "xField": "grant_name",
+        "topN": 5,
+        "format": "pct"
       }
     ],
     "industry-csr-funds": [
@@ -747,43 +747,6 @@ const CATEGORY_CONFIG = {
   "miscellaneous": {
     "institutional-awards": [
       {
-        "id": "awards-by-geography",
-        "label": "Awards by Geography",
-        "sheet": "Institutional_Awards",
-        "factKey": "institutionalAwards",
-        "defaultView": "bar",
-        "allowedViews": [
-          "cards",
-          "bar",
-          "table"
-        ],
-        "xLabel": "Continent, Country, State",
-        "yLabel": "Total Awards",
-        "measures": [
-          {
-            "field": "__count",
-            "label": "Total Awards",
-            "type": "calculated"
-          }
-        ],
-        "primaryMeasure": "__count",
-        "aggregation": "count",
-        "levels": [
-          {
-            "label": "Region",
-            "field": "region"
-          },
-          {
-            "label": "Country",
-            "field": "country"
-          },
-          {
-            "label": "State",
-            "field": "state"
-          }
-        ]
-      },
-      {
         "id": "awards-by-department-and-faculty",
         "label": "Awards by Department and Faculty",
         "sheet": "Institutional_Awards",
@@ -817,6 +780,43 @@ const CATEGORY_CONFIG = {
           {
             "label": "Faculty",
             "field": "faculty_employee_id"
+          }
+        ]
+      },
+      {
+        "id": "awards-by-geography",
+        "label": "Awards by Geography",
+        "sheet": "Institutional_Awards",
+        "factKey": "institutionalAwards",
+        "defaultView": "bar",
+        "allowedViews": [
+          "cards",
+          "bar",
+          "table"
+        ],
+        "xLabel": "Continent, Country, State",
+        "yLabel": "Total Awards",
+        "measures": [
+          {
+            "field": "__count",
+            "label": "Total Awards",
+            "type": "calculated"
+          }
+        ],
+        "primaryMeasure": "__count",
+        "aggregation": "count",
+        "levels": [
+          {
+            "label": "Region",
+            "field": "region"
+          },
+          {
+            "label": "Country",
+            "field": "country"
+          },
+          {
+            "label": "State",
+            "field": "state"
           }
         ]
       }
@@ -941,9 +941,8 @@ function uniqueViews(views) {
 }
 
 function deriveAllowedViews(category, state) {
-  const requestedViews = Array.isArray(category.allowedViews) && category.allowedViews.length ? category.allowedViews : ["cards", "bar", "table"];
+  const requestedViews = Array.isArray(category.allowedViews) && category.allowedViews.length ? category.allowedViews : ["bar", "donut", "trend", "table"];
   const views = [];
-  if (state.cards?.length) views.push("cards");
   if (state.breakdown?.length) views.push("bar");
   if (state.breakdown?.length && requestedViews.includes("donut")) views.push("donut");
   if (state.trend?.length) views.push("trend");
@@ -1044,8 +1043,8 @@ function buildFallbackCategory(subsectionId, viewId) {
     label: sheet,
     sheet,
     factKey,
-    defaultView: "cards",
-    allowedViews: ["cards", "table"],
+    defaultView: "bar",
+    allowedViews: ["table"],
     xLabel: sheet,
     yLabel: "Records",
     measures: [{ field: "__count", label: "Records", type: "calculated" }],
@@ -1132,3 +1131,5 @@ export function buildInfrastructureFinanceVisual({
 }
 
 export { IF_MODULE_ID };
+
+

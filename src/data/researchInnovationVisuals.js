@@ -592,8 +592,8 @@ const CATEGORY_CONFIG = {
     ],
     "tech-transfers": [
       {
-        "id": "technology-transfers-by-university-department-faculty",
-        "label": "Technology Transfers by University → Department → Faculty",
+        "id": "technology-transfers-by-university",
+        "label": "Technology Transfers by University",
         "sourceTable": "Technology Transfers",
         "sheet": "Tech_Transfers",
         "factKey": "techTransfers",
@@ -603,7 +603,7 @@ const CATEGORY_CONFIG = {
           "bar",
           "table"
         ],
-        "xLabel": "Institute → Discipline/Department → Faculty",
+        "xLabel": "Institute",
         "yLabel": "Number of Technology Transfers",
         "format": "number",
         "allowPercent": true,
@@ -612,14 +612,6 @@ const CATEGORY_CONFIG = {
           {
             "label": "Institute",
             "field": "institute"
-          },
-          {
-            "label": "Discipline/Department",
-            "field": "department"
-          },
-          {
-            "label": "Faculty",
-            "field": "faculty"
           }
         ],
         "xField": "institute",
@@ -644,7 +636,7 @@ const CATEGORY_CONFIG = {
         "primaryMeasure": "__count",
         "aggregation": "count",
         "reviewNote": null,
-        "whatKpiShows": "Shows Number of Technology Transfers by Institute → Discipline/Department → Faculty using Total Transfers (calculated), revenue_generated_inr_lakhs(Currency), trl_level_at_transfer(Int).",
+        "whatKpiShows": "Shows Number of Technology Transfers by University using Total Transfers (calculated), revenue_generated_inr_lakhs(Currency), trl_level_at_transfer(Int).",
         "emptyMessage": "No Tech Transfers records are available for the selected institute/year."
       }
     ]
@@ -1126,7 +1118,7 @@ const CATEGORY_CONFIG = {
     "rd-expenditure": [
       {
         "id": "randd-expenditure-and-budget-allocation-over-time",
-        "label": "R&D Expenditure and Budget Allocation Over Time",
+        "label": "R&D Expenditure and Budget Allocation",
         "sourceTable": "Research and Development Expenditure",
         "sheet": "RD_Expenditure",
         "factKey": "rdExpenditure",
@@ -1728,7 +1720,7 @@ const CATEGORY_CONFIG = {
         "sourceTable": "Research and Innovation",
         "sheet": "Research_Innovation",
         "factKey": "researchInnovation",
-        "defaultView": "cards",
+        "defaultView": "bar",
         "allowedViews": [
           "cards",
           "trend",
@@ -1922,7 +1914,7 @@ const CATEGORY_CONFIG = {
     "iit-stake-startups": [
       {
         "id": "iit-stake-in-startups-count-vs-portfolio-value",
-        "label": "IIT Stake in Startups: Count vs Portfolio Value",
+        "label": "IIT Stake in Startups",
         "sourceTable": "IIT Stake in Startups",
         "sheet": "IIT_Stake_Startups",
         "factKey": "iitStakeStartups",
@@ -1956,7 +1948,7 @@ const CATEGORY_CONFIG = {
         "primaryMeasure": "number_of_startups_with_iit_shareholding",
         "aggregation": "sum",
         "reviewNote": "⚠ REVIEW: Dual-axis bar mixing integer count and currency on same Y-axis — units are incompatible; split into two separate charts",
-        "whatKpiShows": "Shows Number of Startups / Equity Portfolio Value (INR Crore) by Year using number_of_startups_with_iit_shareholding(Int), value_of_iit_equity_portfolio_cr(Currency).",
+        "whatKpiShows": "Shows IIT stake in startups by Year using number_of_startups_with_iit_shareholding(Int), value_of_iit_equity_portfolio_cr(Currency).",
         "emptyMessage": "No IIT Stake Startups records are available for the selected institute/year."
       }
     ],
@@ -2086,7 +2078,7 @@ const CATEGORY_CONFIG = {
     "startups-incubated": [
       {
         "id": "startups-incubated-total-vs-research-based-vs-women-led",
-        "label": "Startups Incubated: Total vs Research-Based vs Women-Led",
+        "label": "Startups Incubated",
         "sourceTable": "Startups Incubated Summary",
         "sheet": "Startups_Incubated",
         "factKey": "startupsIncubated",
@@ -2125,14 +2117,14 @@ const CATEGORY_CONFIG = {
         "primaryMeasure": "total_startups_incubated",
         "aggregation": "sum",
         "reviewNote": null,
-        "whatKpiShows": "Shows Number of Startups by Year using total_startups_incubated(Int), research_based_startups_count(Int), women_led_startups_count(Int).",
+        "whatKpiShows": "Shows Startups Incubated by Year using total_startups_incubated(Int), research_based_startups_count(Int), women_led_startups_count(Int).",
         "emptyMessage": "No Startups Incubated records are available for the selected institute/year."
       }
     ],
     "tech-biz-incubators": [
       {
         "id": "top-5-technology-business-incubators-by-startups-supported",
-        "label": "Top 5 Technology Business Incubators by Startups Supported",
+        "label": "Technology Business Incubators",
         "sourceTable": "Technology Business Incubators",
         "sheet": "Tech_Biz_Incubators",
         "factKey": "techBizIncubators",
@@ -2159,7 +2151,7 @@ const CATEGORY_CONFIG = {
         "primaryMeasure": "startups_supported",
         "aggregation": "sum",
         "reviewNote": null,
-        "whatKpiShows": "Shows Number of Startups Supported by TBI Name using startups_supported(Int).",
+        "whatKpiShows": "Shows Technology Business Incubators by startups supported using startups_supported(Int).",
         "emptyMessage": "No Tech Biz Incubators records are available for the selected institute/year."
       }
     ]
@@ -4695,7 +4687,6 @@ function uniqueViews(views) {
 }
 
 function deriveAllowedViews(category, state) {
-  const hasCards = Boolean(state.cards?.length);
   const hasBreakdown = Boolean(state.breakdown?.length);
   const hasTrend = Boolean(state.trend?.length || state.timeSeriesRows?.length);
   const hasTable = Boolean(state.tableRows?.length || state.detailRows?.length);
@@ -4703,7 +4694,6 @@ function deriveAllowedViews(category, state) {
     ? category.allowedViews
     : ["bar", "trend", "table"];
   const views = [];
-  if (hasCards) views.push("cards");
   if (hasBreakdown) views.push("bar");
   if (hasBreakdown && requestedViews.includes("donut")) views.push("donut");
   if (hasTrend) views.push("trend");
@@ -4783,7 +4773,7 @@ const RI_SHEET_FALLBACKS = {
   "phd-industry-funded": { label: "PhD_Industry_Funded", factKey: "phdIndustryFunded" },
   "tech-transfers": { label: "Tech_Transfers", factKey: "techTransfers" },
   "honors-fellowships": { label: "Honors_Fellowships", factKey: "honorsFellowships" },
-  "research-mous": { label: "Research_MoUs", factKey: "researchMoUs" },
+  "research-mous": { label: "Research_MoUs", factKey: "researchMous" },
   "research-awards": { label: "Research_Awards", factKey: "researchAwards" },
   "intl-collaborations": { label: "Intl_Collaborations", factKey: "intlCollaborations" },
   "research-staff": { label: "Research_Staff", factKey: "researchStaff" },
@@ -4811,8 +4801,8 @@ function buildResearchInnovationSheetFallback(viewId) {
     label: fallback.label,
     sheet: fallback.label,
     factKey: fallback.factKey,
-    defaultView: "cards",
-    allowedViews: ["cards", "table"],
+    defaultView: "bar",
+    allowedViews: ["table"],
     xLabel: fallback.label,
     yLabel: "Records",
     format: "number",
@@ -4919,3 +4909,5 @@ export function buildResearchInnovationVisual({
 }
 
 export { RI_MODULE_ID };
+
+

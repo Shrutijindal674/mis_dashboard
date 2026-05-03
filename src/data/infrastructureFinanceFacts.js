@@ -52364,4 +52364,212 @@ export const INFRASTRUCTURE_FINANCE_FACTS = {
   }
 };
 
+
+// Synthetic demo supplement for the Funding, Infrastructure & Finance dashboard carousel.
+// These records keep the newly surfaced KPI charts populated for the latest year filters.
+const IF_DEMO_INSTITUTES = [
+  { Institute: "IIT Bombay", InstituteId: "IITB", State: "Maharashtra" },
+  { Institute: "IIT Delhi", InstituteId: "IITD", State: "Delhi" },
+  { Institute: "IIT Kanpur", InstituteId: "IITK", State: "Uttar Pradesh" },
+  { Institute: "IIT Kharagpur", InstituteId: "IITKGP", State: "West Bengal" },
+  { Institute: "IIT Madras", InstituteId: "IITM", State: "Tamil Nadu" },
+];
+const IF_DEMO_YEARS = [2021, 2022, 2023, 2024, 2025];
+
+function ifYearLabel(year) {
+  return `${year}-${String((year + 1) % 100).padStart(2, "0")}`;
+}
+
+function ifBase(inst, year) {
+  return {
+    institute: inst.Institute,
+    year,
+    Institute: inst.Institute,
+    InstituteId: inst.InstituteId,
+    State: inst.State,
+    state_if_india: inst.State,
+    Year: year,
+    YearLabel: ifYearLabel(year),
+  };
+}
+
+function ifAppendRows(key, rows, uniqueKey) {
+  const existing = INFRASTRUCTURE_FINANCE_FACTS[key] ?? [];
+  const seen = new Set(existing.map(uniqueKey));
+  rows.forEach((row) => {
+    const id = uniqueKey(row);
+    if (!seen.has(id)) {
+      existing.push(row);
+      seen.add(id);
+    }
+  });
+  INFRASTRUCTURE_FINANCE_FACTS[key] = existing;
+}
+
+function addInfrastructureFinanceDemoData() {
+  const projectTypes = ["Academic Block", "Hostel Expansion", "Research Park", "Central Library", "Sports Complex"];
+  const departments = ["Computer Science", "Electrical Engineering", "Mechanical Engineering", "Civil Engineering", "Management Studies"];
+  const countries = ["India", "United States", "Germany", "Japan", "United Kingdom"];
+  const regions = ["India", "Americas", "Europe", "Asia", "Europe"];
+
+  ifAppendRows("academicInfrastructure", IF_DEMO_INSTITUTES.flatMap((inst, i) => IF_DEMO_YEARS.map((year, j) => ({
+    ...ifBase(inst, year),
+    number_of_classrooms: 145 + i * 12 + j * 8,
+    smart_classrooms: `${65 + i * 4 + j * 5} smart-enabled classrooms`,
+    laboratories: `${72 + i * 5 + j * 6} teaching/research laboratories`,
+    libraries: `${4 + (i % 3)} central/department libraries`,
+    special_facilities: "Makerspace, digital learning studio, shared instrumentation lab",
+  }))), (row) => `${row.InstituteId}-${row.Year}-academic-demo`);
+
+  ifAppendRows("hostelInfrastructure", IF_DEMO_INSTITUTES.flatMap((inst, i) => IF_DEMO_YEARS.map((year, j) => {
+    const total = 8200 + i * 520 + j * 260;
+    const occupancy = total * (0.82 + j * 0.025);
+    return {
+      ...ifBase(inst, year),
+      total_capacity: Math.round(total),
+      current_occupancy: Math.round(occupancy),
+      occupancy_rate: Math.min(0.97, occupancy / total),
+      gender_wise_distribution: "Male, female and other hostels tracked separately",
+      international_student_accommodation: "Dedicated international-student blocks available",
+      international_student_capacity: 180 + i * 18 + j * 14,
+    };
+  })), (row) => `${row.InstituteId}-${row.Year}-hostel-demo`);
+
+  ifAppendRows("infrastructureSummary", IF_DEMO_INSTITUTES.flatMap((inst, i) => IF_DEMO_YEARS.map((year, j) => ({
+    ...ifBase(inst, year),
+    total_ongoing_projects: 7 + i + j,
+    total_sanctioned_budget: Number((420 + i * 55 + j * 68).toFixed(2)),
+    total_utilisation_rate: Number((0.68 + j * 0.045 + i * 0.006).toFixed(4)),
+  }))), (row) => `${row.InstituteId}-${row.Year}-infra-summary-demo`);
+
+  ifAppendRows("ongoingInfrastructureProjects", IF_DEMO_INSTITUTES.flatMap((inst, i) => projectTypes.map((project, j) => ({
+    ...ifBase(inst, 2025),
+    project_name: `${project} ${j + 1}`,
+    phase_wise_milestones: "DPR approved; procurement and civil works in progress",
+    physical_progress__completed: Number((0.38 + j * 0.1 + i * 0.015).toFixed(4)),
+    financial_progress__spent: Number((0.32 + j * 0.11 + i * 0.012).toFixed(4)),
+    administrative_approvals_pending: j % 2 ? "Finance committee approval pending" : "No major approval pending",
+  }))), (row) => `${row.InstituteId}-${row.Year}-${row.project_name}-ongoing-demo`);
+
+  ifAppendRows("fundingFinancials", IF_DEMO_INSTITUTES.flatMap((inst, i) => IF_DEMO_YEARS.map((year, j) => {
+    const total = 1250 + i * 95 + j * 140;
+    const moe = total * 0.42;
+    const state = total * 0.13;
+    const hefa = total * 0.24;
+    const internal = total - moe - state - hefa;
+    return {
+      ...ifBase(inst, year),
+      total_budget_allocation: Number(total.toFixed(2)),
+      budget_allocation_moe: Number(moe.toFixed(2)),
+      budget_allocation_state_govt: Number(state.toFixed(2)),
+      budget_allocation_hefa: Number(hefa.toFixed(2)),
+      budget_allocation_internal_revenue: Number(internal.toFixed(2)),
+      total_budget_allocation_capital: Number((total * 0.54).toFixed(2)),
+      total_budget_allocation_revenue: Number((total * 0.46).toFixed(2)),
+      total_utilisation_rate: Number((0.74 + j * 0.037 + i * 0.004).toFixed(4)),
+      budget_carry_forward_amount: Number((78 + i * 9 + j * 13).toFixed(2)),
+      head_35: "Synthetic dashboard demo values for infrastructure works",
+      head_36: "Synthetic dashboard demo values for revenue expenditure",
+      head_31: "Synthetic dashboard demo values for grants-in-aid",
+      total_fund_received_industrycsr: Number((92 + i * 11 + j * 18).toFixed(2)),
+      total_fund_received_national: Number((148 + i * 14 + j * 20).toFixed(2)),
+      total_fund_received_international: Number((64 + i * 7 + j * 12).toFixed(2)),
+      donor_count_industrycsr: 18 + i * 3 + j * 4,
+      granting_agency_count_national: 11 + i + j * 2,
+      granting_agency_count_international: 6 + i + j,
+      total_sanctioned_amount_hefa: Number((360 + i * 38 + j * 52).toFixed(2)),
+      total_pending_amount_hefa: Number((92 + i * 11 + (4 - j) * 8).toFixed(2)),
+      total_endowment_fund_corpus: Number((680 + i * 72 + j * 96).toFixed(2)),
+      total_endowment_fund_annual_yield_interest_income: Number((42 + i * 4 + j * 7.5).toFixed(2)),
+    };
+  })), (row) => `${row.InstituteId}-${row.Year}-funding-financials-demo`);
+
+  ifAppendRows("endowmentFund", IF_DEMO_INSTITUTES.flatMap((inst, i) => ["Alumni Excellence Fund", "Research Chair Fund", "Scholarship Corpus", "Innovation Seed Fund", "Infrastructure Renewal Fund"].map((fund, j) => ({
+    ...ifBase(inst, 2025),
+    fund_name: fund,
+    repayment_status: "Active",
+    interest_coverage_ratio: Number((1.45 + j * 0.18 + i * 0.05).toFixed(2)),
+    total_corpus: Number((180 + j * 85 + i * 24).toFixed(2)),
+    annual_yield_interest_income: Number((10 + j * 4.8 + i * 1.3).toFixed(2)),
+    usage_categories: "Scholarships, research chairs, infrastructure grants",
+    donor_contributions: "Alumni, industry and philanthropic donors",
+    fund_management_entity: `${inst.Institute} Development Office`,
+    governance_structure: "Investment committee review every quarter",
+    loan_performance_indicators: "Corpus growth and annual yield monitored",
+  }))), (row) => `${row.InstituteId}-${row.Year}-${row.fund_name}-endowment-demo`);
+
+  ifAppendRows("foreignFunding", IF_DEMO_INSTITUTES.flatMap((inst, i) => countries.slice(1).map((country, j) => ({
+    ...ifBase(inst, 2025),
+    region: regions[j + 1],
+    country,
+    granting_agency: `${country} Research Council ${i + j + 1}`,
+    compliance_requirements: "Annual technical and utilisation report",
+    collaborating_institutions: `${country} partner university`,
+    reporting_audit_status: j % 2 ? "Submitted" : "In Progress",
+  }))), (row) => `${row.InstituteId}-${row.Year}-${row.country}-${row.granting_agency}-foreign-demo`);
+
+  ifAppendRows("hefaLoanDetails", IF_DEMO_INSTITUTES.flatMap((inst, i) => projectTypes.map((project, j) => ({
+    ...ifBase(inst, 2025),
+    grant_id: `HEFA-${inst.InstituteId}-${j + 1}`,
+    grant_name: `${project} HEFA Loan`,
+    project_mapping: project,
+    ip_rights_clauses: "Not applicable for infrastructure asset",
+    repayment_schedule: "Semi-annual instalments",
+    interest_rate: Number((0.062 + j * 0.004 + i * 0.001).toFixed(4)),
+    interest_terms: "Interest serviced through approved budget head",
+    utilization_certificate_status: j % 2 ? "Submitted" : "Pending",
+    application_date: `2024-0${(j % 5) + 1}-15`,
+    moe_approval_date: `2024-0${(j % 5) + 2}-20`,
+    funds_utilised_inr_crore: Number((72 + j * 28 + i * 8).toFixed(2)),
+    utilisation_rate: Number((0.46 + j * 0.09 + i * 0.01).toFixed(4)),
+    upload_utilization_certificate: "demo_uc.pdf",
+  }))), (row) => `${row.InstituteId}-${row.Year}-${row.grant_id}-hefa-demo`);
+
+  ifAppendRows("industryCsrFunds", IF_DEMO_INSTITUTES.flatMap((inst, i) => ["Research Lab", "Scholarships", "Sustainability", "Community Outreach"].map((purpose, j) => ({
+    ...ifBase(inst, 2025),
+    region: regions[j],
+    country: countries[j],
+    donor_details: `${purpose} CSR Partner ${i + 1}`,
+    funding_agency: `${purpose} Foundation`,
+    purpose_of_funding: purpose,
+    mou_agreement_status: j % 2 ? "Signed" : "Under Review",
+    fund_disbursement_timeline: "Quarterly disbursement",
+    utilization_reports: "csr_utilisation_demo.pdf",
+    csr_compliance_status: "Compliant",
+  }))), (row) => `${row.InstituteId}-${row.Year}-${row.purpose_of_funding}-${row.funding_agency}-csr-demo`);
+
+  ifAppendRows("internalRevenue", IF_DEMO_INSTITUTES.flatMap((inst, i) => IF_DEMO_YEARS.map((year, j) => {
+    const revenue = 210 + i * 32 + j * 58;
+    return {
+      ...ifBase(inst, year),
+      total_internal_revenue_generated_cr: Number(revenue.toFixed(2)),
+      revenue_from_industry: `${Number((revenue * 0.28).toFixed(2))} crore from industry services`,
+      revenue_from_csr: `${Number((revenue * 0.09).toFixed(2))} crore CSR-linked receipts`,
+      revenue_from_central_government: `${Number((revenue * 0.18).toFixed(2))} crore central schemes`,
+      revenue_from_state_government: `${Number((revenue * 0.08).toFixed(2))} crore state support`,
+      sponsored_research_and_consultancy_revenue: `${Number((revenue * 0.2).toFixed(2))} crore sponsored research/consultancy`,
+      alumni_contributions: `${Number((revenue * 0.07).toFixed(2))} crore alumni contributions`,
+      donations_and_philanthropy: `${Number((revenue * 0.05).toFixed(2))} crore donations/philanthropy`,
+      fundraising_and_endowments: `${Number((revenue * 0.05).toFixed(2))} crore fundraising/endowment receipts`,
+      other_internal_sources: "0 crore other sources",
+      remarks_notes: "Synthetic demo record for dashboard testing",
+    };
+  })), (row) => `${row.InstituteId}-${row.Year}-internal-revenue-demo`);
+
+  ifAppendRows("institutionalAwards", IF_DEMO_INSTITUTES.flatMap((inst, i) => departments.map((department, j) => ({
+    ...ifBase(inst, 2025),
+    region: regions[j],
+    country: countries[j],
+    state: countries[j] === "India" ? inst.State : null,
+    department,
+    award_received: `${department} Excellence Award`,
+    recognitions_by_govt_or_industry: j % 2 ? "Industry association recognition" : "Government recognition",
+    faculty_employee_id: `FAC-${inst.InstituteId}-${department.slice(0, 3).toUpperCase()}-${j + 1}`,
+    student_roll_number: `STU-${inst.InstituteId}-${202500 + j}`,
+    impact_and_visibility: "Dashboard demo award record with national/international visibility",
+  }))), (row) => `${row.InstituteId}-${row.Year}-${row.department}-${row.award_received}-award-demo`);
+}
+
+addInfrastructureFinanceDemoData();
+
 export default INFRASTRUCTURE_FINANCE_FACTS;
