@@ -4,7 +4,6 @@ export const DOMAIN_DEFS = [
     icon: "institution",
     children: [
       { id: "institutional-profile", label: "Institutional Profile", kpiId: "kpi_inst_profile_mix" },
-      { id: "governance-policy", label: "Governance and Policy", kpiId: "kpi_governance_grievance" },
       { id: "rankings-accreditations", label: "Rankings & Accreditations", kpiId: "kpi_ranking_records" },
       { id: "audit-observation", label: "Audit Observation", kpiId: "kpi_audit_observations" },
       { id: "court-cases", label: "Court Cases", kpiId: "kpi_legal_cases" },

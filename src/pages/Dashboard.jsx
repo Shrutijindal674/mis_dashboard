@@ -188,6 +188,27 @@ function isMappedDashboardSubsection(domainId, subsectionId) {
   return false;
 }
 
+
+function getMappedDashboardVisualBuilder(domainId) {
+  if (domainId === PSL_MODULE_ID) return buildPeopleStudentLifeVisual;
+  if (domainId === RI_MODULE_ID) return buildResearchInnovationVisual;
+  if (domainId === CO_MODULE_ID) return buildCollaborationOutreachVisual;
+  if (domainId === IF_MODULE_ID) return buildInfrastructureFinanceVisual;
+  return buildInstitutionGovernanceVisual;
+}
+
+function visualHasRenderableDrillContent(visual) {
+  if (!visual || visual.isEmpty) return false;
+  return Boolean(
+    (visual.breakdown?.length ?? 0) ||
+      (visual.tableRows?.length ?? 0) ||
+      (visual.detailRows?.length ?? 0) ||
+      (visual.cards?.length ?? 0) ||
+      (visual.trend?.length ?? 0) ||
+      (visual.timeSeriesRows?.length ?? 0)
+  );
+}
+
 function preferredInstitutionGovernanceView(subsectionId, viewId, fallback = "bar", domainId = IG_MODULE_ID) {
   const category = getMappedDashboardCategories(domainId, subsectionId, viewId)?.[0];
   return preferredVisualViewForCategory(category, fallback);
@@ -468,6 +489,101 @@ function toShareRows(rows = [], keys = []) {
     return out;
   });
 }
+
+function inferMetricAggregation(field, type, fallback = "sum") {
+  const key = String(field ?? "").toLowerCase();
+  const kind = String(type ?? "").toLowerCase();
+  if (field === "__count" || kind.includes("calculated count")) return "count";
+  if (
+    kind.includes("percent") ||
+    key.includes("percent") ||
+    key.includes("percentage") ||
+    key.includes("ratio") ||
+    key.includes("rate") ||
+    key.includes("average")
+  ) {
+    return "avg";
+  }
+  return fallback || "sum";
+}
+
+function aggregateMetricRows(rows = [], field, aggregation = "sum") {
+  if (field === "__count") return rows.length;
+  const values = rows
+    .map((row) => Number(row?.[field] ?? 0))
+    .filter((value) => Number.isFinite(value));
+  if (!values.length) return 0;
+  if (aggregation === "avg" || aggregation === "average") {
+    return values.reduce((sum, value) => sum + value, 0) / values.length;
+  }
+  if (aggregation === "max") return Math.max(...values);
+  if (aggregation === "min") return Math.min(...values);
+  return values.reduce((sum, value) => sum + value, 0);
+}
+
+function buildMappedYearSeriesFromVisual(visual, years = []) {
+  if (!visual || !years?.length) {
+    return { rows: [], keys: [], trend: [] };
+  }
+
+  const category = visual.category ?? {};
+  const tableRows = visual.detailRows?.length ? visual.detailRows : (visual.tableRows ?? []);
+  const measureDefs = (category.measures?.length ? category.measures : [])
+    .filter((item) => item?.field);
+
+  const fallbackPrimary = category.primaryMeasure ?? measureDefs[0]?.field ?? "__count";
+  const fallbackMeasures = measureDefs.length
+    ? measureDefs
+    : [{ field: fallbackPrimary, label: category.yLabel || visual.yLabel || "Value", type: fallbackPrimary === "__count" ? "calculated" : "number" }];
+
+  const keys = fallbackMeasures.map((item) => item.label || humanizeLabelText(item.field));
+  const rows = years.map((year) => {
+    const yearRows = tableRows.filter((row) => Number(row?.Year ?? row?.year ?? 0) === Number(year));
+    const out = { name: String(year), Year: Number(year) };
+    fallbackMeasures.forEach((measure, index) => {
+      const aggregation = category.aggregationByField?.[measure.field] ?? inferMetricAggregation(measure.field, measure.type, category.aggregation);
+      out[keys[index]] = aggregateMetricRows(yearRows, measure.field, aggregation);
+    });
+    if (keys.length === 1) out.value = out[keys[0]];
+    return out;
+  }).filter((row) => keys.some((key) => Number.isFinite(Number(row[key])) && Number(row[key]) !== 0));
+
+  const trendKey = keys[0] ?? "value";
+  const trend = rows.map((row) => ({ name: row.name, Year: row.Year, value: Number(row.value ?? row[trendKey] ?? 0) }));
+  return { rows, keys, trend };
+}
+
+function normalizeTimeSeriesRows(rows = [], keys = []) {
+  if (!rows?.length) return [];
+  if (keys.length === 1) {
+    const key = keys[0];
+    return rows.map((row) => ({
+      ...row,
+      value: Number(row?.value ?? row?.[key] ?? 0),
+    }));
+  }
+  return rows;
+}
+
+function DrillStatusIcon({ available }) {
+  if (available) {
+    return (
+      <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="10" cy="10" r="7" />
+        <path d="M10 6v8" />
+        <path d="M6 10h8" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10 3 18 17H2L10 3Z" />
+      <path d="M10 8v4" />
+      <path d="M10 15h.01" />
+    </svg>
+  );
+}
+
 
 function iconSvg(kind, active = false, tone = null) {
   const stroke = active ? "white" : tone || "#64748b";
@@ -1277,14 +1393,9 @@ export default function Dashboard({
   );
 
   const compareSeedMetricIds = useMemo(() => {
-    const worksheetOptions = (currentIgViewOptions.length
-      ? currentIgViewOptions
-      : [{ id: selectedSubsectionId, label: currentSubsection.label, kpiId: selectedKpiId }])
-      .map((item) => item.kpiId)
-      .filter(Boolean);
-
-    return dedupeList([selectedKpiId, ...worksheetOptions]).slice(0, 3);
-  }, [currentIgViewOptions, currentSubsection.label, selectedKpiId, selectedSubsectionId]);
+    // Compare should open on the exact KPI the user is viewing; users can add more metrics in Compare filters.
+    return dedupeList([selectedKpiId]).slice(0, 1);
+  }, [selectedKpiId]);
 
   const compareSeedInstituteIds = useMemo(() => {
     return dedupeList([
@@ -1506,15 +1617,7 @@ export default function Dashboard({
 
   const institutionGovernanceVisual = useMemo(() => {
     if (!isInstitutionGovernanceActive || !currentInstitutionGovernanceCategoryId) return null;
-    const builder = activeMappedDashboardModuleId === PSL_MODULE_ID
-      ? buildPeopleStudentLifeVisual
-      : activeMappedDashboardModuleId === RI_MODULE_ID
-        ? buildResearchInnovationVisual
-        : activeMappedDashboardModuleId === CO_MODULE_ID
-          ? buildCollaborationOutreachVisual
-          : activeMappedDashboardModuleId === IF_MODULE_ID
-            ? buildInfrastructureFinanceVisual
-            : buildInstitutionGovernanceVisual;
+    const builder = getMappedDashboardVisualBuilder(activeMappedDashboardModuleId);
     return builder({
       facts,
       subsectionId: selectedSubsectionId,
@@ -1760,12 +1863,19 @@ export default function Dashboard({
     ? institutionGovernanceVisual?.levels ?? []
     : selectedKpi.levels ?? [];
 
+  const mappedYearSeries = buildMappedYearSeriesFromVisual(
+    institutionGovernanceVisual,
+    selectedYears,
+  );
+
+  const mappedVisualHasYearSeries = Boolean(
+    isInstitutionGovernanceVisualActive &&
+      (mappedYearSeries.rows.length > 1 || (institutionGovernanceVisual?.trend?.length ?? 0) > 1 || (institutionGovernanceVisual?.timeSeriesRows?.length ?? 0) > 1),
+  );
+
   const canShowTimeSeries =
     Number(yearRange.to) > Number(yearRange.from) &&
-    trendSeries.length > 1 &&
-    (!isInstitutionGovernanceVisualActive ||
-      institutionGovernanceVisual?.allowedViews?.includes("trend") ||
-      (institutionGovernanceVisual?.timeSeriesRows?.length ?? 0) > 1);
+    (isInstitutionGovernanceVisualActive ? mappedVisualHasYearSeries : trendSeries.length > 1);
 
   function setSingleYearFilter(year) {
     const nextYear = Number(year);
@@ -2410,16 +2520,54 @@ export default function Dashboard({
     ? facultyStaffValueAxisLabel
     : currentValueLabel;
 
-  const rawTimeSeriesRowsForChart = isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.timeSeriesRows?.length
-    ? institutionGovernanceVisual.timeSeriesRows
+  const existingMappedTimeSeriesKeys = (institutionGovernanceVisual?.timeSeriesKeys ?? []).filter(Boolean);
+  const existingMappedTimeSeriesRows = normalizeTimeSeriesRows(
+    institutionGovernanceVisual?.timeSeriesRows ?? [],
+    existingMappedTimeSeriesKeys,
+  );
+  const normalizedMappedYearSeriesRows = normalizeTimeSeriesRows(
+    mappedYearSeries.rows,
+    mappedYearSeries.keys,
+  );
+  const mappedTimeSeriesRowsForChart = existingMappedTimeSeriesRows.length
+    ? existingMappedTimeSeriesRows
+    : normalizedMappedYearSeriesRows.length
+      ? normalizedMappedYearSeriesRows
+      : (institutionGovernanceVisual?.trend ?? []);
+  const mappedTimeSeriesKeysForChart = existingMappedTimeSeriesKeys.length > 1
+    ? existingMappedTimeSeriesKeys
+    : mappedYearSeries.keys.length > 1
+      ? mappedYearSeries.keys
+      : ["value"];
+  const rawTimeSeriesRowsForChart = isInstitutionGovernanceVisualActive && mappedTimeSeriesRowsForChart.length
+    ? mappedTimeSeriesRowsForChart
     : trendSeries;
-  const rawTimeSeriesKeysForChart = isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.timeSeriesKeys?.length
-    ? institutionGovernanceVisual.timeSeriesKeys
+  const rawTimeSeriesKeysForChart = isInstitutionGovernanceVisualActive
+    ? mappedTimeSeriesKeysForChart
     : ["value"];
   const timeSeriesRowsForChart = valueMode === "percent" && canUsePercentMode
     ? toShareRows(rawTimeSeriesRowsForChart, rawTimeSeriesKeysForChart)
     : rawTimeSeriesRowsForChart;
   const timeSeriesKeysForChart = rawTimeSeriesKeysForChart.filter(Boolean);
+  const mappedYearWiseBarActive = Boolean(
+    isMultiYearSelection &&
+      isInstitutionGovernanceVisualActive &&
+      kpiView === "bar" &&
+      timeSeriesRowsForChart.length > 1 &&
+      timeSeriesKeysForChart.length <= 1,
+  );
+  const mappedYearWiseBarRows = mappedYearWiseBarActive
+    ? timeSeriesRowsForChart.map((row) => ({
+        ...row,
+        name: String(row.name ?? row.Year ?? ""),
+        value: Number(row.value ?? row[timeSeriesKeysForChart[0]] ?? 0),
+      }))
+    : [];
+  const mappedYearWiseTableActive = Boolean(
+    isMultiYearSelection &&
+      isInstitutionGovernanceVisualActive &&
+      timeSeriesRowsForChart.length > 1,
+  );
   const canShowStackedTimeSeriesBars =
     isMultiYearSelection &&
     timeSeriesRowsForChart.length > 1 &&
@@ -2432,6 +2580,20 @@ export default function Dashboard({
     ...row,
     value: Number(row.value ?? 0),
   }));
+  const mappedYearWiseTableColumns = [
+    { key: "name", label: "Year" },
+    ...(timeSeriesKeysForChart.length > 1
+      ? timeSeriesKeysForChart.map((key) => ({
+          key,
+          label: key,
+          format: (value) => activeChartFormat === "pct" ? formatPct(value) : formatCompact(value),
+        }))
+      : [{
+          key: "value",
+          label: visibleCurrentValueLabel,
+          format: (value) => activeChartFormat === "pct" ? formatPct(value) : formatCompact(value),
+        }]),
+  ];
   const mainTableColumns = percentSummaryTableActive
     ? [
         { key: "name", label: visibleCurrentBreakdownLabel },
@@ -2441,34 +2603,38 @@ export default function Dashboard({
           format: formatPct,
         },
       ]
-    : isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.tableColumns?.length
-      ? institutionGovernanceVisual.tableColumns
-      : isMultiYearSelection && !isInstitutionGovernanceVisualActive
-        ? [
-            { key: "Year", label: "Year" },
-            {
-              key: "value",
-              label: visibleCurrentValueLabel,
-              format: (value) => activeChartFormat === "pct" ? formatPct(value) : formatCompact(value),
-            },
-          ]
-        : [
-            { key: "name", label: visibleCurrentBreakdownLabel },
-            {
-              key: "value",
-              label: visibleCurrentValueLabel,
-              format: (value) => activeChartFormat === "pct" ? formatPct(value) : formatCompact(value),
-            },
-          ];
+    : mappedYearWiseTableActive
+      ? mappedYearWiseTableColumns
+      : isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.tableColumns?.length
+        ? institutionGovernanceVisual.tableColumns
+        : isMultiYearSelection && !isInstitutionGovernanceVisualActive
+          ? [
+              { key: "Year", label: "Year" },
+              {
+                key: "value",
+                label: visibleCurrentValueLabel,
+                format: (value) => activeChartFormat === "pct" ? formatPct(value) : formatCompact(value),
+              },
+            ]
+          : [
+              { key: "name", label: visibleCurrentBreakdownLabel },
+              {
+                key: "value",
+                label: visibleCurrentValueLabel,
+                format: (value) => activeChartFormat === "pct" ? formatPct(value) : formatCompact(value),
+              },
+            ];
   const mainTableRows = percentSummaryTableActive
     ? percentSummaryRows
-    : isInstitutionGovernanceVisualActive
-      ? institutionGovernanceVisual?.tableRows?.length
-        ? institutionGovernanceVisual.tableRows
-        : institutionGovernanceVisual?.detailRows ?? []
-      : isMultiYearSelection
-        ? standardYearWiseBreakdown
-        : visibleBreakdown;
+    : mappedYearWiseTableActive
+      ? timeSeriesRowsForChart
+      : isInstitutionGovernanceVisualActive
+        ? institutionGovernanceVisual?.tableRows?.length
+          ? institutionGovernanceVisual.tableRows
+          : institutionGovernanceVisual?.detailRows ?? []
+        : isMultiYearSelection
+          ? standardYearWiseBreakdown
+          : visibleBreakdown;
   const emptyVisualTitle = isInstitutionGovernanceVisualActive
     ? institutionGovernanceVisual?.emptyTitle ?? "No Data Available"
     : "No Data Available";
@@ -2519,6 +2685,8 @@ export default function Dashboard({
           : "Click each bar to drill down"
       : "Drill down not available"
     : "";
+  const chartDrillControlAvailable = Boolean(chartHasVisibleDrillAction);
+  const chartDrillControlColor = chartDrillControlAvailable ? accent : "#dc2626";
   const normalizeChartTitle = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
   const promoteNonDrillChartTitle =
     !isNoDataVisual &&
@@ -2702,32 +2870,71 @@ export default function Dashboard({
       const lastIndex = (institutionGovernanceVisual?.levels?.length ?? 1) - 1;
       if (!institutionGovernanceVisual?.drillable) {
         setFocusedSelection(name);
+        setDetailFocus(currentBreakdownField ? { field: currentBreakdownField, value: name, label: currentBreakdownLabel } : null);
         setNotice(`Selection applied for ${name}. Use Details to open the filtered records.`);
         return;
       }
       if (drillPath.length >= lastIndex) {
         setFocusedSelection(name);
+        setDetailFocus(currentBreakdownField ? { field: currentBreakdownField, value: name, label: currentBreakdownLabel } : null);
         setNotice(`Last drill level reached for ${name}. Use Details to view the filtered records.`);
         return;
       }
+
+      const candidatePath = [...drillPath, name];
+      const builder = getMappedDashboardVisualBuilder(activeMappedDashboardModuleId);
+      const previewVisual = builder({
+        facts,
+        subsectionId: selectedSubsectionId,
+        viewId: currentIgViewId,
+        categoryId: currentInstitutionGovernanceCategoryId,
+        instituteId: activeInstituteId,
+        yearRange,
+        drillPath: candidatePath,
+        detailFocus: null,
+      });
+
+      if (!visualHasRenderableDrillContent(previewVisual) || (!previewVisual?.breakdown?.length && previewVisual?.levels?.length > candidatePath.length)) {
+        setFocusedSelection(name);
+        setDetailFocus(currentBreakdownField ? { field: currentBreakdownField, value: name, label: currentBreakdownLabel } : null);
+        setNotice(`No deeper chart is available for ${name}. Use Details to view the filtered records.`);
+        return;
+      }
+
       setDetailFocus(null);
-      setDrillPath((prev) => [...prev, name]);
+      setDrillPath(candidatePath);
       return;
     }
 
     const lastIndex = (selectedKpi.levels?.length ?? 1) - 1;
     if (!selectedKpi.drillable) {
       setFocusedSelection(name);
+      setDetailFocus(currentBreakdownField ? { field: currentBreakdownField, value: name, label: currentBreakdownLabel } : null);
       setNotice(`Selection applied for ${name}. Use Details to open the filtered records.`);
       return;
     }
     if (drillPath.length >= lastIndex) {
       setFocusedSelection(name);
+      setDetailFocus(currentBreakdownField ? { field: currentBreakdownField, value: name, label: currentBreakdownLabel } : null);
       setNotice(`Last drill level reached for ${name}. Use Details to view the filtered records.`);
       return;
     }
+
+    const candidatePath = [...drillPath, name];
+    const previewRows = facts?.[selectedKpi.fact] ?? [];
+    const preview = kpiBreakdown(selectedKpi, scopeRowsForKpi(selectedKpi, previewRows).filter((row) =>
+      (!activeInstituteId || row.InstituteId === activeInstituteId) &&
+      selectedYearSet.has(Number(row.Year ?? 0))
+    ), candidatePath);
+    if (!preview.length) {
+      setFocusedSelection(name);
+      setDetailFocus(currentBreakdownField ? { field: currentBreakdownField, value: name, label: currentBreakdownLabel } : null);
+      setNotice(`No deeper chart is available for ${name}. Use Details to view the filtered records.`);
+      return;
+    }
+
     setDetailFocus(null);
-    setDrillPath((prev) => [...prev, name]);
+    setDrillPath(candidatePath);
   }
 
   function markDownloaded(message, timestamp = new Date().toISOString()) {
@@ -2885,8 +3092,8 @@ export default function Dashboard({
         : [institutionGovernanceVisual?.defaultView ?? "bar", "table"];
       if (isMultiYearSelection) {
         return withAi([
-          ...(allowed.includes("trend") && canShowTimeSeries ? [itemById.trend] : []),
-          ...(canShowStackedTimeSeriesBars ? [itemById.bar] : []),
+          ...(canShowTimeSeries ? [itemById.trend] : []),
+          ...(canShowTimeSeries || canShowStackedTimeSeriesBars ? [itemById.bar] : []),
           itemById.table,
         ]);
       }
@@ -3860,7 +4067,7 @@ export default function Dashboard({
                         ? [
                             {
                               id: "institution-governance-category",
-                              label: "Category",
+                              label: "KPI",
                               items: institutionGovernanceCategoryItems,
                               activeId: currentInstitutionGovernanceCategoryId,
                               onPick: pickInstitutionGovernanceCategory,
@@ -4431,25 +4638,31 @@ export default function Dashboard({
                         >
                           {primaryValueModeLabel}
                         </button>
-                        {canUsePercentMode ? (
-                          <button
-                            type="button"
-                            onClick={() => setValueMode("percent")}
-                            className="rounded-full px-3 py-1.5 text-xs font-bold"
-                            style={{
-                              background:
-                                valueMode === "percent" ? `${accent}15` : "white",
-                              border: `1px solid ${valueMode === "percent" ? accent : "rgba(148,163,184,0.22)"}`,
-                              color: valueMode === "percent" ? accent : "#475569",
-                            }}
-                          >
-                            Percent
-                          </button>
-                        ) : null}
+                        <button
+                          type="button"
+                          disabled={!canUsePercentMode}
+                          onClick={() => canUsePercentMode && setValueMode("percent")}
+                          className="rounded-full px-3 py-1.5 text-xs font-bold transition"
+                          title={canUsePercentMode ? "Show percentage share" : "Percent view not available for this KPI"}
+                          style={{
+                            background: !canUsePercentMode
+                              ? "rgba(148,163,184,0.08)"
+                              : valueMode === "percent" ? `${accent}15` : "white",
+                            border: `1px solid ${!canUsePercentMode ? "rgba(148,163,184,0.20)" : valueMode === "percent" ? accent : "rgba(148,163,184,0.22)"}`,
+                            color: !canUsePercentMode ? "#94a3b8" : valueMode === "percent" ? accent : "#475569",
+                            cursor: !canUsePercentMode ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          Percent
+                        </button>
                       </div>
                       {chartDrillControlMessage ? (
-                        <div className="rounded-full px-2.5 py-1 text-left text-[11px] font-extrabold leading-tight" style={{ color: "#dc2626", background: "rgba(220,38,38,0.08)" }}>
-                          {chartDrillControlMessage}
+                        <div
+                          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-left text-[11px] font-extrabold leading-tight"
+                          style={{ color: chartDrillControlColor, background: hexToRgba(chartDrillControlColor, chartDrillControlAvailable ? 0.10 : 0.08) }}
+                        >
+                          <DrillStatusIcon available={chartDrillControlAvailable} />
+                          <span>{chartDrillControlMessage}</span>
                         </div>
                       ) : null}
                     </div>
@@ -4560,17 +4773,18 @@ export default function Dashboard({
                       </div>
                     ) : kpiView === "bar" ? (
                       <BreakdownBar
-                        data={useStackedTimeSeriesBars ? timeSeriesRowsForChart : visibleChartBreakdown}
+                        data={useStackedTimeSeriesBars ? timeSeriesRowsForChart : mappedYearWiseBarActive ? mappedYearWiseBarRows : visibleChartBreakdown}
                         format={activeChartFormat}
                         onBarClick={!useStackedTimeSeriesBars && chartIsInteractive ? (isFacultyStaffHierarchyView ? onFacultyStaffChartDrill : onDrillNext) : undefined}
                         accent={isFacultyStaffHierarchyView ? activeFacultyStaffHierarchy?.color ?? accent : accent}
-                        xLabel={useStackedTimeSeriesBars || chartShowsYearWiseBars ? "Year" : visibleCurrentBreakdownLabel}
+                        xLabel={useStackedTimeSeriesBars || chartShowsYearWiseBars || mappedYearWiseBarActive ? "Year" : visibleCurrentBreakdownLabel}
                         yLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
                         interactive={!useStackedTimeSeriesBars && chartIsInteractive}
                         seriesKeys={useStackedTimeSeriesBars ? timeSeriesKeysForChart : []}
                         seriesColors={chartSeriesColors}
                         forceHorizontal={Boolean(isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.barLayout === "horizontal")}
+                        drillHint={chartDrillControlAvailable ? chartDrillControlMessage : ""}
                       />
                     ) : kpiView === "trend" ? (
                       <BreakdownLine
@@ -4592,6 +4806,7 @@ export default function Dashboard({
                         metricLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
                         interactive={chartIsInteractive}
+                        drillHint={chartDrillControlAvailable ? chartDrillControlMessage : ""}
                       />
                     ) : (
                       <div className="w-full pt-4">

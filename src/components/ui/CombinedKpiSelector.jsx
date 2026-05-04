@@ -4,6 +4,7 @@ import { cx } from "../../utils/helpers";
 function PillScrollRow({
   items,
   activeId,
+  activeIds = [],
   autoScrollTargetId = null,
   onPick,
   accent,
@@ -38,7 +39,7 @@ function PillScrollRow({
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [activeId, autoScrollTargetId, items]);
+  }, [activeId, activeIds, autoScrollTargetId, items]);
 
   useEffect(() => {
     const node = scrollRef.current;
@@ -104,7 +105,7 @@ function PillScrollRow({
       >
         <div className="flex w-max items-center gap-2 pr-1">
           {items.map((item) => {
-            const active = item.id === activeId;
+            const active = item.id === activeId || activeIds.includes(item.id);
             const isMappedDrill = item.variant === "mapped-drill";
             const isNestedParentToggle = item.variant === "nested-parent-toggle";
             const parentExpanded = Boolean(item.expanded);
@@ -264,6 +265,7 @@ export default function CombinedKpiSelector({ title, helper, rows, accent, soft 
               <PillScrollRow
                 items={row.items}
                 activeId={row.activeId}
+                activeIds={row.activeIds ?? []}
                 autoScrollTargetId={row.autoScrollTargetId}
                 onPick={row.onPick}
                 accent={row.accent || accent}

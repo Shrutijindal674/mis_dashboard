@@ -938,10 +938,10 @@ export function scopeRowsForKpi(kpi, rows = []) {
 export function applyDrill(rows, drillPath, levels) {
   let out = rows;
   for (let li = 0; li < drillPath.length; li++) {
-    const sel = drillPath[li];
+    const sel = String(drillPath[li] ?? "(unknown)");
     const field = levels[li]?.field;
     if (!field) break;
-    out = out.filter((r) => (r[field] ?? "(unknown)") === sel);
+    out = out.filter((r) => String(r[field] ?? "(unknown)") === sel);
   }
   return out;
 }

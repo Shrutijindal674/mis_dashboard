@@ -29,6 +29,9 @@ import { COMPARE_HIERARCHY, KPI_BY_ID } from "../data/compareHierarchy";
 import { kpiValue } from "../data/kpiDefs";
 import DataTable from "../components/ui/DataTable";
 import Drawer from "../components/ui/Drawer";
+import Select from "../components/ui/Select";
+import CombinedKpiSelector from "../components/ui/CombinedKpiSelector";
+import VisualToolbar from "../components/ui/VisualToolbar";
 
 const LEGACY_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
 const PALETTE = ["#dbeafe", "#93c5fd", "#60a5fa", "#3b82f6", "#2563eb", "#1d4ed8", "#1e40af"];
@@ -153,6 +156,11 @@ function instituteNameById(iid) {
 function instituteShortLabel(iid) {
   return IITs.find((item) => item.id === iid)?.name ?? iid;
 }
+
+function sortIitsAlphabetically(iids = []) {
+  return [...iids].sort((left, right) => instituteShortLabel(left).localeCompare(instituteShortLabel(right)));
+}
+
 
 function formatCompareTimestamp(value) {
   if (!value) return "Not recorded yet";
@@ -428,6 +436,97 @@ function CompareViewToolbar({ value, onChange, disabledMap = {} }) {
   );
 }
 
+function CompareDateSelector({ source, updateSource, years, accent }) {
+  const singleYear = Number(source.yearFrom) === Number(source.yearTo);
+  const modes = [
+    { id: "single", label: "Select Year" },
+    { id: "range", label: "Select Year Range" },
+  ];
+
+  function setSingleYear(yearValue) {
+    const year = Number(yearValue);
+    updateSource((prev) => ({ ...prev, yearFrom: year, yearTo: year, focusYear: year }));
+  }
+
+  function setRangeBoundary(kind, yearValue) {
+    const year = Number(yearValue);
+    updateSource((prev) => {
+      if (kind === "from") {
+        const nextFrom = Math.min(year, prev.yearTo);
+        const nextFocus = Math.min(Math.max(prev.focusYear, nextFrom), prev.yearTo);
+        return { ...prev, yearFrom: nextFrom, focusYear: nextFocus };
+      }
+      const nextTo = Math.max(year, prev.yearFrom);
+      const nextFocus = Math.min(Math.max(prev.focusYear, prev.yearFrom), nextTo);
+      return { ...prev, yearTo: nextTo, focusYear: nextFocus };
+    });
+  }
+
+  return (
+    <div className="grid flex-1 content-start gap-3">
+      <div
+        className="grid grid-cols-2 gap-1 rounded-2xl border p-1"
+        style={{
+          background: "rgba(248,250,252,0.78)",
+          borderColor: "rgba(59,130,246,0.14)",
+        }}
+      >
+        {modes.map((mode) => {
+          const active = mode.id === "single" ? singleYear : !singleYear;
+          return (
+            <button
+              key={mode.id}
+              type="button"
+              onClick={() => {
+                if (mode.id === "single") setSingleYear(source.focusYear ?? source.yearTo);
+                else if (singleYear) {
+                  updateSource((prev) => ({
+                    ...prev,
+                    yearFrom: years[Math.max(0, years.indexOf(Number(prev.yearTo)) - 4)] ?? years[0],
+                    yearTo: Number(prev.yearTo),
+                    focusYear: Number(prev.yearTo),
+                  }));
+                }
+              }}
+              className="min-h-9 rounded-xl px-2 text-[11px] font-extrabold leading-tight transition"
+              style={{
+                background: active ? accent : "transparent",
+                color: active ? "white" : "#475569",
+              }}
+            >
+              {mode.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {singleYear ? (
+        <Select
+          label="Year"
+          value={String(source.yearTo)}
+          onChange={setSingleYear}
+          options={years.map((year) => ({ value: String(year), label: String(year) }))}
+        />
+      ) : (
+        <div className="grid gap-3 xl:grid-cols-1 2xl:grid-cols-2">
+          <Select
+            label="From"
+            value={String(source.yearFrom)}
+            onChange={(value) => setRangeBoundary("from", value)}
+            options={years.map((year) => ({ value: String(year), label: String(year) }))}
+          />
+          <Select
+            label="To"
+            value={String(source.yearTo)}
+            onChange={(value) => setRangeBoundary("to", value)}
+            options={years.map((year) => ({ value: String(year), label: String(year) }))}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TreeCheck({ checked, partial = false }) {
   return (
     <span
@@ -602,19 +701,21 @@ function CompareTooltip({ active, payload, label, mode, metricLookup, scaleMode 
   if (!active || !payload?.length) return null;
   if (mode === "grouped") {
     const row = payload[0]?.payload;
-    const metric = metricLookup[row?.metricId];
     return (
       <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-xl">
-        <div className="font-semibold text-slate-900">{label}</div>
-        <div className="mt-1 text-slate-500">{metric?.submoduleLabel ?? metric?.module ?? "Compare item"}</div>
+        <div className="font-semibold text-slate-900">{row?.instituteName ?? label}</div>
+        <div className="mt-1 text-slate-500">Focus year comparison by institute</div>
         <div className="mt-2 space-y-1.5">
           {payload.map((entry) => {
-            const iid = String(entry.dataKey).replace("display_", "");
+            const metricId = String(entry.dataKey).replace("display_", "");
+            const metric = metricLookup[metricId];
+            const raw = row?.[`raw_${metricId}`];
             return (
-              <div key={iid} className="flex items-center justify-between gap-4">
-                <span style={{ color: entry.color }}>{IITs.find((item) => item.id === iid)?.name ?? iid}</span>
+              <div key={metricId} className="flex items-center justify-between gap-4">
+                <span style={{ color: entry.color }}>{metric?.label ?? metric?.kpi?.label ?? metricId}</span>
                 <span className="font-semibold text-slate-800">
                   {fmtDisplay(metric?.kpi, entry.value, scaleMode)}
+                  {scaleMode === "indexed" && raw != null ? ` - ${fmtRaw(metric?.kpi, raw)}` : ""}
                 </span>
               </div>
             );
@@ -790,7 +891,16 @@ function createDraftFromConfig(config, moduleMap, submoduleMap, worksheetMap) {
 
   let moduleId = config?.CompareModule && moduleMap[config.CompareModule] ? config.CompareModule : null;
   let submoduleId = config?.CompareSubmoduleId && submoduleMap[config.CompareSubmoduleId] ? config.CompareSubmoduleId : null;
-  let items = dedupeList([...(config?.CompareMetricIds ?? []), config?.MetricId]).filter((itemId) => worksheetMap[itemId]);
+  const allWorksheets = Object.values(worksheetMap);
+  const resolveCompareItemId = (rawId) => {
+    if (!rawId) return null;
+    if (worksheetMap[rawId]) return rawId;
+    const scopedMatch = submoduleId
+      ? (submoduleMap[submoduleId]?.worksheets ?? []).find((worksheet) => worksheet.kpiId === rawId || worksheet.id === rawId)
+      : null;
+    return scopedMatch?.id ?? allWorksheets.find((worksheet) => worksheet.kpiId === rawId || worksheet.id === rawId)?.id ?? null;
+  };
+  let items = dedupeList([...(config?.CompareMetricIds ?? []), config?.MetricId]).map(resolveCompareItemId).filter(Boolean);
 
   if (!submoduleId && items[0]) submoduleId = worksheetMap[items[0]]?.submoduleId ?? null;
   if (!moduleId && submoduleId) moduleId = submoduleMap[submoduleId]?.moduleId ?? null;
@@ -798,7 +908,7 @@ function createDraftFromConfig(config, moduleMap, submoduleMap, worksheetMap) {
   if (!moduleId) moduleId = moduleIds[0] ?? null;
   if (!submoduleId) submoduleId = moduleMap[moduleId]?.submodules?.[0]?.id ?? submoduleIds[0] ?? null;
   if (!items.length) {
-    items = (submoduleMap[submoduleId]?.worksheets ?? []).map((worksheet) => worksheet.kpiId).filter(Boolean).slice(0, 3);
+    items = (submoduleMap[submoduleId]?.worksheets ?? []).map((worksheet) => worksheet.id).filter(Boolean).slice(0, 3);
   }
 
   const rangeFrom = Number(config?.YearRange?.from ?? YEARS[0]);
@@ -889,7 +999,7 @@ export default function ComparePage({
       hierarchy.flatMap((module) =>
         module.submodules.flatMap((submodule) =>
           submodule.worksheets.map((worksheet) => [
-            worksheet.kpiId,
+            worksheet.id,
             {
               ...worksheet,
               moduleLabel: module.id,
@@ -1031,7 +1141,7 @@ export default function ComparePage({
     () =>
       Object.fromEntries(
         appliedItems.map((item) => [
-          item.kpiId,
+          item.id,
           {
             ...item,
             kpi: item.kpi ?? KPI_BY_ID[item.kpiId],
@@ -1042,22 +1152,39 @@ export default function ComparePage({
   );
 
   const chartableAppliedItems = appliedItems.filter((item) => item.comparable);
-  const groupedIITs = (appliedIITs ?? []).slice(0, 7);
+  const groupedIITs = useMemo(() => sortIitsAlphabetically(appliedIITs ?? []), [appliedIITs]);
+  const compareChartCrowded = groupedIITs.length > 10;
 
   const groupedRows = useMemo(() => {
     if (!applied) return [];
-    return chartableAppliedItems.map((item) => {
-      const rawValues = groupedIITs.map((iid) => valueForKpi(facts, item.kpi, iid, applied.focusYear));
-      const displayValues = applied.scale === "indexed"
-        ? normalizeToLeader(rawValues)
-        : rawValues.map((value) => (item.kpi?.format === "pct" && value != null ? Number(value) * 100 : value));
+    const rawValuesByMetric = Object.fromEntries(
+      chartableAppliedItems.map((item) => [
+        item.id,
+        groupedIITs.map((iid) => valueForKpi(facts, item.kpi, iid, applied.focusYear)),
+      ]),
+    );
+    const displayValuesByMetric = Object.fromEntries(
+      chartableAppliedItems.map((item) => {
+        const rawValues = rawValuesByMetric[item.id] ?? [];
+        return [
+          item.id,
+          applied.scale === "indexed"
+            ? normalizeToLeader(rawValues)
+            : rawValues.map((value) => (item.kpi?.format === "pct" && value != null ? Number(value) * 100 : value)),
+        ];
+      }),
+    );
+
+    return groupedIITs.map((iid, instituteIndex) => {
       const row = {
-        metricId: item.kpiId,
-        label: item.label,
+        instituteId: iid,
+        instituteName: instituteNameById(iid),
+        shortName: instituteShortLabel(iid),
+        label: instituteShortLabel(iid),
       };
-      groupedIITs.forEach((iid, index) => {
-        row[`display_${iid}`] = displayValues[index];
-        row[`raw_${iid}`] = rawValues[index];
+      chartableAppliedItems.forEach((item) => {
+        row[`display_${item.id}`] = displayValuesByMetric[item.id]?.[instituteIndex] ?? null;
+        row[`raw_${item.id}`] = rawValuesByMetric[item.id]?.[instituteIndex] ?? null;
       });
       return row;
     });
@@ -1077,7 +1204,7 @@ export default function ComparePage({
       Object.entries(seriesByInstitute).map(([iid, values]) => [iid, normalizeToBase(values)]),
     );
     return appliedYears.map((year, yearIndex) => {
-      const row = { year, label: String(year), metricId: primaryAppliedItem.kpiId };
+      const row = { year, label: String(year), metricId: primaryAppliedItem.id };
       appliedIITs.forEach((iid) => {
         const raw = seriesByInstitute[iid]?.[yearIndex] ?? null;
         row[`raw_${iid}`] = raw;
@@ -1168,15 +1295,15 @@ export default function ComparePage({
     if (applied.view === "grouped" && groupedRows.length) {
       let strongest = null;
       groupedRows.forEach((row) => {
-        groupedIITs.forEach((iid) => {
-          const value = row[`raw_${iid}`];
+        chartableAppliedItems.forEach((item) => {
+          const value = row[`raw_${item.id}`];
           if (value == null || !Number.isFinite(Number(value))) return;
           if (!strongest || Number(value) > Number(strongest.value)) {
             strongest = {
-              iid,
-              label: row.label,
+              iid: row.instituteId,
+              label: item.label,
               value,
-              kpi: appliedMetricLookup[row.metricId]?.kpi,
+              kpi: item.kpi,
             };
           }
         });
@@ -1222,7 +1349,7 @@ export default function ComparePage({
     }
 
     return lines.join("\n\n");
-  }, [applied, appliedItems, appliedIITs, appliedMetricLookup, groupedIITs, groupedRows, primaryAppliedItem, smallMultipleSeries, tableRows, trendRows]);
+  }, [applied, appliedItems, appliedIITs, appliedMetricLookup, chartableAppliedItems, groupedIITs, groupedRows, primaryAppliedItem, smallMultipleSeries, tableRows, trendRows]);
 
   const canApply = Boolean(
     draft.modules.length &&
@@ -1266,7 +1393,7 @@ export default function ComparePage({
       CompareModule: payload.modules[0] ?? prev.CompareModule,
       CompareSubmoduleId: payload.submodules[0] ?? prev.CompareSubmoduleId,
       CompareMetricIds: payload.items,
-      MetricId: payload.items[0] ?? prev.MetricId,
+      MetricId: worksheetMap[payload.items[0]]?.kpiId ?? payload.items[0] ?? prev.MetricId,
       CompareView: payload.view,
       CompareScale: payload.scale,
       ActiveYear: payload.focusYear,
@@ -1283,14 +1410,14 @@ export default function ComparePage({
         next.modules = next.modules.filter((item) => item !== id);
         const allowedSubmodules = next.modules.flatMap((moduleId) => moduleMap[moduleId]?.submodules.map((submodule) => submodule.id) ?? []);
         next.submodules = next.submodules.filter((item) => allowedSubmodules.includes(item));
-        const allowedItems = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.worksheets.map((worksheet) => worksheet.kpiId) ?? []);
+        const allowedItems = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.worksheets.map((worksheet) => worksheet.id) ?? []);
         next.items = next.items.filter((item) => allowedItems.includes(item));
       }
       if (kind === "submodule") {
         next.submodules = next.submodules.filter((item) => item !== id);
         const keepModule = next.submodules.some((submoduleId) => submoduleMap[submoduleId]?.moduleId === submoduleMap[id]?.moduleId);
         if (!keepModule) next.modules = next.modules.filter((moduleId) => moduleId !== submoduleMap[id]?.moduleId);
-        const allowedItems = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.worksheets.map((worksheet) => worksheet.kpiId) ?? []);
+        const allowedItems = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.worksheets.map((worksheet) => worksheet.id) ?? []);
         next.items = next.items.filter((item) => allowedItems.includes(item));
       }
       if (kind === "item") {
@@ -1483,7 +1610,7 @@ export default function ComparePage({
       CompareModule: payload.modules[0] ?? prev.CompareModule,
       CompareSubmoduleId: payload.submodules[0] ?? prev.CompareSubmoduleId,
       CompareMetricIds: payload.items,
-      MetricId: payload.items[0] ?? prev.MetricId,
+      MetricId: worksheetMap[payload.items[0]]?.kpiId ?? payload.items[0] ?? prev.MetricId,
       CompareView: payload.view,
       CompareScale: payload.scale,
       ActiveYear: payload.focusYear,
@@ -1550,7 +1677,7 @@ export default function ComparePage({
     const module = moduleMap[moduleId];
     if (!module) return;
     const subIds = module.submodules.map((submodule) => submodule.id);
-    const itemIds = module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.kpiId));
+    const itemIds = module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.id));
     setDraft((prev) => {
       const selected = prev.modules.includes(moduleId);
       if (selected) {
@@ -1573,7 +1700,7 @@ export default function ComparePage({
   function toggleSubmoduleSelection(submoduleId) {
     const submodule = submoduleMap[submoduleId];
     if (!submodule) return;
-    const itemIds = submodule.worksheets.map((worksheet) => worksheet.kpiId);
+    const itemIds = submodule.worksheets.map((worksheet) => worksheet.id);
     setDraft((prev) => {
       const selected = prev.submodules.includes(submoduleId);
       if (selected) {
@@ -1626,7 +1753,7 @@ export default function ComparePage({
 
   function getModuleSelectionState(module) {
     const subIds = module.submodules.map((submodule) => submodule.id);
-    const itemIds = module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.kpiId));
+    const itemIds = module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.id));
     const selectedSubCount = subIds.filter((id) => draft.submodules.includes(id)).length;
     const selectedItemCount = itemIds.filter((id) => draft.items.includes(id)).length;
     const checked = draft.modules.includes(module.id) && selectedSubCount === subIds.length && selectedItemCount === itemIds.length;
@@ -1635,7 +1762,7 @@ export default function ComparePage({
   }
 
   function getSubmoduleSelectionState(submodule) {
-    const itemIds = submodule.worksheets.map((worksheet) => worksheet.kpiId);
+    const itemIds = submodule.worksheets.map((worksheet) => worksheet.id);
     const selectedItemCount = itemIds.filter((id) => draft.items.includes(id)).length;
     const checked = draft.submodules.includes(submodule.id) && selectedItemCount === itemIds.length;
     const partial = !checked && (selectedItemCount > 0 || draft.submodules.includes(submodule.id));
@@ -1664,7 +1791,7 @@ export default function ComparePage({
               const sortedItems = sortEntities(
                 submodule.worksheets,
                 (item) => item.label,
-                (item) => (draft.items.includes(item.kpiId) ? 2 : 0),
+                (item) => (draft.items.includes(item.id) ? 2 : 0),
               );
               const visibleItems = sortedItems.filter((item) => moduleMatches || submoduleMatches || matches(item.label, item.helper));
               if (!moduleMatches && !submoduleMatches && !visibleItems.length) return null;
@@ -1679,7 +1806,7 @@ export default function ComparePage({
             ...module,
             submodules: moduleMatches ? sortedSubmodules.map((submodule) => ({
               ...submodule,
-              worksheets: sortEntities(submodule.worksheets, (item) => item.label, (item) => (draft.items.includes(item.kpiId) ? 2 : 0)),
+              worksheets: sortEntities(submodule.worksheets, (item) => item.label, (item) => (draft.items.includes(item.id) ? 2 : 0)),
             })) : visibleSubmodules,
           };
         })
@@ -1717,6 +1844,150 @@ export default function ComparePage({
       : selectionSource?.iits?.length
         ? `${selectionSource.iits.length} selected`
         : 'None';
+
+  const compareCarouselModuleItems = useMemo(
+    () => hierarchy.map((module) => ({
+      id: module.id,
+      label: module.label ?? module.id,
+      tooltip: module.description ?? module.label ?? module.id,
+    })),
+    [hierarchy],
+  );
+
+  const compareCarouselSheetItems = useMemo(() => {
+    const sourceModules = (selectionSource.modules ?? []).map((id) => moduleMap[id]).filter(Boolean);
+    return sourceModules.flatMap((module) =>
+      module.submodules.map((submodule) => ({
+        id: submodule.id,
+        label: submodule.label ?? submodule.id,
+        tooltip: `${module.label ?? module.id} > ${submodule.label ?? submodule.id}`,
+      })),
+    );
+  }, [selectionSource.modules, moduleMap]);
+
+  const compareCarouselKpiItems = useMemo(() => {
+    const sourceSubmodules = (selectionSource.submodules ?? []).map((id) => submoduleMap[id]).filter(Boolean);
+    return sourceSubmodules.flatMap((submodule) =>
+      submodule.worksheets.map((item) => ({
+        id: item.id,
+        label: item.label ?? item.kpi?.label ?? item.id,
+        tooltip: `${moduleMap[submodule.moduleId]?.label ?? submodule.moduleId} > ${submodule.label ?? submodule.id} > ${item.label ?? item.kpiId}`,
+      })),
+    );
+  }, [selectionSource.submodules, submoduleMap, moduleMap]);
+
+  function toggleCompareModule(moduleId) {
+    const targetModule = moduleMap[moduleId];
+    if (!targetModule) return;
+    const subIds = targetModule.submodules.map((submodule) => submodule.id);
+    const itemIds = targetModule.submodules.flatMap((submodule) => submodule.worksheets.map((item) => item.id));
+    updateSelectionSummarySource((prev) => {
+      const selected = prev.modules.includes(moduleId);
+      if (selected) {
+        return {
+          ...prev,
+          modules: prev.modules.filter((id) => id !== moduleId),
+          submodules: prev.submodules.filter((id) => !subIds.includes(id)),
+          items: prev.items.filter((id) => !itemIds.includes(id)),
+        };
+      }
+      return {
+        ...prev,
+        modules: [...new Set([...prev.modules, moduleId])],
+        submodules: [...new Set([...prev.submodules, ...subIds])],
+        items: [...new Set([...prev.items, ...itemIds])],
+      };
+    });
+  }
+
+  function toggleCompareSheet(submoduleId) {
+    const submodule = submoduleMap[submoduleId];
+    if (!submodule) return;
+    const itemIds = submodule.worksheets.map((item) => item.id);
+    updateSelectionSummarySource((prev) => {
+      const selected = prev.submodules.includes(submoduleId);
+      if (selected) {
+        const nextItems = prev.items.filter((id) => !itemIds.includes(id));
+        const nextSubmodules = prev.submodules.filter((id) => id !== submoduleId);
+        const keepModule = nextSubmodules.some((id) => submoduleMap[id]?.moduleId === submodule.moduleId);
+        return {
+          ...prev,
+          modules: keepModule ? prev.modules : prev.modules.filter((id) => id !== submodule.moduleId),
+          submodules: nextSubmodules,
+          items: nextItems,
+        };
+      }
+      return {
+        ...prev,
+        modules: [...new Set([...prev.modules, submodule.moduleId])],
+        submodules: [...new Set([...prev.submodules, submoduleId])],
+        items: [...new Set([...prev.items, ...itemIds])],
+      };
+    });
+  }
+
+  function toggleCompareKpi(itemId) {
+    const item = worksheetMap[itemId];
+    if (!item) return;
+    updateSelectionSummarySource((prev) => {
+      const selected = prev.items.includes(itemId);
+      if (selected) {
+        const nextItems = prev.items.filter((id) => id !== itemId);
+        const keepSubmodule = nextItems.some((id) => worksheetMap[id]?.submoduleId === item.submoduleId);
+        const nextSubmodules = keepSubmodule ? prev.submodules : prev.submodules.filter((id) => id !== item.submoduleId);
+        const keepModule = nextSubmodules.some((id) => submoduleMap[id]?.moduleId === item.moduleId);
+        return {
+          ...prev,
+          modules: keepModule ? prev.modules : prev.modules.filter((id) => id !== item.moduleId),
+          submodules: nextSubmodules,
+          items: nextItems,
+        };
+      }
+      return {
+        ...prev,
+        modules: [...new Set([...prev.modules, item.moduleId])],
+        submodules: [...new Set([...prev.submodules, item.submoduleId])],
+        items: [...new Set([...prev.items, itemId])],
+      };
+    });
+  }
+
+  function renderCompareCarouselSelector() {
+    return (
+      <CombinedKpiSelector
+        title="Compare"
+        helper="Select the module, sheet, and KPI to compare."
+        accent={uiAccent}
+        soft={`${uiAccent}12`}
+        rows={[
+          {
+            id: "compare-module",
+            label: "Module",
+            items: compareCarouselModuleItems,
+            activeIds: selectionSource.modules ?? [],
+            activeId: selectionSource.modules?.[0] ?? null,
+            onPick: toggleCompareModule,
+          },
+          {
+            id: "compare-sheet",
+            label: "Sheet",
+            items: compareCarouselSheetItems,
+            activeIds: selectionSource.submodules ?? [],
+            activeId: selectionSource.submodules?.[0] ?? null,
+            onPick: toggleCompareSheet,
+          },
+          {
+            id: "compare-kpi",
+            label: "KPI",
+            items: compareCarouselKpiItems,
+            activeIds: selectionSource.items ?? [],
+            activeId: selectionSource.items?.[0] ?? null,
+            onPick: toggleCompareKpi,
+          },
+        ]}
+      />
+    );
+  }
 
   function renderSelectionLine() {
     const source = applied ?? draft;
@@ -1898,7 +2169,7 @@ export default function ComparePage({
         ...prev,
         modules: hierarchy.map((module) => module.id),
         submodules: hierarchy.flatMap((module) => module.submodules.map((submodule) => submodule.id)),
-        items: hierarchy.flatMap((module) => module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.kpiId))),
+        items: hierarchy.flatMap((module) => module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.id))),
       }));
     };
 
@@ -1909,7 +2180,7 @@ export default function ComparePage({
     const selectAllVisibleSubmodules = () => {
       if (!selectedModuleEntities.length) return;
       const nextSubmodules = selectedModuleEntities.flatMap((module) => module.submodules.map((submodule) => submodule.id));
-      const nextItems = selectedModuleEntities.flatMap((module) => module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.kpiId)));
+      const nextItems = selectedModuleEntities.flatMap((module) => module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.id)));
       setDraft((prev) => ({
         ...prev,
         modules: [...new Set([...prev.modules, ...selectedModuleEntities.map((module) => module.id)])],
@@ -2200,7 +2471,7 @@ export default function ComparePage({
   function renderChartCard(targetRef, fullscreen = false) {
     if (!applied) return null;
     const appliedWorksheetPills = appliedItems.map((item) => ({
-      id: item.kpiId,
+      id: item.id,
       label: item.label,
       breadcrumb: [
         moduleMap[item.moduleId]?.label ?? item.moduleLabel ?? item.moduleId,
@@ -2210,6 +2481,13 @@ export default function ComparePage({
     }));
     const appliedYearsLabel = `${applied.yearFrom}-${applied.yearTo}`;
     const appliedIitsLabel = summarizeList(appliedIITs.map((iid) => instituteShortLabel(iid)), 5);
+    const visualToolbarItems = VIEW_OPTIONS
+      .filter((option) => appliedModeValidity[option.id]?.valid)
+      .map((option) => ({
+        id: option.id,
+        label: option.label,
+        icon: compareIcon(option.id, option.id === applied.view, option.id === applied.view ? "#ffffff" : uiAccent),
+      }));
 
     return (
       <div
@@ -2263,15 +2541,6 @@ export default function ComparePage({
             </div>
 
             <div className="flex flex-wrap items-center justify-start gap-3 lg:justify-end">
-              <CompareViewToolbar
-                value={applied.view}
-                disabledMap={Object.fromEntries(VIEW_OPTIONS.map((option) => [option.id, !appliedModeValidity[option.id]?.valid]))}
-                onChange={(nextView) => {
-                  const nextState = appliedModeValidity[nextView];
-                  if (!nextState?.valid) return;
-                  commitAppliedSelection({ ...applied, view: nextView, scale: nextView === "table" ? "raw" : applied.scale });
-                }}
-              />
               {!fullscreen ? (
                 <button
                   type="button"
@@ -2286,13 +2555,27 @@ export default function ComparePage({
             </div>
           </div>
 
-          {groupedIITs.length < appliedIITs.length && applied.view === "grouped" ? (
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              Grouped bars are capped at 7 IITs for readability. The first 7 selected IITs are shown.
+          {compareChartCrowded && applied.view !== "table" ? (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+              More than 10 IITs are selected. The chart is allowed, but it may look crowded; use the table, filters, or a smaller IIT set for a cleaner visual.
             </div>
           ) : null}
 
           <div className="mt-4 bg-white pt-2">
+            {visualToolbarItems.length > 1 ? (
+              <VisualToolbar
+                items={visualToolbarItems}
+                value={applied.view}
+                onChange={(nextView) => {
+                  const nextState = appliedModeValidity[nextView];
+                  if (!nextState?.valid) return;
+                  commitAppliedSelection({ ...applied, view: nextView, scale: nextView === "table" ? "raw" : applied.scale });
+                }}
+                accent={uiAccent}
+                exportHidden
+              />
+            ) : null}
+
             {applied.view !== "table" && !appliedModeValidity[applied.view]?.valid ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                 {appliedModeValidity[applied.view]?.reason}
@@ -2302,7 +2585,7 @@ export default function ComparePage({
             {applied.view === "grouped" && appliedModeValidity.grouped.valid ? (
               <div style={{ height: fullscreen ? 620 : 520 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={groupedRows} margin={{ top: 12, right: 18, left: 8, bottom: 52 }}>
+                  <BarChart data={groupedRows} margin={{ top: 12, right: 18, left: 8, bottom: 72 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                     <XAxis
                       dataKey="label"
@@ -2310,13 +2593,13 @@ export default function ComparePage({
                       axisLine={false}
                       tickLine={false}
                       interval={0}
-                      height={68}
+                      height={88}
                     />
                     <YAxis tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} width={78} />
                     <Tooltip content={<CompareTooltip metricLookup={appliedMetricLookup} scaleMode={applied.scale} mode="grouped" />} />
-                    {groupedIITs.map((iid, index) => (
-                      <Bar key={iid} dataKey={`display_${iid}`} fill={PALETTE[index % PALETTE.length]} radius={[10, 10, 0, 0]} maxBarSize={Math.max(18, 42 - groupedRows.length)}>
-                        {groupedRows.map((row) => <Cell key={`${iid}-${row.metricId}`} />)}
+                    {chartableAppliedItems.map((item, index) => (
+                      <Bar key={item.id} dataKey={`display_${item.id}`} name={item.label} fill={PALETTE[index % PALETTE.length]} radius={[10, 10, 0, 0]} maxBarSize={Math.max(16, chartableAppliedItems.length === 1 ? 38 : 30)}>
+                        {groupedRows.map((row) => <Cell key={`${item.id}-${row.instituteId}`} />)}
                       </Bar>
                     ))}
                   </BarChart>
@@ -2344,7 +2627,7 @@ export default function ComparePage({
             {applied.view === "smallMultiples" && appliedModeValidity.smallMultiples.valid ? (
               <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
                 {smallMultipleSeries.map((series) => (
-                  <SmallMultipleCard key={series.item.kpiId} series={series} accent={uiAccent} scaleMode={applied.scale} />
+                  <SmallMultipleCard key={series.item.id} series={series} accent={uiAccent} scaleMode={applied.scale} />
                 ))}
               </div>
             ) : null}
@@ -2432,61 +2715,28 @@ export default function ComparePage({
       ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.95fr]">
-        <div
-          className="rounded-[32px] border px-5 py-5 shadow-sm"
-          style={{
-            borderColor: 'rgba(59,130,246,0.12)',
-            background: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.98) 100%)',
-          }}
-        >
-          <div className="text-[1.05rem] font-extrabold text-slate-900">Select Module(s):</div>
-          {renderSelectionLine()}
-          <div className="mt-5 text-[0.98rem] font-extrabold text-slate-900">Select Sub-module(s):</div>
-          {renderSubKpiLine()}
+        <div className="min-w-0">
+          {renderCompareCarouselSelector()}
         </div>
 
         <div
-          className="rounded-[32px] border px-5 py-5 shadow-sm"
+          className="rounded-[28px] border p-3 shadow-sm"
           style={{
-            borderColor: 'rgba(59,130,246,0.12)',
-            background: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.98) 100%)',
+            borderColor: 'rgba(59,130,246,0.15)',
+            background: 'rgba(255,255,255,0.94)',
           }}
         >
-          <div className="text-[1.05rem] font-extrabold text-slate-900">Date:</div>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <ToolbarSelect
-              label="From"
-              value={String(selectionSource.yearFrom)}
-              onChange={(value) => updateSelectionSummarySource((prev) => {
-                const year = Number(value);
-                const nextFrom = Math.min(year, prev.yearTo);
-                const nextFocus = Math.min(Math.max(prev.focusYear, nextFrom), prev.yearTo);
-                return { ...prev, yearFrom: nextFrom, focusYear: nextFocus };
-              })}
-              options={YEARS.map((year) => ({ value: String(year), label: String(year) }))}
-              minWidth={0}
-              className="w-full"
-              labelClassName="px-0 text-[0.72rem] font-semibold tracking-[0.22em] text-slate-500"
-              selectClassName="w-full rounded-[16px] border-[1.5px] border-[#d8e5ff] bg-white text-base font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus:border-[#93c5fd] focus:shadow-[0_0_0_4px_rgba(219,234,254,0.9)]"
-            />
-            <ToolbarSelect
-              label="To"
-              value={String(selectionSource.yearTo)}
-              onChange={(value) => updateSelectionSummarySource((prev) => {
-                const year = Number(value);
-                const nextTo = Math.max(year, prev.yearFrom);
-                const nextFocus = Math.min(Math.max(prev.focusYear, prev.yearFrom), nextTo);
-                return { ...prev, yearTo: nextTo, focusYear: nextFocus };
-              })}
-              options={YEARS.map((year) => ({ value: String(year), label: String(year) }))}
-              minWidth={0}
-              className="w-full"
-              labelClassName="px-0 text-[0.72rem] font-semibold tracking-[0.22em] text-slate-500"
-              selectClassName="w-full rounded-[16px] border-[1.5px] border-[#d8e5ff] bg-white text-base font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus:border-[#93c5fd] focus:shadow-[0_0_0_4px_rgba(219,234,254,0.9)]"
+          <div className="text-sm font-bold" style={{ color: '#0f172a' }}>Date</div>
+          <div className="mt-3">
+            <CompareDateSelector
+              source={selectionSource}
+              updateSource={updateSelectionSummarySource}
+              years={YEARS}
+              accent={uiAccent}
             />
           </div>
 
-          <div className="mt-5 text-[0.98rem] font-extrabold text-slate-900">IIT(s):</div>
+          <div className="mt-5 text-sm font-bold" style={{ color: '#0f172a' }}>IIT(s):</div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
