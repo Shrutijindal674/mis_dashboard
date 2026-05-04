@@ -1227,7 +1227,7 @@ export default function Dashboard({
       initialChild.kpiId,
       ...(SUBSECTION_VIEW_OPTIONS[initialChild.id] ?? []).slice(1, 3).map((item) => item.kpiId),
     ]),
-    CompareView: "grouped",
+    CompareView: "smallMultiples",
     CompareScale: "raw",
     ActiveYear: YEARS[YEARS.length - 1],
     InstituteId: [...LEGACY_COMPARE_IITS],
@@ -1410,7 +1410,7 @@ export default function Dashboard({
       CompareModule: activeDomain,
       CompareSubmoduleId: selectedSubsectionId,
       CompareMetricIds: [...compareSeedMetricIds],
-      CompareView: "grouped",
+      CompareView: "smallMultiples",
       CompareScale: "raw",
       ActiveYear: YEARS[YEARS.length - 1],
       InstituteId: [...compareSeedInstituteIds],
@@ -2719,6 +2719,15 @@ export default function Dashboard({
       (kpiView === "donut" && chartIsInteractive) ||
       (kpiView === "table" && !isInstitutionGovernanceVisualActive && canDrillChart && (!isMultiYearSelection || standardYearWiseTableRows.some((row) => String(row.name ?? "") !== String(row.Year ?? ""))))
     );
+  const multiYearDrillDisabledMessage =
+    isMultiYearSelection &&
+    !chartHasVisibleDrillAction &&
+    !isNoDataVisual &&
+    (isInstitutionGovernanceVisualActive
+      ? Boolean(institutionGovernanceVisual?.drillable)
+      : Boolean(selectedKpi.drillable))
+      ? "Drill down is available only for Select Year. Switch from Select Year Range to a single year to explore deeper details."
+      : "";
   const chartDrillControlMessage = !isNoDataVisual
     ? chartHasVisibleDrillAction
       ? kpiView === "donut"
@@ -2726,9 +2735,12 @@ export default function Dashboard({
         : kpiView === "table"
           ? "Click each row to drill down"
           : "Click each bar to drill down"
-      : "Drill down not available"
+      : multiYearDrillDisabledMessage || "Drill down not available"
     : "";
   const chartDrillControlAvailable = Boolean(chartHasVisibleDrillAction);
+  const chartHoverDrillHint = chartDrillControlAvailable
+    ? chartDrillControlMessage
+    : multiYearDrillDisabledMessage;
   const chartDrillControlColor = chartDrillControlAvailable ? accent : "#dc2626";
   const normalizeChartTitle = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
   const promoteNonDrillChartTitle =
@@ -3728,27 +3740,18 @@ export default function Dashboard({
                       Theme
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {[
-                        { id: "soft", label: "Soft blue" },
-                        { id: "light", label: "Light" },
-                        { id: "slate", label: "Slate" },
-                      ].map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => setAppearance(item.id)}
-                          className="rounded-full px-2.5 py-1.5 text-[11px]"
-                          style={{
-                            background:
-                              appearance === item.id ? `${accent}14` : "white",
-                            color: appearance === item.id ? accent : "#475569",
-                            border: `1px solid ${appearance === item.id ? accent : "rgba(148,163,184,0.22)"}`,
-                          }}
-                        >
-                          {appearance === item.id ? "✓ " : ""}
-                          {item.label}
-                        </button>
-                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setAppearance("soft")}
+                        className="rounded-full px-2.5 py-1.5 text-[11px]"
+                        style={{
+                          background: `${accent}14`,
+                          color: accent,
+                          border: `1px solid ${accent}`,
+                        }}
+                      >
+                        ✓ Soft blue
+                      </button>
                     </div>
                   </div>
                   <button
@@ -4390,7 +4393,7 @@ export default function Dashboard({
                             accent={accent}
                             soft={soft}
                             metricLabel="Students"
-                            height={280}
+                            height={520}
                           />
                         ) : (
                           <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
@@ -4455,6 +4458,9 @@ export default function Dashboard({
                               labelA="In Position"
                               labelB="Vacant"
                               accent={accent}
+                              height={520}
+                              xLabel="Year"
+                              yLabel="Faculty"
                             />
                           ) : (
                             <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
@@ -4467,7 +4473,7 @@ export default function Dashboard({
                             accent={accent}
                             soft={soft}
                             metricLabel="Faculty"
-                            height={280}
+                            height={520}
                           />
                         ) : (
                           <div className="grid min-h-[280px] place-items-center rounded-[22px] border border-dashed border-slate-200 text-sm text-slate-500">
@@ -4827,7 +4833,7 @@ export default function Dashboard({
                         seriesKeys={useStackedTimeSeriesBars ? timeSeriesKeysForChart : []}
                         seriesColors={chartSeriesColors}
                         forceHorizontal={Boolean(isInstitutionGovernanceVisualActive && institutionGovernanceVisual?.barLayout === "horizontal")}
-                        drillHint={chartDrillControlAvailable ? chartDrillControlMessage : ""}
+                        drillHint={chartHoverDrillHint}
                       />
                     ) : kpiView === "trend" ? (
                       <BreakdownLine
@@ -4838,6 +4844,7 @@ export default function Dashboard({
                         height={chartCanvasHeight}
                         seriesKeys={timeSeriesKeysForChart.length > 1 ? timeSeriesKeysForChart : []}
                         seriesColors={chartSeriesColors}
+                        drillHint={chartHoverDrillHint}
                       />
                     ) : kpiView === "donut" ? (
                       <BreakdownDonut
@@ -4849,7 +4856,7 @@ export default function Dashboard({
                         metricLabel={visibleCurrentValueLabel}
                         height={chartCanvasHeight}
                         interactive={chartIsInteractive}
-                        drillHint={chartDrillControlAvailable ? chartDrillControlMessage : ""}
+                        drillHint={chartHoverDrillHint}
                       />
                     ) : (
                       <div className="w-full pt-4">

@@ -37,11 +37,13 @@ const LEGACY_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
 const PALETTE = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2", "#db2777", "#475569"];
 const TOP_TABS = ["Compare View", "Filters", "Compare Mode", "Saved Sets"];
 const VIEW_OPTIONS = [
-  { id: "grouped", label: "Grouped", help: "Compare the same or compatible metrics side by side for the focus year." },
-  { id: "trend", label: "Trend", help: "Track one metric over the selected year range." },
+  { id: "grouped", label: "Bar graph", help: "Compare selected KPI values across IITs for the focus year." },
+  { id: "trend", label: "Line / time series", help: "Track selected KPI, IIT, and breakdown series across the selected year range." },
   { id: "smallMultiples", label: "Small multiples", help: "Keep dense or mixed comparisons in separate tiles." },
   { id: "table", label: "Table", help: "Show the broadest structurally valid comparison in tabular form." },
 ];
+const TOTAL_COMPARISON_KEY = "__total__";
+const TOTAL_COMPARISON_LABEL = "Total";
 const SCALE_OPTIONS = [
   { id: "raw", label: "Raw" },
   { id: "indexed", label: "Indexed 100" },
@@ -58,6 +60,51 @@ function valueForKpi(facts, kpi, instituteId, year) {
   const rows = (facts?.[kpi.fact] ?? []).filter((row) => row.InstituteId === instituteId && row.Year === year);
   return kpiValue(kpi, rows);
 }
+function scopedRowsForKpi(facts, kpi, instituteId, year) {
+  if (!kpi?.fact) return [];
+  return scopeRowsForKpi(kpi, facts?.[kpi.fact] ?? []).filter(
+    (row) => row.InstituteId === instituteId && Number(row.Year ?? 0) === Number(year),
+  );
+}
+
+function valueForBreakdownKey(facts, kpi, instituteId, year, breakdownKey = TOTAL_COMPARISON_KEY) {
+  if (!kpi) return null;
+  const rows = scopedRowsForKpi(facts, kpi, instituteId, year);
+  if (!breakdownKey || breakdownKey === TOTAL_COMPARISON_KEY || !kpi?.levels?.length) return kpiValue(kpi, rows);
+  const match = kpiBreakdown(kpi, rows, []).find((item) => String(item.name ?? "Unknown") === String(breakdownKey));
+  return match?.value ?? null;
+}
+
+function itemSupportsBreakdown(item) {
+  return Boolean(item?.kpi?.levels?.length);
+}
+
+function breakdownOptionsForItems(items, facts, iits, years, limit = 80) {
+  const keySet = new Set();
+  items.filter(itemSupportsBreakdown).forEach((item) => {
+    const kpi = item.kpi;
+    (iits?.length ? iits : LEGACY_IITS).forEach((iid) => {
+      (years?.length ? years : YEARS).forEach((year) => {
+        const rows = scopedRowsForKpi(facts, kpi, iid, year);
+        kpiBreakdown(kpi, rows, []).forEach((entry) => {
+          const key = String(entry.name ?? "Unknown");
+          if (key && key !== "Unknown") keySet.add(key);
+        });
+      });
+    });
+  });
+  return Array.from(keySet).sort((left, right) => left.localeCompare(right)).slice(0, limit);
+}
+
+function normalizeSeriesKey(value) {
+  return String(value ?? "series").replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "series";
+}
+
+function compareSeriesLabel({ item, breakdownKey, iid }) {
+  const parts = [item?.kpiLabel ?? item?.label ?? item?.kpi?.label, breakdownKey && breakdownKey !== TOTAL_COMPARISON_KEY ? breakdownKey : null, instituteShortLabel(iid)].filter(Boolean);
+  return parts.join(" · ");
+}
+
 
 function fmtRaw(kpi, value) {
   if (value == null || Number.isNaN(Number(value))) return "—";
@@ -653,16 +700,16 @@ function FilterChoiceChip({ label, active = false, onClick, title }) {
       title={title ?? label}
       className="inline-flex min-h-[42px] items-center gap-2 rounded-[12px] border px-3 py-2 text-left text-sm font-medium transition"
       style={{
-        borderColor: active ? 'rgba(52,211,153,0.34)' : 'rgba(226,232,240,0.95)',
-        background: active ? 'rgba(236,253,245,0.96)' : 'rgba(248,250,252,0.95)',
+        borderColor: active ? 'rgba(37,99,235,0.32)' : 'rgba(226,232,240,0.95)',
+        background: active ? 'rgba(239,246,255,0.96)' : 'rgba(248,250,252,0.95)',
         color: '#0f172a',
       }}
     >
       <span
         className="grid h-4 w-4 shrink-0 place-items-center rounded-[4px] border text-[11px] leading-none"
         style={{
-          borderColor: active ? '#34d399' : '#94a3b8',
-          background: active ? '#34d399' : '#ffffff',
+          borderColor: active ? '#1d4ed8' : '#94a3b8',
+          background: active ? '#1d4ed8' : '#ffffff',
           color: active ? '#ffffff' : 'transparent',
         }}
       >
@@ -697,7 +744,7 @@ function EmptyStateCard({ onBuild }) {
   );
 }
 
-function CompareTooltip({ active, payload, label, mode, metricLookup, scaleMode }) {
+function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLookup, scaleMode }) {
   if (!active || !payload?.length) return null;
   if (mode === "grouped") {
     const row = payload[0]?.payload;
@@ -726,20 +773,20 @@ function CompareTooltip({ active, payload, label, mode, metricLookup, scaleMode 
   }
   if (mode === "trend") {
     const row = payload[0]?.payload;
-    const metric = metricLookup[row?.metricId];
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-xl">
+      <div className="max-w-[360px] rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-xl">
         <div className="font-semibold text-slate-900">{label}</div>
-        <div className="mt-2 space-y-1.5">
+        <div className="mt-2 max-h-64 space-y-1.5 overflow-auto pr-1">
           {payload.map((entry) => {
-            const iid = String(entry.dataKey).replace("display_", "");
-            const raw = row?.[`raw_${iid}`];
+            const seriesId = String(entry.dataKey).replace("display_", "");
+            const series = seriesLookup?.[seriesId];
+            const raw = row?.[`raw_${seriesId}`];
             return (
-              <div key={iid} className="flex items-center justify-between gap-4">
-                <span style={{ color: entry.color }}>{IITs.find((item) => item.id === iid)?.name ?? iid}</span>
-                <span className="font-semibold text-slate-800">
-                  {fmtDisplay(metric?.kpi, entry.value, scaleMode)}
-                  {scaleMode === "indexed" && raw != null ? ` - ${fmtRaw(metric?.kpi, raw)}` : ""}
+              <div key={seriesId} className="flex items-center justify-between gap-4">
+                <span className="min-w-0 truncate" style={{ color: entry.color }}>{series?.label ?? seriesId}</span>
+                <span className="shrink-0 font-semibold text-slate-800">
+                  {fmtDisplay(series?.kpi, entry.value, scaleMode)}
+                  {scaleMode === "indexed" && raw != null ? ` - ${fmtRaw(series?.kpi, raw)}` : ""}
                 </span>
               </div>
             );
@@ -772,6 +819,20 @@ function CompareBreakdownTooltip({ active, payload, label, kpi, scaleMode }) {
   );
 }
 
+function CompareLegend({ items = [] }) {
+  if (!items.length) return null;
+  return (
+    <div className="mb-3 flex max-h-28 flex-wrap gap-2 overflow-auto rounded-2xl border border-slate-100 bg-slate-50/60 px-3 py-2">
+      {items.map((item) => (
+        <div key={item.id ?? item.label} className="inline-flex max-w-[260px] items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: item.color }} />
+          <span className="truncate" title={item.label}>{item.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SmallMultipleCard({ series, accent, scaleMode }) {
   const { item, rows } = series;
   return (
@@ -782,7 +843,7 @@ function SmallMultipleCard({ series, accent, scaleMode }) {
       </div>
       <div style={{ height: 220 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={rows} margin={{ top: 6, right: 12, left: 0, bottom: 10 }}>
+          <LineChart data={rows} margin={{ top: 8, right: 16, left: 0, bottom: 10 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
             <XAxis dataKey="shortName" tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} width={70} />
@@ -790,12 +851,16 @@ function SmallMultipleCard({ series, accent, scaleMode }) {
               formatter={(value) => fmtDisplay(item.kpi, value, scaleMode)}
               labelFormatter={(label) => IITs.find((iit) => iit.id === label)?.name ?? label}
             />
-            <Bar dataKey="display" fill={accent} radius={[10, 10, 0, 0]} maxBarSize={26} isAnimationActive={false}>
-              {rows.map((row) => (
-                <Cell key={`${item.id}-${row.instituteId}`} fill={row.color} />
-              ))}
-            </Bar>
-          </BarChart>
+            <Line
+              type="monotone"
+              dataKey="display"
+              stroke={accent}
+              strokeWidth={2.8}
+              dot={{ r: 4, fill: accent }}
+              activeDot={{ r: 6 }}
+              isAnimationActive={false}
+            />
+          </LineChart>
         </ResponsiveContainer>
       </div>
     </div>
@@ -896,7 +961,9 @@ function createDefaultDraft() {
   return {
     modules: [],
     submodules: [],
+    sheets: [],
     items: [],
+    breakdowns: [],
     iits: [...LEGACY_IITS],
     yearFrom: YEARS[0],
     yearTo: YEARS[YEARS.length - 1],
@@ -906,30 +973,40 @@ function createDefaultDraft() {
   };
 }
 
-function createDraftFromConfig(config, moduleMap, submoduleMap, worksheetMap) {
+function createDraftFromConfig(config, moduleMap, submoduleMap, sheetMap, worksheetMap) {
   const moduleIds = Object.keys(moduleMap);
   const submoduleIds = Object.keys(submoduleMap);
+  const allWorksheets = Object.values(worksheetMap);
 
   let moduleId = config?.CompareModule && moduleMap[config.CompareModule] ? config.CompareModule : null;
   let submoduleId = config?.CompareSubmoduleId && submoduleMap[config.CompareSubmoduleId] ? config.CompareSubmoduleId : null;
-  const allWorksheets = Object.values(worksheetMap);
+
   const resolveCompareItemId = (rawId) => {
     if (!rawId) return null;
     if (worksheetMap[rawId]) return rawId;
     const scopedMatch = submoduleId
-      ? (submoduleMap[submoduleId]?.worksheets ?? []).find((worksheet) => worksheet.kpiId === rawId || worksheet.id === rawId)
+      ? (submoduleMap[submoduleId]?.worksheets ?? []).find((worksheet) => worksheet.kpiId === rawId || worksheet.id === rawId || worksheet.sheetId === rawId)
       : null;
-    return scopedMatch?.id ?? allWorksheets.find((worksheet) => worksheet.kpiId === rawId || worksheet.id === rawId)?.id ?? null;
+    return scopedMatch?.id ?? allWorksheets.find((worksheet) => worksheet.kpiId === rawId || worksheet.id === rawId || worksheet.sheetId === rawId)?.id ?? null;
   };
-  let items = dedupeList([...(config?.CompareMetricIds ?? []), config?.MetricId]).map(resolveCompareItemId).filter(Boolean);
 
+  let items = dedupeList([...(config?.CompareMetricIds ?? []), config?.MetricId]).map(resolveCompareItemId).filter(Boolean);
+  let sheets = dedupeList(config?.CompareSheetIds ?? []).filter((id) => sheetMap[id]);
+
+  if (!sheets.length && items.length) sheets = dedupeList(items.map((id) => worksheetMap[id]?.sheetId).filter(Boolean));
+  if (!submoduleId && sheets[0]) submoduleId = sheetMap[sheets[0]]?.submoduleId ?? null;
   if (!submoduleId && items[0]) submoduleId = worksheetMap[items[0]]?.submoduleId ?? null;
   if (!moduleId && submoduleId) moduleId = submoduleMap[submoduleId]?.moduleId ?? null;
+  if (!moduleId && sheets[0]) moduleId = sheetMap[sheets[0]]?.moduleId ?? null;
   if (!moduleId && items[0]) moduleId = worksheetMap[items[0]]?.moduleId ?? null;
   if (!moduleId) moduleId = moduleIds[0] ?? null;
   if (!submoduleId) submoduleId = moduleMap[moduleId]?.submodules?.[0]?.id ?? submoduleIds[0] ?? null;
+
+  if (!sheets.length) {
+    sheets = (submoduleMap[submoduleId]?.sheets ?? []).map((sheet) => sheet.id).filter(Boolean).slice(0, 1);
+  }
   if (!items.length) {
-    items = (submoduleMap[submoduleId]?.worksheets ?? []).map((worksheet) => worksheet.id).filter(Boolean).slice(0, 3);
+    items = sheets.flatMap((sheetId) => sheetMap[sheetId]?.kpis?.map((item) => item.id) ?? []).filter(Boolean).slice(0, 3);
   }
 
   const rangeFrom = Number(config?.YearRange?.from ?? YEARS[0]);
@@ -941,7 +1018,9 @@ function createDraftFromConfig(config, moduleMap, submoduleMap, worksheetMap) {
   return {
     modules: moduleId ? [moduleId] : [],
     submodules: submoduleId ? [submoduleId] : [],
+    sheets,
     items,
+    breakdowns: dedupeList(config?.CompareBreakdowns ?? []),
     iits: dedupeList(config?.InstituteId?.length ? config.InstituteId : LEGACY_IITS),
     yearFrom,
     yearTo,
@@ -955,40 +1034,38 @@ function deriveModeValidity(items, iits, yearFrom, yearTo) {
   const years = YEARS.filter((year) => year >= yearFrom && year <= yearTo);
   const selected = items.filter(Boolean);
   const chartable = selected.filter((item) => item.comparable);
-  const formatSet = new Set(chartable.map((item) => item.kpi?.format).filter(Boolean));
   const tableOnlyItems = selected.filter((item) => !item.comparable);
 
   return {
     grouped: {
-      valid: chartable.length >= 1 && iits.length >= 2 && (chartable.length <= 1 || formatSet.size === 1),
+      valid: chartable.length >= 1 && iits.length >= 1,
       reason: chartable.length < 1
-        ? "Select at least one chartable compare item."
-        : iits.length < 2
-          ? "Grouped compare needs at least two IITs."
-          : formatSet.size > 1
-            ? "Grouped compare allows multiple metrics only when units or formats match."
-            : "",
+        ? "Select at least one chartable KPI."
+        : iits.length < 1
+          ? "Select at least one IIT."
+          : "",
     },
     trend: {
-      valid: chartable.length === 1 && years.length >= 2 && iits.length >= 1,
-      reason: chartable.length !== 1
-        ? "Trend needs exactly one chartable compare item."
+      valid: chartable.length >= 1 && years.length >= 2 && iits.length >= 1,
+      reason: chartable.length < 1
+        ? "Select at least one chartable KPI."
         : years.length < 2
-          ? "Trend needs at least two time points."
-          : "",
+          ? "Line / time series needs at least two years."
+          : iits.length < 1
+            ? "Select at least one IIT."
+            : "",
     },
     smallMultiples: {
       valid: chartable.length >= 1 && iits.length >= 1,
-      reason: chartable.length < 1 ? "Select at least one chartable compare item." : "",
+      reason: chartable.length < 1 ? "Select at least one chartable KPI." : "",
     },
     table: {
       valid: selected.length >= 1 && iits.length >= 1,
-      reason: selected.length < 1 ? "Select at least one compare item." : "",
+      reason: selected.length < 1 ? "Select at least one KPI." : "",
     },
     chartableCount: chartable.length,
     tableOnlyCount: tableOnlyItems.length,
     years,
-    formatSetSize: formatSet.size,
   };
 }
 
@@ -1015,19 +1092,46 @@ export default function ComparePage({
     ),
     [hierarchy],
   );
+  const sheetMap = useMemo(
+    () => Object.fromEntries(
+      hierarchy.flatMap((module) =>
+        module.submodules.flatMap((submodule) =>
+          (submodule.sheets ?? []).map((sheet) => [
+            sheet.id,
+            {
+              ...sheet,
+              categoryLabel: module.label ?? module.id,
+              moduleLabel: module.label ?? module.id,
+              moduleId: module.id,
+              submoduleId: submodule.id,
+              submoduleLabel: submodule.label ?? submodule.id,
+            },
+          ]),
+        ),
+      ),
+    ),
+    [hierarchy],
+  );
   const worksheetMap = useMemo(
     () => Object.fromEntries(
       hierarchy.flatMap((module) =>
         module.submodules.flatMap((submodule) =>
-          submodule.worksheets.map((worksheet) => [
-            worksheet.id,
-            {
-              ...worksheet,
-              moduleLabel: module.id,
-              moduleId: module.id,
-              submoduleId: submodule.id,
-            },
-          ]),
+          (submodule.sheets ?? []).flatMap((sheet) =>
+            (sheet.kpis ?? []).map((worksheet) => [
+              worksheet.id,
+              {
+                ...worksheet,
+                categoryLabel: module.label ?? module.id,
+                moduleLabel: module.label ?? module.id,
+                moduleId: module.id,
+                submoduleId: submodule.id,
+                submoduleLabel: submodule.label ?? submodule.id,
+                sheetId: sheet.id,
+                sheetLabel: sheet.label ?? worksheet.sheetLabel ?? worksheet.label,
+                kpiLabel: worksheet.kpiLabel ?? worksheet.label ?? worksheet.kpi?.label,
+              },
+            ]),
+          ),
         ),
       ),
     ),
@@ -1103,8 +1207,15 @@ export default function ComparePage({
   const selectedModules = useMemo(() => draft.modules.map((id) => moduleMap[id]).filter(Boolean), [draft.modules, moduleMap]);
   const availableSubmodules = useMemo(() => selectedModules.flatMap((module) => module.submodules), [selectedModules]);
   const selectedSubmodules = useMemo(() => draft.submodules.map((id) => submoduleMap[id]).filter(Boolean), [draft.submodules, submoduleMap]);
-  const availableItems = useMemo(() => selectedSubmodules.flatMap((submodule) => submodule.worksheets), [selectedSubmodules]);
+  const availableSheets = useMemo(() => selectedSubmodules.flatMap((submodule) => submodule.sheets ?? []), [selectedSubmodules]);
+  const selectedSheets = useMemo(() => draft.sheets.map((id) => sheetMap[id]).filter(Boolean), [draft.sheets, sheetMap]);
+  const availableItems = useMemo(() => selectedSheets.flatMap((sheet) => sheet.kpis ?? []), [selectedSheets]);
   const selectedItems = useMemo(() => draft.items.map((id) => worksheetMap[id]).filter(Boolean), [draft.items, worksheetMap]);
+  const draftYears = useMemo(() => YEARS.filter((year) => year >= draft.yearFrom && year <= draft.yearTo), [draft.yearFrom, draft.yearTo]);
+  const draftBreakdownOptions = useMemo(
+    () => breakdownOptionsForItems(selectedItems, facts, draft.iits, draftYears, 80),
+    [selectedItems, facts, draft.iits, draftYears],
+  );
 
   const modeValidity = useMemo(
     () => deriveModeValidity(selectedItems, draft.iits, draft.yearFrom, draft.yearTo),
@@ -1118,6 +1229,15 @@ export default function ComparePage({
   }, [draft.focusYear, draft.yearFrom, draft.yearTo]);
 
   useEffect(() => {
+    if (!draft.breakdowns?.length) return;
+    const allowed = new Set(draftBreakdownOptions);
+    const nextBreakdowns = draft.breakdowns.filter((item) => allowed.has(item));
+    if (nextBreakdowns.length !== draft.breakdowns.length) {
+      setDraft((prev) => ({ ...prev, breakdowns: nextBreakdowns }));
+    }
+  }, [draft.breakdowns, draftBreakdownOptions]);
+
+  useEffect(() => {
     if (!modeValidity[draft.view]?.valid) {
       const fallback = VIEW_OPTIONS.find((option) => modeValidity[option.id]?.valid)?.id ?? "table";
       setDraft((prev) => ({ ...prev, view: fallback, scale: fallback === "table" ? "raw" : prev.scale }));
@@ -1128,7 +1248,7 @@ export default function ComparePage({
     const requestKey = config?.CompareRequestKey ?? "__initial__";
     if (lastConfigRequestRef.current === requestKey) return;
 
-    const nextDraft = createDraftFromConfig(config, moduleMap, submoduleMap, worksheetMap);
+    const nextDraft = createDraftFromConfig(config, moduleMap, submoduleMap, sheetMap, worksheetMap);
     lastConfigRequestRef.current = requestKey;
     setDraft(nextDraft);
     setToolbarSearch(config?.CompareKeyword ?? "");
@@ -1140,7 +1260,7 @@ export default function ComparePage({
     if (config?.CompareAutoApply || config?.__compareApplied || requestKey === "__initial__") {
       setApplied(nextDraft);
     }
-  }, [config, moduleMap, submoduleMap, worksheetMap]);
+  }, [config, moduleMap, submoduleMap, sheetMap, worksheetMap]);
 
   if (role !== "ministry") {
     return (
@@ -1176,6 +1296,17 @@ export default function ComparePage({
   const primaryChartableAppliedItem = chartableAppliedItems[0] ?? null;
   const groupedIITs = useMemo(() => sortIitsAlphabetically(appliedIITs ?? []), [appliedIITs]);
   const compareChartCrowded = groupedIITs.length > 10;
+  const compareKpiCrowded = chartableAppliedItems.length > 10;
+  const appliedBreakdownOptions = useMemo(
+    () => breakdownOptionsForItems(appliedItems, facts, appliedIITs, appliedYears, 80),
+    [appliedItems, facts, appliedIITs, appliedYears],
+  );
+  const appliedBreakdownKeys = useMemo(() => {
+    const allowed = new Set(appliedBreakdownOptions);
+    const selected = (applied?.breakdowns ?? []).filter((item) => allowed.has(item));
+    if (selected.length) return selected;
+    return appliedBreakdownOptions.slice(0, Math.min(6, appliedBreakdownOptions.length));
+  }, [applied, appliedBreakdownOptions]);
 
   const groupedRows = useMemo(() => {
     if (!applied) return [];
@@ -1223,15 +1354,8 @@ export default function ComparePage({
 
   const groupedBreakdownKeys = useMemo(() => {
     if (!applied || chartableAppliedItems.length !== 1 || !primaryChartableAppliedItem?.kpi?.levels?.length) return [];
-    const keySet = new Set();
-    groupedIITs.forEach((iid) => {
-      const rows = scopeRowsForKpi(primaryChartableAppliedItem.kpi, facts?.[primaryChartableAppliedItem.kpi.fact] ?? []).filter(
-        (row) => row.InstituteId === iid && Number(row.Year ?? 0) === Number(applied.focusYear),
-      );
-      kpiBreakdown(primaryChartableAppliedItem.kpi, rows, []).forEach((item) => keySet.add(String(item.name ?? "Unknown")));
-    });
-    return Array.from(keySet).slice(0, 10);
-  }, [applied, facts, groupedIITs, chartableAppliedItems, primaryChartableAppliedItem]);
+    return appliedBreakdownKeys;
+  }, [applied, chartableAppliedItems, primaryChartableAppliedItem, appliedBreakdownKeys]);
 
   const useGroupedBreakdownStacks = Boolean(applied?.view === "grouped" && groupedBreakdownKeys.length > 1 && primaryChartableAppliedItem);
 
@@ -1249,7 +1373,7 @@ export default function ComparePage({
         label: instituteShortLabel(iid),
       };
       groupedBreakdownKeys.forEach((key) => {
-        const raw = breakdown.find((item) => String(item.name ?? "Unknown") === key)?.value ?? 0;
+        const raw = valueForBreakdownKey(facts, primaryChartableAppliedItem.kpi, iid, applied.focusYear, key) ?? 0;
         row[key] = primaryChartableAppliedItem.kpi?.format === "pct" && raw != null ? Number(raw) * 100 : raw;
       });
       row.__total = groupedBreakdownKeys.reduce((sum, key) => sum + Number(row[key] ?? 0), 0);
@@ -1263,29 +1387,63 @@ export default function ComparePage({
 
   const primaryAppliedItem = chartableAppliedItems[0];
 
+  const trendSeries = useMemo(() => {
+    if (!applied) return [];
+    const series = [];
+    chartableAppliedItems.forEach((item) => {
+      const itemBreakdowns = itemSupportsBreakdown(item) && appliedBreakdownKeys.length
+        ? appliedBreakdownKeys
+        : [TOTAL_COMPARISON_KEY];
+      itemBreakdowns.forEach((breakdownKey) => {
+        appliedIITs.forEach((iid) => {
+          const id = normalizeSeriesKey(`${item.id}__${breakdownKey}__${iid}`);
+          series.push({
+            id,
+            itemId: item.id,
+            item,
+            kpi: item.kpi,
+            iid,
+            breakdownKey,
+            label: compareSeriesLabel({ item, breakdownKey, iid }),
+            color: PALETTE[series.length % PALETTE.length],
+          });
+        });
+      });
+    });
+    return series;
+  }, [applied, appliedIITs, chartableAppliedItems, appliedBreakdownKeys]);
+
+  const trendSeriesLookup = useMemo(
+    () => Object.fromEntries(trendSeries.map((series) => [series.id, series])),
+    [trendSeries],
+  );
+
   const trendRows = useMemo(() => {
-    if (!applied || !primaryAppliedItem) return [];
-    const seriesByInstitute = Object.fromEntries(
-      appliedIITs.map((iid) => {
-        const values = appliedYears.map((year) => valueForKpi(facts, primaryAppliedItem.kpi, iid, year));
-        return [iid, values];
-      }),
+    if (!applied || !trendSeries.length) return [];
+    const rawSeriesValues = Object.fromEntries(
+      trendSeries.map((series) => [
+        series.id,
+        appliedYears.map((year) => valueForBreakdownKey(facts, series.kpi, series.iid, year, series.breakdownKey)),
+      ]),
     );
-    const indexed = Object.fromEntries(
-      Object.entries(seriesByInstitute).map(([iid, values]) => [iid, normalizeToBase(values)]),
+    const indexedSeriesValues = Object.fromEntries(
+      Object.entries(rawSeriesValues).map(([seriesId, values]) => [seriesId, normalizeToBase(values)]),
     );
+
     return appliedYears.map((year, yearIndex) => {
-      const row = { year, label: String(year), metricId: primaryAppliedItem.id };
-      appliedIITs.forEach((iid) => {
-        const raw = seriesByInstitute[iid]?.[yearIndex] ?? null;
-        row[`raw_${iid}`] = raw;
-        row[`display_${iid}`] = applied?.scale === "indexed"
-          ? indexed[iid]?.[yearIndex] ?? null
-          : (primaryAppliedItem.kpi?.format === "pct" && raw != null ? Number(raw) * 100 : raw);
+      const row = { year, label: String(year) };
+      trendSeries.forEach((series) => {
+        const raw = rawSeriesValues[series.id]?.[yearIndex] ?? null;
+        row[`raw_${series.id}`] = raw;
+        row[`display_${series.id}`] = applied.scale === "indexed"
+          ? indexedSeriesValues[series.id]?.[yearIndex] ?? null
+          : (series.kpi?.format === "pct" && raw != null ? Number(raw) * 100 : raw);
       });
       return row;
     });
-  }, [applied, appliedIITs, appliedYears, facts, primaryAppliedItem]);
+  }, [applied, appliedYears, facts, trendSeries]);
+
+  const trendSeriesCrowded = trendSeries.length > 24;
 
   const smallMultipleSeries = useMemo(() => {
     if (!applied) return [];
@@ -1312,31 +1470,40 @@ export default function ComparePage({
     if (!applied) return [];
     return appliedIITs.flatMap((iid) => {
       const institute = IITs.find((entry) => entry.id === iid)?.name ?? iid;
-      return appliedItems.map((item) => {
-        const latest = valueForKpi(facts, item.kpi, iid, applied.focusYear);
-        const prevYear = appliedYears[Math.max(0, appliedYears.indexOf(applied.focusYear) - 1)] ?? applied.focusYear;
-        const prev = valueForKpi(facts, item.kpi, iid, prevYear);
-        return {
-          Institute: institute,
-          InstituteCode: iid,
-          Module: item.moduleLabel,
-          Submodule: item.submoduleLabel,
-          CompareItem: item.label,
-          Value: latest,
-          YoY: latest != null && prev != null && prev !== 0 && prevYear !== applied.focusYear ? (latest - prev) / prev : null,
-          Range: appliedYears.map((year) => `${year}: ${fmtRaw(item.kpi, valueForKpi(facts, item.kpi, iid, year))}`).join(" - "),
-          _item: item,
-        };
+      return appliedItems.flatMap((item) => {
+        const breakdownsForItem = itemSupportsBreakdown(item) && appliedBreakdownKeys.length
+          ? appliedBreakdownKeys
+          : [TOTAL_COMPARISON_KEY];
+        return breakdownsForItem.map((breakdownKey) => {
+          const latest = valueForBreakdownKey(facts, item.kpi, iid, applied.focusYear, breakdownKey);
+          const prevYear = appliedYears[Math.max(0, appliedYears.indexOf(applied.focusYear) - 1)] ?? applied.focusYear;
+          const prev = valueForBreakdownKey(facts, item.kpi, iid, prevYear, breakdownKey);
+          return {
+            Institute: institute,
+            InstituteCode: iid,
+            Module: item.categoryLabel ?? item.moduleLabel,
+            Submodule: item.submoduleLabel,
+            Sheet: item.sheetLabel ?? item.label,
+            CompareItem: item.kpiLabel ?? item.kpi?.label ?? item.label,
+            CompareBy: breakdownKey === TOTAL_COMPARISON_KEY ? TOTAL_COMPARISON_LABEL : breakdownKey,
+            Value: latest,
+            YoY: latest != null && prev != null && prev !== 0 && prevYear !== applied.focusYear ? (latest - prev) / prev : null,
+            Range: appliedYears.map((year) => `${year}: ${fmtRaw(item.kpi, valueForBreakdownKey(facts, item.kpi, iid, year, breakdownKey))}`).join(" - "),
+            _item: item,
+          };
+        });
       });
     });
-  }, [applied, appliedIITs, appliedItems, appliedYears, facts]);
+  }, [applied, appliedIITs, appliedItems, appliedYears, facts, appliedBreakdownKeys]);
 
   const compareDetailColumns = useMemo(
     () => [
       { key: "Institute", label: "Institute" },
       { key: "Module", label: "Category" },
-      { key: "Submodule", label: "Sheet" },
-      { key: "CompareItem", label: "Compare item" },
+      { key: "Submodule", label: "Sub-module" },
+      { key: "Sheet", label: "Sheet" },
+      { key: "CompareItem", label: "KPI" },
+      { key: "CompareBy", label: "Compare by" },
       { key: "Value", label: `Value (${applied?.focusYear ?? ""})` },
       { key: "YoY", label: "YoY" },
       { key: "Range", label: `${applied?.yearFrom ?? YEARS[0]}-${applied?.yearTo ?? YEARS[YEARS.length - 1]}` },
@@ -1425,6 +1592,7 @@ export default function ComparePage({
   const canApply = Boolean(
     draft.modules.length &&
       draft.submodules.length &&
+      (draft.sheets ?? []).length &&
       draft.items.length &&
       draft.iits.length &&
       draft.yearFrom <= draft.yearTo &&
@@ -1454,7 +1622,9 @@ export default function ComparePage({
       ...draft,
       modules: [...draft.modules],
       submodules: [...draft.submodules],
+      sheets: [...(draft.sheets ?? [])],
       items: [...draft.items],
+      breakdowns: [...(draft.breakdowns ?? [])],
       iits: [...draft.iits],
     };
     setApplied(payload);
@@ -1463,7 +1633,9 @@ export default function ComparePage({
       ...prev,
       CompareModule: payload.modules[0] ?? prev.CompareModule,
       CompareSubmoduleId: payload.submodules[0] ?? prev.CompareSubmoduleId,
+      CompareSheetIds: payload.sheets,
       CompareMetricIds: payload.items,
+      CompareBreakdowns: payload.breakdowns,
       MetricId: worksheetMap[payload.items[0]]?.kpiId ?? payload.items[0] ?? prev.MetricId,
       CompareView: payload.view,
       CompareScale: payload.scale,
@@ -1476,29 +1648,41 @@ export default function ComparePage({
 
   function removeFromApplied(kind, id) {
     updateSelectionSummarySource((prev) => {
-      const next = { ...prev };
+      const next = { ...prev, sheets: [...(prev.sheets ?? [])], breakdowns: [...(prev.breakdowns ?? [])] };
       if (kind === "module") {
         next.modules = next.modules.filter((item) => item !== id);
         const allowedSubmodules = next.modules.flatMap((moduleId) => moduleMap[moduleId]?.submodules.map((submodule) => submodule.id) ?? []);
         next.submodules = next.submodules.filter((item) => allowedSubmodules.includes(item));
-        const allowedItems = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.worksheets.map((worksheet) => worksheet.id) ?? []);
+        const allowedSheets = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.sheets?.map((sheet) => sheet.id) ?? []);
+        next.sheets = next.sheets.filter((item) => allowedSheets.includes(item));
+        const allowedItems = next.sheets.flatMap((sheetId) => sheetMap[sheetId]?.kpis?.map((worksheet) => worksheet.id) ?? []);
         next.items = next.items.filter((item) => allowedItems.includes(item));
       }
       if (kind === "submodule") {
         next.submodules = next.submodules.filter((item) => item !== id);
         const keepModule = next.submodules.some((submoduleId) => submoduleMap[submoduleId]?.moduleId === submoduleMap[id]?.moduleId);
         if (!keepModule) next.modules = next.modules.filter((moduleId) => moduleId !== submoduleMap[id]?.moduleId);
-        const allowedItems = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.worksheets.map((worksheet) => worksheet.id) ?? []);
+        const allowedSheets = next.submodules.flatMap((submoduleId) => submoduleMap[submoduleId]?.sheets?.map((sheet) => sheet.id) ?? []);
+        next.sheets = next.sheets.filter((item) => allowedSheets.includes(item));
+        const allowedItems = next.sheets.flatMap((sheetId) => sheetMap[sheetId]?.kpis?.map((worksheet) => worksheet.id) ?? []);
         next.items = next.items.filter((item) => allowedItems.includes(item));
+      }
+      if (kind === "sheet") {
+        next.sheets = next.sheets.filter((item) => item !== id);
+        const removedItemIds = sheetMap[id]?.kpis?.map((item) => item.id) ?? [];
+        next.items = next.items.filter((item) => !removedItemIds.includes(item));
       }
       if (kind === "item") {
         next.items = next.items.filter((item) => item !== id);
         const item = worksheetMap[id];
-        const keepSubmodule = next.items.some((itemId) => worksheetMap[itemId]?.submoduleId === item?.submoduleId);
+        const keepSheet = next.items.some((itemId) => worksheetMap[itemId]?.sheetId === item?.sheetId);
+        if (!keepSheet) next.sheets = next.sheets.filter((sheetId) => sheetId !== item?.sheetId);
+        const keepSubmodule = next.sheets.some((sheetId) => sheetMap[sheetId]?.submoduleId === item?.submoduleId);
         if (!keepSubmodule) next.submodules = next.submodules.filter((submoduleId) => submoduleId !== item?.submoduleId);
         const keepModule = next.submodules.some((submoduleId) => submoduleMap[submoduleId]?.moduleId === item?.moduleId);
         if (!keepModule) next.modules = next.modules.filter((moduleId) => moduleId !== item?.moduleId);
       }
+      if (kind === "breakdown") next.breakdowns = next.breakdowns.filter((item) => item !== id);
       if (kind === "iit") next.iits = next.iits.filter((item) => item !== id);
       if (kind === "mode") next.view = VIEW_OPTIONS.find((option) => option.id !== next.view && deriveModeValidity(next.items.map((item) => worksheetMap[item]).filter(Boolean), next.iits, next.yearFrom, next.yearTo)[option.id]?.valid)?.id ?? next.view;
       if (kind === "scale") next.scale = "raw";
@@ -1516,8 +1700,10 @@ export default function ComparePage({
     const summary = [
       "IIT MIS Compare",
       `Categories: ${(applied.modules ?? []).join(", ")}`,
-      `Sheets: ${(applied.submodules ?? []).map((id) => submoduleMap[id]?.label ?? id).join(", ")}`,
-      `KPIs: ${(applied.items ?? []).map((id) => worksheetMap[id]?.label ?? id).join(", ")}`,
+      `Sub-modules: ${(applied.submodules ?? []).map((id) => submoduleMap[id]?.label ?? id).join(", ")}`,
+      `Sheets: ${(applied.sheets ?? []).map((id) => sheetMap[id]?.label ?? id).join(", ")}`,
+      `KPIs: ${(applied.items ?? []).map((id) => worksheetMap[id]?.kpiLabel ?? worksheetMap[id]?.kpi?.label ?? worksheetMap[id]?.label ?? id).join(", ")}`,
+      `Compare by: ${(applied.breakdowns ?? []).length ? applied.breakdowns.join(", ") : "Default breakdown / total"}`,
       `IITs: ${(applied.iits ?? []).join(", ")}`,
       `Years: ${applied.yearFrom}-${applied.yearTo}`,
       `Focus year: ${applied.focusYear}`,
@@ -1559,8 +1745,10 @@ export default function ComparePage({
     const columns = [
       { key: "Institute", label: "Institute" },
       { key: "Module", label: "Category" },
-      { key: "Submodule", label: "Sheet" },
-      { key: "CompareItem", label: "Compare item" },
+      { key: "Submodule", label: "Sub-module" },
+      { key: "Sheet", label: "Sheet" },
+      { key: "CompareItem", label: "KPI" },
+      { key: "CompareBy", label: "Compare by" },
       { key: "Value", label: `Value (${applied?.focusYear ?? ""})` },
       { key: "YoY", label: "YoY" },
       { key: "Range", label: `${applied?.yearFrom ?? YEARS[0]}-${applied?.yearTo ?? YEARS[YEARS.length - 1]}` },
@@ -1669,7 +1857,9 @@ export default function ComparePage({
       ...draft,
       modules: [...draft.modules],
       submodules: [...draft.submodules],
+      sheets: [...(draft.sheets ?? [])],
       items: [...draft.items],
+      breakdowns: [...(draft.breakdowns ?? [])],
       iits: [...draft.iits],
     };
     setApplied(payload);
@@ -1680,7 +1870,9 @@ export default function ComparePage({
       ...prev,
       CompareModule: payload.modules[0] ?? prev.CompareModule,
       CompareSubmoduleId: payload.submodules[0] ?? prev.CompareSubmoduleId,
+      CompareSheetIds: payload.sheets,
       CompareMetricIds: payload.items,
+      CompareBreakdowns: payload.breakdowns,
       MetricId: worksheetMap[payload.items[0]]?.kpiId ?? payload.items[0] ?? prev.MetricId,
       CompareView: payload.view,
       CompareScale: payload.scale,
@@ -1693,7 +1885,7 @@ export default function ComparePage({
 
   function commitAppliedSelection(next) {
     if (!next) return;
-    if (!next.modules.length || !next.submodules.length || !next.items.length || !next.iits.length) {
+    if (!next.modules.length || !next.submodules.length || !(next.sheets ?? []).length || !next.items.length || !next.iits.length) {
       setApplied(null);
       setDraft(next);
       return;
@@ -1778,6 +1970,7 @@ export default function ComparePage({
     const module = moduleMap[moduleId];
     if (!module) return;
     const subIds = module.submodules.map((submodule) => submodule.id);
+    const sheetIds = module.submodules.flatMap((submodule) => (submodule.sheets ?? []).map((sheet) => sheet.id));
     const itemIds = module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.id));
     setDraft((prev) => {
       const selected = prev.modules.includes(moduleId);
@@ -1786,6 +1979,7 @@ export default function ComparePage({
           ...prev,
           modules: prev.modules.filter((id) => id !== moduleId),
           submodules: prev.submodules.filter((id) => !subIds.includes(id)),
+          sheets: (prev.sheets ?? []).filter((id) => !sheetIds.includes(id)),
           items: prev.items.filter((id) => !itemIds.includes(id)),
         };
       }
@@ -1793,6 +1987,7 @@ export default function ComparePage({
         ...prev,
         modules: [...new Set([...prev.modules, moduleId])],
         submodules: [...new Set([...prev.submodules, ...subIds])],
+        sheets: [...new Set([...(prev.sheets ?? []), ...sheetIds])],
         items: [...new Set([...prev.items, ...itemIds])],
       };
     });
@@ -1801,6 +1996,7 @@ export default function ComparePage({
   function toggleSubmoduleSelection(submoduleId) {
     const submodule = submoduleMap[submoduleId];
     if (!submodule) return;
+    const sheetIds = (submodule.sheets ?? []).map((sheet) => sheet.id);
     const itemIds = submodule.worksheets.map((worksheet) => worksheet.id);
     setDraft((prev) => {
       const selected = prev.submodules.includes(submoduleId);
@@ -1813,6 +2009,7 @@ export default function ComparePage({
           ...prev,
           modules: nextModules,
           submodules: nextSubmodules,
+          sheets: (prev.sheets ?? []).filter((id) => !sheetIds.includes(id)),
           items: prev.items.filter((id) => !itemIds.includes(id)),
         };
       }
@@ -1820,6 +2017,37 @@ export default function ComparePage({
         ...prev,
         modules: [...new Set([...prev.modules, submodule.moduleId])],
         submodules: [...new Set([...prev.submodules, submoduleId])],
+        sheets: [...new Set([...(prev.sheets ?? []), ...sheetIds])],
+        items: [...new Set([...prev.items, ...itemIds])],
+      };
+    });
+  }
+
+  function toggleSheetSelection(sheetId) {
+    const sheet = sheetMap[sheetId];
+    if (!sheet) return;
+    const itemIds = (sheet.kpis ?? []).map((item) => item.id);
+    setDraft((prev) => {
+      const selected = (prev.sheets ?? []).includes(sheetId);
+      if (selected) {
+        const nextSheets = (prev.sheets ?? []).filter((id) => id !== sheetId);
+        const nextItems = prev.items.filter((id) => !itemIds.includes(id));
+        const keepSubmodule = nextSheets.some((id) => sheetMap[id]?.submoduleId === sheet.submoduleId);
+        const nextSubmodules = keepSubmodule ? prev.submodules : prev.submodules.filter((id) => id !== sheet.submoduleId);
+        const keepModule = nextSubmodules.some((id) => submoduleMap[id]?.moduleId === sheet.moduleId);
+        return {
+          ...prev,
+          modules: keepModule ? prev.modules : prev.modules.filter((id) => id !== sheet.moduleId),
+          submodules: nextSubmodules,
+          sheets: nextSheets,
+          items: nextItems,
+        };
+      }
+      return {
+        ...prev,
+        modules: [...new Set([...prev.modules, sheet.moduleId])],
+        submodules: [...new Set([...prev.submodules, sheet.submoduleId])],
+        sheets: [...new Set([...(prev.sheets ?? []), sheetId])],
         items: [...new Set([...prev.items, ...itemIds])],
       };
     });
@@ -1832,7 +2060,9 @@ export default function ComparePage({
       const selected = prev.items.includes(itemId);
       if (selected) {
         const nextItems = prev.items.filter((id) => id !== itemId);
-        const keepSubmodule = nextItems.some((id) => worksheetMap[id]?.submoduleId === item.submoduleId);
+        const keepSheet = nextItems.some((id) => worksheetMap[id]?.sheetId === item.sheetId);
+        const nextSheets = keepSheet ? (prev.sheets ?? []) : (prev.sheets ?? []).filter((id) => id !== item.sheetId);
+        const keepSubmodule = nextSheets.some((id) => sheetMap[id]?.submoduleId === item.submoduleId);
         const nextSubmodules = keepSubmodule ? prev.submodules : prev.submodules.filter((id) => id !== item.submoduleId);
         const keepModule = nextSubmodules.some((id) => submoduleMap[id]?.moduleId === item.moduleId);
         const nextModules = keepModule ? prev.modules : prev.modules.filter((id) => id !== item.moduleId);
@@ -1840,6 +2070,7 @@ export default function ComparePage({
           ...prev,
           modules: nextModules,
           submodules: nextSubmodules,
+          sheets: nextSheets,
           items: nextItems,
         };
       }
@@ -1847,9 +2078,19 @@ export default function ComparePage({
         ...prev,
         modules: [...new Set([...prev.modules, item.moduleId])],
         submodules: [...new Set([...prev.submodules, item.submoduleId])],
+        sheets: [...new Set([...(prev.sheets ?? []), item.sheetId])],
         items: [...new Set([...prev.items, itemId])],
       };
     });
+  }
+
+  function toggleBreakdownSelection(key) {
+    setDraft((prev) => ({
+      ...prev,
+      breakdowns: (prev.breakdowns ?? []).includes(key)
+        ? prev.breakdowns.filter((item) => item !== key)
+        : [...(prev.breakdowns ?? []), key],
+    }));
   }
 
   function getModuleSelectionState(module) {
@@ -1867,6 +2108,14 @@ export default function ComparePage({
     const selectedItemCount = itemIds.filter((id) => draft.items.includes(id)).length;
     const checked = draft.submodules.includes(submodule.id) && selectedItemCount === itemIds.length;
     const partial = !checked && (selectedItemCount > 0 || draft.submodules.includes(submodule.id));
+    return { checked, partial };
+  }
+
+  function getSheetSelectionState(sheet) {
+    const itemIds = (sheet.kpis ?? []).map((item) => item.id);
+    const selectedItemCount = itemIds.filter((id) => draft.items.includes(id)).length;
+    const checked = (draft.sheets ?? []).includes(sheet.id) && selectedItemCount === itemIds.length;
+    const partial = !checked && (selectedItemCount > 0 || (draft.sheets ?? []).includes(sheet.id));
     return { checked, partial };
   }
 
@@ -1931,8 +2180,10 @@ export default function ComparePage({
   const activeFilterCount = [
     draft.modules.length > 0,
     draft.submodules.length > 0,
+    (draft.sheets ?? []).length > 0,
     draft.items.length > 0,
     draft.iits.length > 0,
+    (draft.breakdowns ?? []).length > 0,
     Boolean(toolbarSearch),
     draft.yearFrom !== YEARS[0] || draft.yearTo !== YEARS[YEARS.length - 1],
   ].filter(Boolean).length;
@@ -1955,7 +2206,7 @@ export default function ComparePage({
     [hierarchy],
   );
 
-  const compareCarouselSheetItems = useMemo(() => {
+  const compareCarouselSubmoduleItems = useMemo(() => {
     const sourceModules = (selectionSource.modules ?? []).map((id) => moduleMap[id]).filter(Boolean);
     return sourceModules.flatMap((module) =>
       module.submodules.map((submodule) => ({
@@ -1966,21 +2217,33 @@ export default function ComparePage({
     );
   }, [selectionSource.modules, moduleMap]);
 
-  const compareCarouselKpiItems = useMemo(() => {
+  const compareCarouselSheetItems = useMemo(() => {
     const sourceSubmodules = (selectionSource.submodules ?? []).map((id) => submoduleMap[id]).filter(Boolean);
     return sourceSubmodules.flatMap((submodule) =>
-      submodule.worksheets.map((item) => ({
-        id: item.id,
-        label: item.label ?? item.kpi?.label ?? item.id,
-        tooltip: `${moduleMap[submodule.moduleId]?.label ?? submodule.moduleId} > ${submodule.label ?? submodule.id} > ${item.label ?? item.kpiId}`,
+      (submodule.sheets ?? []).map((sheet) => ({
+        id: sheet.id,
+        label: sheet.label ?? sheet.id,
+        tooltip: `${moduleMap[submodule.moduleId]?.label ?? submodule.moduleId} > ${submodule.label ?? submodule.id} > ${sheet.label ?? sheet.id}`,
       })),
     );
   }, [selectionSource.submodules, submoduleMap, moduleMap]);
+
+  const compareCarouselKpiItems = useMemo(() => {
+    const sourceSheets = (selectionSource.sheets ?? []).map((id) => sheetMap[id]).filter(Boolean);
+    return sourceSheets.flatMap((sheet) =>
+      (sheet.kpis ?? []).map((item) => ({
+        id: item.id,
+        label: item.kpiLabel ?? item.kpi?.label ?? item.label ?? item.id,
+        tooltip: `${moduleMap[sheet.moduleId]?.label ?? sheet.moduleId} > ${submoduleMap[sheet.submoduleId]?.label ?? sheet.submoduleId} > ${sheet.label ?? sheet.id} > ${item.kpiLabel ?? item.kpi?.label ?? item.label ?? item.id}`,
+      })),
+    );
+  }, [selectionSource.sheets, sheetMap, submoduleMap, moduleMap]);
 
   function toggleCompareModule(moduleId) {
     const targetModule = moduleMap[moduleId];
     if (!targetModule) return;
     const subIds = targetModule.submodules.map((submodule) => submodule.id);
+    const sheetIds = targetModule.submodules.flatMap((submodule) => (submodule.sheets ?? []).map((sheet) => sheet.id));
     const itemIds = targetModule.submodules.flatMap((submodule) => submodule.worksheets.map((item) => item.id));
     updateSelectionSummarySource((prev) => {
       const selected = prev.modules.includes(moduleId);
@@ -1989,6 +2252,7 @@ export default function ComparePage({
           ...prev,
           modules: prev.modules.filter((id) => id !== moduleId),
           submodules: prev.submodules.filter((id) => !subIds.includes(id)),
+          sheets: (prev.sheets ?? []).filter((id) => !sheetIds.includes(id)),
           items: prev.items.filter((id) => !itemIds.includes(id)),
         };
       }
@@ -1996,32 +2260,65 @@ export default function ComparePage({
         ...prev,
         modules: [...new Set([...prev.modules, moduleId])],
         submodules: [...new Set([...prev.submodules, ...subIds])],
+        sheets: [...new Set([...(prev.sheets ?? []), ...sheetIds])],
         items: [...new Set([...prev.items, ...itemIds])],
       };
     });
   }
 
-  function toggleCompareSheet(submoduleId) {
+  function toggleCompareSubmodule(submoduleId) {
     const submodule = submoduleMap[submoduleId];
     if (!submodule) return;
+    const sheetIds = (submodule.sheets ?? []).map((sheet) => sheet.id);
     const itemIds = submodule.worksheets.map((item) => item.id);
     updateSelectionSummarySource((prev) => {
       const selected = prev.submodules.includes(submoduleId);
       if (selected) {
-        const nextItems = prev.items.filter((id) => !itemIds.includes(id));
         const nextSubmodules = prev.submodules.filter((id) => id !== submoduleId);
         const keepModule = nextSubmodules.some((id) => submoduleMap[id]?.moduleId === submodule.moduleId);
         return {
           ...prev,
           modules: keepModule ? prev.modules : prev.modules.filter((id) => id !== submodule.moduleId),
           submodules: nextSubmodules,
-          items: nextItems,
+          sheets: (prev.sheets ?? []).filter((id) => !sheetIds.includes(id)),
+          items: prev.items.filter((id) => !itemIds.includes(id)),
         };
       }
       return {
         ...prev,
         modules: [...new Set([...prev.modules, submodule.moduleId])],
         submodules: [...new Set([...prev.submodules, submoduleId])],
+        sheets: [...new Set([...(prev.sheets ?? []), ...sheetIds])],
+        items: [...new Set([...prev.items, ...itemIds])],
+      };
+    });
+  }
+
+  function toggleCompareSheet(sheetId) {
+    const sheet = sheetMap[sheetId];
+    if (!sheet) return;
+    const itemIds = (sheet.kpis ?? []).map((item) => item.id);
+    updateSelectionSummarySource((prev) => {
+      const selected = (prev.sheets ?? []).includes(sheetId);
+      if (selected) {
+        const nextSheets = (prev.sheets ?? []).filter((id) => id !== sheetId);
+        const nextItems = prev.items.filter((id) => !itemIds.includes(id));
+        const keepSubmodule = nextSheets.some((id) => sheetMap[id]?.submoduleId === sheet.submoduleId);
+        const nextSubmodules = keepSubmodule ? prev.submodules : prev.submodules.filter((id) => id !== sheet.submoduleId);
+        const keepModule = nextSubmodules.some((id) => submoduleMap[id]?.moduleId === sheet.moduleId);
+        return {
+          ...prev,
+          modules: keepModule ? prev.modules : prev.modules.filter((id) => id !== sheet.moduleId),
+          submodules: nextSubmodules,
+          sheets: nextSheets,
+          items: nextItems,
+        };
+      }
+      return {
+        ...prev,
+        modules: [...new Set([...prev.modules, sheet.moduleId])],
+        submodules: [...new Set([...prev.submodules, sheet.submoduleId])],
+        sheets: [...new Set([...(prev.sheets ?? []), sheetId])],
         items: [...new Set([...prev.items, ...itemIds])],
       };
     });
@@ -2034,13 +2331,16 @@ export default function ComparePage({
       const selected = prev.items.includes(itemId);
       if (selected) {
         const nextItems = prev.items.filter((id) => id !== itemId);
-        const keepSubmodule = nextItems.some((id) => worksheetMap[id]?.submoduleId === item.submoduleId);
+        const keepSheet = nextItems.some((id) => worksheetMap[id]?.sheetId === item.sheetId);
+        const nextSheets = keepSheet ? (prev.sheets ?? []) : (prev.sheets ?? []).filter((id) => id !== item.sheetId);
+        const keepSubmodule = nextSheets.some((id) => sheetMap[id]?.submoduleId === item.submoduleId);
         const nextSubmodules = keepSubmodule ? prev.submodules : prev.submodules.filter((id) => id !== item.submoduleId);
         const keepModule = nextSubmodules.some((id) => submoduleMap[id]?.moduleId === item.moduleId);
         return {
           ...prev,
           modules: keepModule ? prev.modules : prev.modules.filter((id) => id !== item.moduleId),
           submodules: nextSubmodules,
+          sheets: nextSheets,
           items: nextItems,
         };
       }
@@ -2048,6 +2348,7 @@ export default function ComparePage({
         ...prev,
         modules: [...new Set([...prev.modules, item.moduleId])],
         submodules: [...new Set([...prev.submodules, item.submoduleId])],
+        sheets: [...new Set([...(prev.sheets ?? []), item.sheetId])],
         items: [...new Set([...prev.items, itemId])],
       };
     });
@@ -2057,13 +2358,13 @@ export default function ComparePage({
     return (
       <CombinedKpiSelector
         title="Compare"
-        helper="Select the category, sheet, and KPI to compare."
+        helper="Select the category, sub-module, sheet, and KPI to compare."
         accent={uiAccent}
         soft={`${uiAccent}12`}
         rows={[
           {
             id: "compare-module",
-            label: "Category",
+            label: "Category(s)",
             items: compareCarouselModuleItems,
             activeIds: selectionSource.modules ?? [],
             activeId: selectionSource.modules?.[0] ?? null,
@@ -2071,17 +2372,26 @@ export default function ComparePage({
             onRightAction: () => openBuilder(1),
           },
           {
-            id: "compare-sheet",
-            label: "Sheet",
-            items: compareCarouselSheetItems,
+            id: "compare-submodule",
+            label: "Sub-module(s)",
+            items: compareCarouselSubmoduleItems,
             activeIds: selectionSource.submodules ?? [],
             activeId: selectionSource.submodules?.[0] ?? null,
+            onPick: toggleCompareSubmodule,
+            onRightAction: () => openBuilder(1),
+          },
+          {
+            id: "compare-sheet",
+            label: "Sheet(s)",
+            items: compareCarouselSheetItems,
+            activeIds: selectionSource.sheets ?? [],
+            activeId: selectionSource.sheets?.[0] ?? null,
             onPick: toggleCompareSheet,
             onRightAction: () => openBuilder(1),
           },
           {
             id: "compare-kpi",
-            label: "KPI",
+            label: "KPI(s)",
             items: compareCarouselKpiItems,
             activeIds: selectionSource.items ?? [],
             activeId: selectionSource.items?.[0] ?? null,
@@ -2243,6 +2553,8 @@ export default function ComparePage({
     );
 
     const selectedModuleEntities = draft.modules.map((id) => moduleMap[id]).filter(Boolean);
+    const selectedSubmoduleEntities = draft.submodules.map((id) => submoduleMap[id]).filter(Boolean);
+    const selectedSheetEntities = (draft.sheets ?? []).map((id) => sheetMap[id]).filter(Boolean);
     const submodulePool = selectedModuleEntities.flatMap((module) =>
       (module.submodules ?? []).map((submodule) => ({
         ...submodule,
@@ -2259,6 +2571,25 @@ export default function ComparePage({
       (submodule) => (draft.submodules.includes(submodule.id) ? 2 : 0),
     );
 
+    const visibleSheets = sortEntities(
+      selectedSubmoduleEntities.flatMap((submodule) => (submodule.sheets ?? []).map((sheet) => ({
+        ...sheet,
+        moduleLabel: moduleMap[submodule.moduleId]?.label ?? submodule.moduleId,
+        submoduleLabel: submodule.label ?? submodule.id,
+      }))),
+      (sheet) => `${sheet.moduleLabel} ${sheet.submoduleLabel} ${sheet.label}`,
+      (sheet) => ((draft.sheets ?? []).includes(sheet.id) ? 2 : 0),
+    );
+
+    const visibleKpis = sortEntities(
+      selectedSheetEntities.flatMap((sheet) => (sheet.kpis ?? []).map((item) => ({
+        ...item,
+        sheetLabel: sheet.label ?? item.sheetLabel,
+      }))),
+      (item) => `${item.sheetLabel} ${item.kpiLabel ?? item.label}`,
+      (item) => (draft.items.includes(item.id) ? 2 : 0),
+    );
+
     const visibleIITs = sortEntities(
       IITs.filter((iit) => {
         if (!iitQuery) return true;
@@ -2273,22 +2604,25 @@ export default function ComparePage({
         ...prev,
         modules: hierarchy.map((module) => module.id),
         submodules: hierarchy.flatMap((module) => module.submodules.map((submodule) => submodule.id)),
+        sheets: hierarchy.flatMap((module) => module.submodules.flatMap((submodule) => (submodule.sheets ?? []).map((sheet) => sheet.id))),
         items: hierarchy.flatMap((module) => module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.id))),
       }));
     };
 
     const resetModules = () => {
-      setDraft((prev) => ({ ...prev, modules: [], submodules: [], items: [] }));
+      setDraft((prev) => ({ ...prev, modules: [], submodules: [], sheets: [], items: [], breakdowns: [] }));
     };
 
     const selectAllVisibleSubmodules = () => {
       if (!selectedModuleEntities.length) return;
       const nextSubmodules = selectedModuleEntities.flatMap((module) => module.submodules.map((submodule) => submodule.id));
+      const nextSheets = selectedModuleEntities.flatMap((module) => module.submodules.flatMap((submodule) => (submodule.sheets ?? []).map((sheet) => sheet.id)));
       const nextItems = selectedModuleEntities.flatMap((module) => module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.id)));
       setDraft((prev) => ({
         ...prev,
         modules: [...new Set([...prev.modules, ...selectedModuleEntities.map((module) => module.id)])],
         submodules: [...new Set([...prev.submodules, ...nextSubmodules])],
+        sheets: [...new Set([...(prev.sheets ?? []), ...nextSheets])],
         items: [...new Set([...prev.items, ...nextItems])],
       }));
     };
@@ -2298,8 +2632,38 @@ export default function ComparePage({
       setDraft((prev) => ({
         ...prev,
         submodules: prev.submodules.filter((submoduleId) => !selectedModuleSet.has(submoduleMap[submoduleId]?.moduleId)),
+        sheets: (prev.sheets ?? []).filter((sheetId) => !selectedModuleSet.has(sheetMap[sheetId]?.moduleId)),
         items: prev.items.filter((itemId) => !selectedModuleSet.has(worksheetMap[itemId]?.moduleId)),
+        breakdowns: [],
       }));
+    };
+
+    const selectAllVisibleSheets = () => {
+      const nextSheets = visibleSheets.map((sheet) => sheet.id);
+      const nextItems = visibleSheets.flatMap((sheet) => sheet.kpis?.map((item) => item.id) ?? []);
+      setDraft((prev) => ({
+        ...prev,
+        sheets: [...new Set([...(prev.sheets ?? []), ...nextSheets])],
+        items: [...new Set([...prev.items, ...nextItems])],
+      }));
+    };
+
+    const resetSheets = () => {
+      const selectedSubmoduleSet = new Set(draft.submodules);
+      setDraft((prev) => ({
+        ...prev,
+        sheets: (prev.sheets ?? []).filter((sheetId) => !selectedSubmoduleSet.has(sheetMap[sheetId]?.submoduleId)),
+        items: prev.items.filter((itemId) => !selectedSubmoduleSet.has(worksheetMap[itemId]?.submoduleId)),
+        breakdowns: [],
+      }));
+    };
+
+    const selectAllVisibleKpis = () => {
+      setDraft((prev) => ({ ...prev, items: [...new Set([...prev.items, ...visibleKpis.map((item) => item.id)])] }));
+    };
+
+    const resetKpis = () => {
+      setDraft((prev) => ({ ...prev, items: [], breakdowns: [] }));
     };
 
     return (
@@ -2311,7 +2675,7 @@ export default function ComparePage({
           <div className="flex items-start justify-between gap-4 px-6 py-5">
             <div>
               <div className="text-[1.25rem] font-extrabold text-slate-900">Compare filters</div>
-              <div className="mt-1 text-sm text-slate-500">Refine category, sheet, KPI, date, and IIT filters, then apply them to refresh the compare view.</div>
+              <div className="mt-1 text-sm text-slate-500">Refine category, sub-module, sheet, KPI, date, and IIT filters, then apply them to refresh the compare view.</div>
             </div>
             <button
               type="button"
@@ -2327,7 +2691,7 @@ export default function ComparePage({
             <div className="space-y-4">
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Category</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Category(s)</div>
                   <div>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-[220px] flex-1 max-w-[320px]">
@@ -2348,7 +2712,7 @@ export default function ComparePage({
                           title={module.description || module.label || module.id}
                         />
                       )) : (
-                        <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching modules found.</div>
+                        <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching categories found.</div>
                       )}
                     </div>
                   </div>
@@ -2357,15 +2721,15 @@ export default function ComparePage({
 
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Sheet</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Sub-module(s)</div>
                   <div>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-[220px] flex-1 max-w-[320px]">
-                        <SearchField value={submoduleSearch} onChange={setSubmoduleSearch} placeholder="Search sheet" />
+                        <SearchField value={submoduleSearch} onChange={setSubmoduleSearch} placeholder="Search sub-module" />
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <button type="button" onClick={resetSubmodules} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
-                        <SelectionActionButton label="Select all" onClick={selectAllVisibleSubmodules} title="Select all sheets for the current categories" />
+                        <SelectionActionButton label="Select all" onClick={selectAllVisibleSubmodules} title="Select all sub-modules for the current categories" />
                       </div>
                     </div>
                     {selectedModuleEntities.length ? (
@@ -2379,11 +2743,11 @@ export default function ComparePage({
                             title={`${submodule.moduleLabel} > ${submodule.label}`}
                           />
                         )) : (
-                          <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching sheets found for the selected category.</div>
+                          <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching sub-modules found for the selected category.</div>
                         )}
                       </div>
                     ) : (
-                      <div className="mt-4 rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one category to view its sheets here.</div>
+                      <div className="mt-4 rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one category to view its sub-modules here.</div>
                     )}
                   </div>
                 </div>
@@ -2391,22 +2755,96 @@ export default function ComparePage({
 
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">KPI</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Sheet(s)</div>
                   <div>
-                    {selectedSubmodules.length ? (
+                    <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                      <button type="button" onClick={resetSheets} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
+                      <SelectionActionButton label="Select all" onClick={selectAllVisibleSheets} title="Select all sheets for the selected sub-modules" />
+                    </div>
+                    {selectedSubmoduleEntities.length ? (
                       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                        {availableItems.map((item) => (
+                        {visibleSheets.length ? visibleSheets.map((sheet) => (
                           <FilterChoiceChip
-                            key={item.id}
-                            label={item.label}
-                            active={draft.items.includes(item.id)}
-                            onClick={() => toggleItemSelection(item.id)}
-                            title={`${submoduleMap[item.submoduleId]?.label ?? item.submoduleId} > ${item.label}`}
+                            key={`sheet-${sheet.id}`}
+                            label={sheet.label}
+                            active={(draft.sheets ?? []).includes(sheet.id)}
+                            onClick={() => toggleSheetSelection(sheet.id)}
+                            title={`${sheet.submoduleLabel} > ${sheet.label}`}
                           />
-                        ))}
+                        )) : (
+                          <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching sheets found for the selected sub-module.</div>
+                        )}
                       </div>
                     ) : (
+                      <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one sub-module to view sheets here.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+                <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">KPI(s)</div>
+                  <div>
+                    <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                      <button type="button" onClick={resetKpis} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
+                      <SelectionActionButton label="Select all" onClick={selectAllVisibleKpis} title="Select all KPIs for the selected sheets" />
+                    </div>
+                    {selectedSheetEntities.length ? (
+                      <>
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                          {visibleKpis.length ? visibleKpis.map((item) => (
+                            <FilterChoiceChip
+                              key={`kpi-${item.id}`}
+                              label={item.kpiLabel ?? item.kpi?.label ?? item.label}
+                              active={draft.items.includes(item.id)}
+                              onClick={() => toggleItemSelection(item.id)}
+                              title={`${item.sheetLabel ?? item.sheetId} > ${item.kpiLabel ?? item.kpi?.label ?? item.kpiId}`}
+                            />
+                          )) : (
+                            <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No KPI found for the selected sheet.</div>
+                          )}
+                        </div>
+                        {draft.items.length > 10 ? (
+                          <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                            More than 10 KPIs are selected. The comparison will still run, but charts may become visually dense; use the table or reduce the selection for clearer interpretation.
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
                       <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one sheet to view KPIs here.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+                <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Compare by</div>
+                  <div>
+                    {draftBreakdownOptions.length ? (
+                      <>
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm text-slate-500">Choose the internal breakdown values to compare inside selected KPIs.</div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button type="button" onClick={() => setDraft((prev) => ({ ...prev, breakdowns: [] }))} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Use defaults</button>
+                            <SelectionActionButton label="Select all" onClick={() => setDraft((prev) => ({ ...prev, breakdowns: [...draftBreakdownOptions] }))} title="Select all available breakdown values" />
+                          </div>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                          {draftBreakdownOptions.map((key) => (
+                            <FilterChoiceChip
+                              key={`breakdown-${key}`}
+                              label={key}
+                              active={(draft.breakdowns ?? []).includes(key)}
+                              onClick={() => toggleBreakdownSelection(key)}
+                              title={`Compare by ${key}`}
+                            />
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">The selected KPI(s) do not expose an internal breakdown. The comparison will use the total value.</div>
                     )}
                   </div>
                 </div>
@@ -2445,7 +2883,7 @@ export default function ComparePage({
                     </div>
                     {draft.iits.length > 10 ? (
                       <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                        More than 10 IITs may make the visualization clunky. Use Top 10, Bottom 10, or a smaller selected set for cleaner charts.
+                        More than 10 IITs are selected. The comparison will still run, but the chart may be harder to interpret; consider Top 10, Bottom 10, or table view for clearer analysis.
                       </div>
                     ) : null}
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -2592,15 +3030,10 @@ export default function ComparePage({
 
   function renderChartCard(targetRef, fullscreen = false) {
     if (!applied) return null;
-    const appliedWorksheetPills = appliedItems.map((item) => ({
-      id: item.id,
-      label: item.label,
-      breadcrumb: [
-        moduleMap[item.moduleId]?.label ?? item.moduleLabel ?? item.moduleId,
-        submoduleMap[item.submoduleId]?.label ?? item.submoduleLabel ?? item.submoduleId,
-        item.label,
-      ].filter(Boolean).join(" > "),
-    }));
+    const appliedCompareLabel = summarizeList(
+      appliedItems.map((item) => item.kpiLabel ?? item.kpi?.label ?? item.label),
+      4,
+    );
     const appliedYearsLabel = `${applied.yearFrom}-${applied.yearTo}`;
     const appliedIitsLabel = summarizeList(appliedIITs.map((iid) => instituteShortLabel(iid)), 5);
     const visualToolbarItems = VIEW_OPTIONS
@@ -2610,6 +3043,10 @@ export default function ComparePage({
         label: option.label,
         icon: compareIcon(option.id, option.id === applied.view, option.id === applied.view ? "#ffffff" : uiAccent),
       }));
+    const barLegendItems = useGroupedBreakdownStacks
+      ? groupedBreakdownKeys.map((key, index) => ({ id: key, label: key, color: PALETTE[index % PALETTE.length] }))
+      : chartableAppliedItems.map((item, index) => ({ id: item.id, label: item.kpiLabel ?? item.label ?? item.kpi?.label, color: PALETTE[index % PALETTE.length] }));
+    const trendLegendItems = trendSeries.map((series) => ({ id: series.id, label: series.label, color: series.color }));
 
     return (
       <div
@@ -2645,24 +3082,27 @@ export default function ComparePage({
 
             <div className="min-w-0 text-center lg:px-4">
               <div className="text-[1.08rem] font-extrabold leading-tight text-slate-900">Compare</div>
-              <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-                {appliedWorksheetPills.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={openWorksheetFilters}
-                    title={item.breadcrumb}
-                    className="inline-flex items-center rounded-[14px] bg-[#eef5ff] px-4 py-2 text-sm font-bold text-[#1252a0] shadow-[inset_0_1px_0_rgba(255,255,255,0.92)] transition hover:bg-[#e2eeff]"
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
+              <div className="mt-2 text-sm font-semibold text-[#1252a0]">{appliedCompareLabel}</div>
               <div className="mt-3 text-sm text-slate-600">{appliedIitsLabel}</div>
               <div className="mt-1 text-sm font-semibold text-slate-700">{appliedYearsLabel}</div>
             </div>
 
             <div className="flex flex-wrap items-center justify-start gap-3 lg:justify-end">
+              {visualToolbarItems.length > 1 ? (
+                <VisualToolbar
+                  items={visualToolbarItems}
+                  value={applied.view}
+                  onChange={(nextView) => {
+                    const nextState = appliedModeValidity[nextView];
+                    if (!nextState?.valid) return;
+                    commitAppliedSelection({ ...applied, view: nextView, scale: nextView === "table" ? "raw" : applied.scale });
+                  }}
+                  accent={uiAccent}
+                  orientation="horizontal"
+                  exportHidden
+                  style={{ position: "static", transform: "none" }}
+                />
+              ) : null}
               {!fullscreen ? (
                 <button
                   type="button"
@@ -2679,25 +3119,23 @@ export default function ComparePage({
 
           {compareChartCrowded && applied.view !== "table" ? (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-              More than 10 IITs are selected. The chart is allowed, but it may look crowded; use the table, filters, or a smaller IIT set for a cleaner visual.
+              More than 10 IITs are selected. The comparison will still run, but the chart may be harder to interpret; consider Top 10, Bottom 10, or table view for clearer analysis.
+            </div>
+          ) : null}
+
+          {compareKpiCrowded && applied.view !== "table" ? (
+            <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+              More than 10 KPIs are selected. The comparison will still run, but visual density may reduce readability; use small multiples or table view for detailed review.
+            </div>
+          ) : null}
+
+          {trendSeriesCrowded && applied.view === "trend" ? (
+            <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+              This line chart contains many KPI, breakdown, and IIT series. It is allowed, but a narrower Compare by selection will produce a clearer trend view.
             </div>
           ) : null}
 
           <div className="mt-4 bg-white pt-2">
-            {visualToolbarItems.length > 1 ? (
-              <VisualToolbar
-                items={visualToolbarItems}
-                value={applied.view}
-                onChange={(nextView) => {
-                  const nextState = appliedModeValidity[nextView];
-                  if (!nextState?.valid) return;
-                  commitAppliedSelection({ ...applied, view: nextView, scale: nextView === "table" ? "raw" : applied.scale });
-                }}
-                accent={uiAccent}
-                exportHidden
-              />
-            ) : null}
-
             {applied.view !== "table" && !appliedModeValidity[applied.view]?.valid ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                 {appliedModeValidity[applied.view]?.reason}
@@ -2705,7 +3143,9 @@ export default function ComparePage({
             ) : null}
 
             {applied.view === "grouped" && appliedModeValidity.grouped.valid ? (
-              <div style={{ height: fullscreen ? 620 : 520 }}>
+              <>
+                <CompareLegend items={barLegendItems} />
+                <div style={{ height: fullscreen ? 620 : 520 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={useGroupedBreakdownStacks ? groupedBreakdownRows : groupedRows} margin={{ top: 12, right: 18, left: 8, bottom: 72 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
@@ -2734,24 +3174,39 @@ export default function ComparePage({
                         ))}
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
+                </div>
+              </>
             ) : null}
 
             {applied.view === "trend" && appliedModeValidity.trend.valid ? (
-              <div style={{ height: fullscreen ? 620 : 520 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={trendRows} margin={{ top: 14, right: 20, left: 8, bottom: 18 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                    <XAxis dataKey="label" tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} width={78} />
-                    <Tooltip content={<CompareTooltip metricLookup={appliedMetricLookup} scaleMode={applied.scale} mode="trend" />} />
-                    <ReferenceLine x={String(applied.focusYear)} stroke={uiAccent} strokeDasharray="4 4" />
-                    {appliedIITs.map((iid, index) => (
-                      <Line key={iid} type="monotone" dataKey={`display_${iid}`} stroke={PALETTE[index % PALETTE.length]} strokeWidth={2.6} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false} />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+              <>
+                <CompareLegend items={trendLegendItems} />
+                <div style={{ height: fullscreen ? 620 : 520 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={trendRows} margin={{ top: 14, right: 20, left: 8, bottom: 18 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                      <XAxis dataKey="label" tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} width={78} />
+                      <Tooltip content={<CompareTooltip seriesLookup={trendSeriesLookup} scaleMode={applied.scale} mode="trend" />} />
+                      <ReferenceLine x={String(applied.focusYear)} stroke={uiAccent} strokeDasharray="4 4" />
+                      {trendSeries.map((series) => (
+                        <Line
+                          key={series.id}
+                          type="monotone"
+                          dataKey={`display_${series.id}`}
+                          name={series.label}
+                          stroke={series.color}
+                          strokeWidth={2.4}
+                          dot={{ r: 2.8 }}
+                          activeDot={{ r: 5 }}
+                          connectNulls
+                          isAnimationActive={false}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </>
             ) : null}
 
             {applied.view === "smallMultiples" && appliedModeValidity.smallMultiples.valid ? (
@@ -2763,40 +3218,18 @@ export default function ComparePage({
             ) : null}
 
             {applied.view === "table" && appliedModeValidity.table.valid ? (
-              <div className="overflow-auto rounded-[24px] border border-slate-200">
-                <table className="w-full border-collapse text-sm">
-                  <thead className="sticky top-0 bg-[#eef5ff]">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Institute</th>
-                      <th className="px-3 py-2 text-left">Module</th>
-                      <th className="px-3 py-2 text-left">Sub-module</th>
-                      <th className="px-3 py-2 text-left">Compare item</th>
-                      <th className="px-3 py-2 text-left">Value</th>
-                      <th className="px-3 py-2 text-left">YoY</th>
-                      <th className="px-3 py-2 text-left">Range</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tableRows.map((row, index) => (
-                      <tr key={`${row.Institute}-${row.CompareItem}-${index}`} className="odd:bg-[#f8fbff] even:bg-white">
-                        <td className="border-t border-slate-200 px-3 py-2">{row.Institute}</td>
-                        <td className="border-t border-slate-200 px-3 py-2">{row.Module}</td>
-                        <td className="border-t border-slate-200 px-3 py-2">{row.Submodule}</td>
-                        <td className="border-t border-slate-200 px-3 py-2">{row.CompareItem}</td>
-                        <td className="border-t border-slate-200 px-3 py-2">{fmtRaw(row._item?.kpi, row.Value)}</td>
-                        <td className="border-t border-slate-200 px-3 py-2">{formatPct(row.YoY)}</td>
-                        <td className="border-t border-slate-200 px-3 py-2">{row.Range}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                columns={compareDetailColumns}
+                rows={compareDetailRows}
+                maxHeight={520}
+                accent={uiAccent}
+              />
             ) : null}
           </div>
 
           <div
             data-export-hide="true"
-            className={`${fullscreen ? "fixed bottom-8 right-8 z-[340]" : "absolute bottom-4 right-4 z-20"} flex flex-col items-end gap-2`}
+            className={`${fullscreen ? "fixed bottom-8 right-8 z-[340]" : "fixed bottom-6 right-6 z-[260]"} flex flex-col items-end gap-2`}
           >
             {speedDialOpen
               ? speedDialItems.map((item) => (
@@ -2808,12 +3241,12 @@ export default function ComparePage({
                       setSpeedDialOpen(false);
                     }}
                     className="dashboard-speed-action group relative z-[141] grid h-11 w-11 place-items-center rounded-2xl bg-white shadow-lg transition hover:-translate-y-0.5"
-                    style={{ color: "#0f172a", border: "1px solid rgba(15,42,94,0.14)" }}
+                    style={{ color: uiAccent, border: `1px solid ${uiAccent}1f` }}
                   >
                     <span className="dashboard-speed-tooltip pointer-events-none absolute right-[calc(100%+10px)] top-1/2 z-[142] -translate-y-1/2 whitespace-nowrap rounded-xl border bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 opacity-0 shadow-sm transition">
                       {item.label}
                     </span>
-                    <span>{compareIcon(item.icon, false, "#0f172a")}</span>
+                    <span>{compareIcon(item.icon, false, uiAccent)}</span>
                   </button>
                 ))
               : null}
@@ -2821,13 +3254,13 @@ export default function ComparePage({
               type="button"
               onClick={() => setSpeedDialOpen((value) => !value)}
               className="dashboard-speed-action group relative z-[141] grid h-12 w-12 place-items-center rounded-2xl text-3xl text-white shadow-lg"
-              style={{ background: "#1e6cc8", lineHeight: 1 }}
+              style={{ background: uiAccent, lineHeight: 1 }}
             >
               <span className="dashboard-speed-tooltip pointer-events-none absolute right-[calc(100%+10px)] top-1/2 z-[142] -translate-y-1/2 whitespace-nowrap rounded-xl border bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 opacity-0 shadow-sm transition">
                 {speedDialOpen ? "Close actions" : "Open actions"}
               </span>
               <span style={{ transform: speedDialOpen ? "translateY(-1px)" : "translateY(-2px)" }}>
-                {speedDialOpen ? "x" : "+"}
+                {speedDialOpen ? "×" : "+"}
               </span>
             </button>
           </div>

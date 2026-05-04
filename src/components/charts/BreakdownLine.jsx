@@ -59,7 +59,7 @@ function WrappedAxisLabel({ viewBox, value }) {
   );
 }
 
-function TooltipCard({ active, payload, label, isPct, yLabel, multiSeries }) {
+function TooltipCard({ active, payload, label, isPct, yLabel, multiSeries, drillHint }) {
   if (!active || !payload?.length) return null;
   const point = payload[0]?.payload ?? {};
   const formattedValue = isPct
@@ -97,6 +97,11 @@ function TooltipCard({ active, payload, label, isPct, yLabel, multiSeries }) {
           {formattedValue}
         </div>
       )}
+      {drillHint ? (
+        <div className="mt-3 text-xs font-semibold" style={{ color: "#2563eb" }}>
+          {drillHint}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -109,6 +114,7 @@ export default function BreakdownLine({
   height = 420,
   seriesKeys = [],
   seriesColors = [],
+  drillHint = "",
 }) {
   const isPct = format === "pct";
   const axisLabel = isPct ? `${yLabel} (%)` : yLabel;
@@ -137,7 +143,7 @@ export default function BreakdownLine({
           >
             <Label content={<WrappedAxisLabel value={axisLabel} />} />
           </YAxis>
-          <Tooltip content={<TooltipCard isPct={isPct} yLabel={yLabel} multiSeries={activeSeriesKeys.length > 1} />} />
+          <Tooltip content={<TooltipCard isPct={isPct} yLabel={yLabel} multiSeries={activeSeriesKeys.length > 1} drillHint={drillHint} />} />
           {activeSeriesKeys.map((seriesKey, index) => (
             <Line
               key={seriesKey}
