@@ -10,6 +10,7 @@ function PillScrollRow({
   accent,
   soft,
   rowLabel,
+  onRightAction,
 }) {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -205,17 +206,17 @@ function PillScrollRow({
 
       <button
         type="button"
-        onClick={() => nudgeRow(1)}
-        disabled={!canScrollRight}
+        onClick={() => (onRightAction ? onRightAction() : nudgeRow(1))}
+        disabled={!onRightAction && !canScrollRight}
         className={arrowClass}
         style={{
-          color: canScrollRight ? accent : "#64748b",
-          borderColor: canScrollRight ? `${accent}55` : "rgba(100,116,139,0.34)",
-          background: canScrollRight ? soft : "rgba(255,255,255,0.82)",
-          opacity: canScrollRight ? 1 : 0.72,
+          color: onRightAction || canScrollRight ? accent : "#64748b",
+          borderColor: onRightAction || canScrollRight ? `${accent}55` : "rgba(100,116,139,0.34)",
+          background: onRightAction || canScrollRight ? soft : "rgba(255,255,255,0.82)",
+          opacity: onRightAction || canScrollRight ? 1 : 0.72,
         }}
-        aria-label={`Scroll ${rowLabel} right`}
-        title="Scroll right"
+        aria-label={onRightAction ? `Open ${rowLabel} filters` : `Scroll ${rowLabel} right`}
+        title={onRightAction ? "Open filters" : "Scroll right"}
       >
         {">"}
       </button>
@@ -271,6 +272,7 @@ export default function CombinedKpiSelector({ title, helper, rows, accent, soft 
                 accent={row.accent || accent}
                 soft={row.soft || soft}
                 rowLabel={row.label}
+                onRightAction={row.onRightAction}
               />
             </div>
           </div>

@@ -1845,6 +1845,48 @@ export default function Dashboard({
     }));
   }, [isMultiYearSelection, isInstitutionGovernanceVisualActive, trendSeries]);
 
+  const standardYearWiseTableRows = useMemo(() => {
+    if (!isMultiYearSelection || isInstitutionGovernanceVisualActive || isFacultyStaffHierarchyView) return [];
+
+    const sourceRows = scopeRowsForKpi(selectedKpi, facts?.[selectedKpi.fact] ?? []).filter(
+      (row) => !activeInstituteId || row.InstituteId === activeInstituteId,
+    );
+
+    const rows = selectedYears.flatMap((year) => {
+      const yearRows = sourceRows.filter((row) => Number(row.Year ?? 0) === Number(year));
+      const breakdownRows = kpiBreakdown(selectedKpi, yearRows, drillPath);
+
+      if (breakdownRows.length) {
+        return breakdownRows.map((row) => ({
+          ...row,
+          Year: Number(year),
+          name: row.name,
+          value: Number(row.value ?? 0),
+        }));
+      }
+
+      const yearValue = kpiValue(selectedKpi, yearRows);
+      return yearValue == null
+        ? []
+        : [{
+            Year: Number(year),
+            name: String(year),
+            value: Number(yearValue ?? 0),
+          }];
+    });
+
+    return rows.filter((row) => Number.isFinite(Number(row.value)));
+  }, [
+    activeInstituteId,
+    drillPath,
+    facts,
+    isFacultyStaffHierarchyView,
+    isInstitutionGovernanceVisualActive,
+    isMultiYearSelection,
+    selectedKpi,
+    selectedYears,
+  ]);
+
   const chartShowsYearWiseBreakdown =
     isMultiYearSelection && !isInstitutionGovernanceVisualActive && kpiView !== "trend";
   const chartShowsYearWiseBars = chartShowsYearWiseBreakdown && kpiView === "bar";
@@ -2610,6 +2652,7 @@ export default function Dashboard({
         : isMultiYearSelection && !isInstitutionGovernanceVisualActive
           ? [
               { key: "Year", label: "Year" },
+              { key: "name", label: visibleCurrentBreakdownLabel },
               {
                 key: "value",
                 label: visibleCurrentValueLabel,
@@ -2633,7 +2676,7 @@ export default function Dashboard({
           ? institutionGovernanceVisual.tableRows
           : institutionGovernanceVisual?.detailRows ?? []
         : isMultiYearSelection
-          ? standardYearWiseBreakdown
+          ? standardYearWiseTableRows
           : visibleBreakdown;
   const emptyVisualTitle = isInstitutionGovernanceVisualActive
     ? institutionGovernanceVisual?.emptyTitle ?? "No Data Available"
@@ -2674,7 +2717,7 @@ export default function Dashboard({
     (
       (kpiView === "bar" && !useStackedTimeSeriesBars && chartIsInteractive) ||
       (kpiView === "donut" && chartIsInteractive) ||
-      (kpiView === "table" && !isMultiYearSelection && !isInstitutionGovernanceVisualActive && canDrillChart)
+      (kpiView === "table" && !isInstitutionGovernanceVisualActive && canDrillChart && (!isMultiYearSelection || standardYearWiseTableRows.some((row) => String(row.name ?? "") !== String(row.Year ?? ""))))
     );
   const chartDrillControlMessage = !isNoDataVisual
     ? chartHasVisibleDrillAction
@@ -4814,7 +4857,11 @@ export default function Dashboard({
                           columns={mainTableColumns}
                           rows={mainTableRows}
                           maxHeight={500}
-                          onRowClick={!isMultiYearSelection && !isInstitutionGovernanceVisualActive && canDrillChart ? (row) => onDrillNext(row.name) : undefined}
+                          onRowClick={!isInstitutionGovernanceVisualActive && canDrillChart ? (row) => {
+                            const rowName = row?.name;
+                            if (!rowName || String(rowName) === String(row?.Year ?? "")) return;
+                            onDrillNext(rowName);
+                          } : undefined}
                           accent={accent}
                         />
                       </div>

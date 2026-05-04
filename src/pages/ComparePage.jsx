@@ -26,7 +26,7 @@ import {
 } from "../utils/helpers";
 import { IITs, THEME_COLORS, YEARS } from "../constants";
 import { COMPARE_HIERARCHY, KPI_BY_ID } from "../data/compareHierarchy";
-import { kpiValue } from "../data/kpiDefs";
+import { kpiBreakdown, kpiValue, scopeRowsForKpi } from "../data/kpiDefs";
 import DataTable from "../components/ui/DataTable";
 import Drawer from "../components/ui/Drawer";
 import Select from "../components/ui/Select";
@@ -34,7 +34,7 @@ import CombinedKpiSelector from "../components/ui/CombinedKpiSelector";
 import VisualToolbar from "../components/ui/VisualToolbar";
 
 const LEGACY_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
-const PALETTE = ["#dbeafe", "#93c5fd", "#60a5fa", "#3b82f6", "#2563eb", "#1d4ed8", "#1e40af"];
+const PALETTE = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2", "#db2777", "#475569"];
 const TOP_TABS = ["Compare View", "Filters", "Compare Mode", "Saved Sets"];
 const VIEW_OPTIONS = [
   { id: "grouped", label: "Grouped", help: "Compare the same or compatible metrics side by side for the focus year." },
@@ -751,6 +751,27 @@ function CompareTooltip({ active, payload, label, mode, metricLookup, scaleMode 
   return null;
 }
 
+function CompareBreakdownTooltip({ active, payload, label, kpi, scaleMode }) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-xl">
+      <div className="font-semibold text-slate-900">{row?.instituteName ?? label}</div>
+      <div className="mt-1 text-slate-500">Breakdown by institute for the focus year</div>
+      <div className="mt-2 space-y-1.5">
+        {payload.map((entry) => (
+          <div key={entry.dataKey} className="flex items-center justify-between gap-4">
+            <span style={{ color: entry.color }}>{entry.name}</span>
+            <span className="font-semibold text-slate-800">
+              {fmtDisplay(kpi, entry.value, scaleMode)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SmallMultipleCard({ series, accent, scaleMode }) {
   const { item, rows } = series;
   return (
@@ -1152,6 +1173,7 @@ export default function ComparePage({
   );
 
   const chartableAppliedItems = appliedItems.filter((item) => item.comparable);
+  const primaryChartableAppliedItem = chartableAppliedItems[0] ?? null;
   const groupedIITs = useMemo(() => sortIitsAlphabetically(appliedIITs ?? []), [appliedIITs]);
   const compareChartCrowded = groupedIITs.length > 10;
 
@@ -1187,8 +1209,57 @@ export default function ComparePage({
         row[`raw_${item.id}`] = rawValuesByMetric[item.id]?.[instituteIndex] ?? null;
       });
       return row;
+    }).sort((left, right) => {
+      const primaryId = chartableAppliedItems[0]?.id;
+      const leftValue = Number(left?.[`raw_${primaryId}`]);
+      const rightValue = Number(right?.[`raw_${primaryId}`]);
+      const leftValid = Number.isFinite(leftValue);
+      const rightValid = Number.isFinite(rightValue);
+      if (leftValid && rightValid && rightValue !== leftValue) return rightValue - leftValue;
+      if (leftValid !== rightValid) return leftValid ? -1 : 1;
+      return String(left.label).localeCompare(String(right.label));
     });
   }, [applied, chartableAppliedItems, facts, groupedIITs]);
+
+  const groupedBreakdownKeys = useMemo(() => {
+    if (!applied || chartableAppliedItems.length !== 1 || !primaryChartableAppliedItem?.kpi?.levels?.length) return [];
+    const keySet = new Set();
+    groupedIITs.forEach((iid) => {
+      const rows = scopeRowsForKpi(primaryChartableAppliedItem.kpi, facts?.[primaryChartableAppliedItem.kpi.fact] ?? []).filter(
+        (row) => row.InstituteId === iid && Number(row.Year ?? 0) === Number(applied.focusYear),
+      );
+      kpiBreakdown(primaryChartableAppliedItem.kpi, rows, []).forEach((item) => keySet.add(String(item.name ?? "Unknown")));
+    });
+    return Array.from(keySet).slice(0, 10);
+  }, [applied, facts, groupedIITs, chartableAppliedItems, primaryChartableAppliedItem]);
+
+  const useGroupedBreakdownStacks = Boolean(applied?.view === "grouped" && groupedBreakdownKeys.length > 1 && primaryChartableAppliedItem);
+
+  const groupedBreakdownRows = useMemo(() => {
+    if (!applied || !useGroupedBreakdownStacks || !primaryChartableAppliedItem) return [];
+    const rows = groupedIITs.map((iid) => {
+      const sourceRows = scopeRowsForKpi(primaryChartableAppliedItem.kpi, facts?.[primaryChartableAppliedItem.kpi.fact] ?? []).filter(
+        (row) => row.InstituteId === iid && Number(row.Year ?? 0) === Number(applied.focusYear),
+      );
+      const breakdown = kpiBreakdown(primaryChartableAppliedItem.kpi, sourceRows, []);
+      const row = {
+        instituteId: iid,
+        instituteName: instituteNameById(iid),
+        shortName: instituteShortLabel(iid),
+        label: instituteShortLabel(iid),
+      };
+      groupedBreakdownKeys.forEach((key) => {
+        const raw = breakdown.find((item) => String(item.name ?? "Unknown") === key)?.value ?? 0;
+        row[key] = primaryChartableAppliedItem.kpi?.format === "pct" && raw != null ? Number(raw) * 100 : raw;
+      });
+      row.__total = groupedBreakdownKeys.reduce((sum, key) => sum + Number(row[key] ?? 0), 0);
+      return row;
+    });
+    return rows.sort((left, right) => {
+      if (Number(right.__total) !== Number(left.__total)) return Number(right.__total) - Number(left.__total);
+      return String(left.label).localeCompare(String(right.label));
+    });
+  }, [applied, facts, groupedIITs, groupedBreakdownKeys, primaryChartableAppliedItem, useGroupedBreakdownStacks]);
 
   const primaryAppliedItem = chartableAppliedItems[0];
 
@@ -1263,8 +1334,8 @@ export default function ComparePage({
   const compareDetailColumns = useMemo(
     () => [
       { key: "Institute", label: "Institute" },
-      { key: "Module", label: "Module" },
-      { key: "Submodule", label: "Sub-module" },
+      { key: "Module", label: "Category" },
+      { key: "Submodule", label: "Sheet" },
       { key: "CompareItem", label: "Compare item" },
       { key: "Value", label: `Value (${applied?.focusYear ?? ""})` },
       { key: "YoY", label: "YoY" },
@@ -1444,9 +1515,9 @@ export default function ComparePage({
     if (!applied) return;
     const summary = [
       "IIT MIS Compare",
-      `Modules: ${(applied.modules ?? []).join(", ")}`,
-      `Sub-modules: ${(applied.submodules ?? []).map((id) => submoduleMap[id]?.label ?? id).join(", ")}`,
-      `Items: ${(applied.items ?? []).map((id) => worksheetMap[id]?.label ?? id).join(", ")}`,
+      `Categories: ${(applied.modules ?? []).join(", ")}`,
+      `Sheets: ${(applied.submodules ?? []).map((id) => submoduleMap[id]?.label ?? id).join(", ")}`,
+      `KPIs: ${(applied.items ?? []).map((id) => worksheetMap[id]?.label ?? id).join(", ")}`,
       `IITs: ${(applied.iits ?? []).join(", ")}`,
       `Years: ${applied.yearFrom}-${applied.yearTo}`,
       `Focus year: ${applied.focusYear}`,
@@ -1487,8 +1558,8 @@ export default function ComparePage({
   function handleDownloadCsv() {
     const columns = [
       { key: "Institute", label: "Institute" },
-      { key: "Module", label: "Module" },
-      { key: "Submodule", label: "Sub-module" },
+      { key: "Module", label: "Category" },
+      { key: "Submodule", label: "Sheet" },
       { key: "CompareItem", label: "Compare item" },
       { key: "Value", label: `Value (${applied?.focusYear ?? ""})` },
       { key: "YoY", label: "YoY" },
@@ -1663,6 +1734,36 @@ export default function ComparePage({
       const nextFocus = Math.min(Math.max(prev.focusYear, prev.yearFrom), nextTo);
       return { ...prev, yearTo: nextTo, focusYear: nextFocus };
     });
+  }
+
+  function rankedIitsForDraft(source = draft, limit = 10, direction = "top") {
+    const item = worksheetMap[source.items?.[0]];
+    const kpi = item?.kpi ?? KPI_BY_ID[item?.kpiId];
+    if (!kpi) return [];
+
+    return IITs.map((iit) => ({
+      iid: iit.id,
+      label: instituteShortLabel(iit.id),
+      value: valueForKpi(facts, kpi, iit.id, source.focusYear ?? source.yearTo),
+    }))
+      .filter((item) => item.value != null && Number.isFinite(Number(item.value)))
+      .sort((left, right) => {
+        const delta = direction === "bottom"
+          ? Number(left.value) - Number(right.value)
+          : Number(right.value) - Number(left.value);
+        return delta || left.label.localeCompare(right.label);
+      })
+      .slice(0, limit)
+      .map((item) => item.iid);
+  }
+
+  function applyRankedIits(direction = "top") {
+    const nextIits = rankedIitsForDraft(draft, 10, direction);
+    if (!nextIits.length) {
+      setNotice("No ranked IITs available for the selected KPI and focus year.");
+      return;
+    }
+    setDraft((prev) => ({ ...prev, iits: nextIits }));
   }
 
   function toggleModuleExpand(moduleId) {
@@ -1956,17 +2057,18 @@ export default function ComparePage({
     return (
       <CombinedKpiSelector
         title="Compare"
-        helper="Select the module, sheet, and KPI to compare."
+        helper="Select the category, sheet, and KPI to compare."
         accent={uiAccent}
         soft={`${uiAccent}12`}
         rows={[
           {
             id: "compare-module",
-            label: "Module",
+            label: "Category",
             items: compareCarouselModuleItems,
             activeIds: selectionSource.modules ?? [],
             activeId: selectionSource.modules?.[0] ?? null,
             onPick: toggleCompareModule,
+            onRightAction: () => openBuilder(1),
           },
           {
             id: "compare-sheet",
@@ -1975,6 +2077,7 @@ export default function ComparePage({
             activeIds: selectionSource.submodules ?? [],
             activeId: selectionSource.submodules?.[0] ?? null,
             onPick: toggleCompareSheet,
+            onRightAction: () => openBuilder(1),
           },
           {
             id: "compare-kpi",
@@ -1983,6 +2086,7 @@ export default function ComparePage({
             activeIds: selectionSource.items ?? [],
             activeId: selectionSource.items?.[0] ?? null,
             onPick: toggleCompareKpi,
+            onRightAction: () => openBuilder(1),
           },
         ]}
       />
@@ -2206,8 +2310,8 @@ export default function ComparePage({
         >
           <div className="flex items-start justify-between gap-4 px-6 py-5">
             <div>
-              <div className="text-[1.25rem] font-extrabold text-slate-900">Advanced compare &amp; filter</div>
-              <div className="mt-1 text-sm text-slate-500">Refine module, sub-module, date, and IIT filters, then apply them to refresh the compare view.</div>
+              <div className="text-[1.25rem] font-extrabold text-slate-900">Compare filters</div>
+              <div className="mt-1 text-sm text-slate-500">Refine category, sheet, KPI, date, and IIT filters, then apply them to refresh the compare view.</div>
             </div>
             <button
               type="button"
@@ -2223,15 +2327,15 @@ export default function ComparePage({
             <div className="space-y-4">
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Module</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Category</div>
                   <div>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-[220px] flex-1 max-w-[320px]">
-                        <SearchField value={moduleSearch} onChange={setModuleSearch} placeholder="Search module" />
+                        <SearchField value={moduleSearch} onChange={setModuleSearch} placeholder="Search category" />
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <button type="button" onClick={resetModules} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
-                        <SelectionActionButton label="Select all" onClick={selectAllModules} title="Select all modules" />
+                        <SelectionActionButton label="Select all" onClick={selectAllModules} title="Select all categories" />
                       </div>
                     </div>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -2253,25 +2357,70 @@ export default function ComparePage({
 
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Date</div>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,220px)_minmax(0,220px)]">
-                    <ToolbarSelect
-                      label="From"
-                      value={String(draft.yearFrom)}
-                      onChange={(value) => handleRangeChange('from', value)}
-                      options={YEARS.map((year) => ({ value: String(year), label: String(year) }))}
-                      minWidth={0}
-                      className="w-full"
-                    />
-                    <ToolbarSelect
-                      label="To"
-                      value={String(draft.yearTo)}
-                      onChange={(value) => handleRangeChange('to', value)}
-                      options={YEARS.map((year) => ({ value: String(year), label: String(year) }))}
-                      minWidth={0}
-                      className="w-full"
-                    />
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Sheet</div>
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-[220px] flex-1 max-w-[320px]">
+                        <SearchField value={submoduleSearch} onChange={setSubmoduleSearch} placeholder="Search sheet" />
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button type="button" onClick={resetSubmodules} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
+                        <SelectionActionButton label="Select all" onClick={selectAllVisibleSubmodules} title="Select all sheets for the current categories" />
+                      </div>
+                    </div>
+                    {selectedModuleEntities.length ? (
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        {visibleSubmodules.length ? visibleSubmodules.map((submodule) => (
+                          <FilterChoiceChip
+                            key={submodule.id}
+                            label={submodule.label}
+                            active={draft.submodules.includes(submodule.id)}
+                            onClick={() => toggleSubmoduleSelection(submodule.id)}
+                            title={`${submodule.moduleLabel} > ${submodule.label}`}
+                          />
+                        )) : (
+                          <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching sheets found for the selected category.</div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one category to view its sheets here.</div>
+                    )}
                   </div>
+                </div>
+              </div>
+
+              <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+                <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">KPI</div>
+                  <div>
+                    {selectedSubmodules.length ? (
+                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        {availableItems.map((item) => (
+                          <FilterChoiceChip
+                            key={item.id}
+                            label={item.label}
+                            active={draft.items.includes(item.id)}
+                            onClick={() => toggleItemSelection(item.id)}
+                            title={`${submoduleMap[item.submoduleId]?.label ?? item.submoduleId} > ${item.label}`}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one sheet to view KPIs here.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+                <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Date</div>
+                  <CompareDateSelector
+                    source={draft}
+                    updateSource={setDraft}
+                    years={YEARS}
+                    accent={uiAccent}
+                  />
                 </div>
               </div>
 
@@ -2291,7 +2440,14 @@ export default function ComparePage({
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <SelectionActionButton label="OLD IIT's" onClick={() => setDraft((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))} title="Select old IITs" />
                       <SelectionActionButton label="ALL" onClick={() => setDraft((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))} title="Select all IITs" />
+                      <SelectionActionButton label="Top 10" onClick={() => applyRankedIits("top")} title="Select top 10 IITs for the selected KPI and focus year" />
+                      <SelectionActionButton label="Bottom 10" onClick={() => applyRankedIits("bottom")} title="Select bottom 10 IITs for the selected KPI and focus year" />
                     </div>
+                    {draft.iits.length > 10 ? (
+                      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                        More than 10 IITs may make the visualization clunky. Use Top 10, Bottom 10, or a smaller selected set for cleaner charts.
+                      </div>
+                    ) : null}
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                       {visibleIITs.length ? visibleIITs.map((iit) => (
                         <FilterChoiceChip
@@ -2310,40 +2466,6 @@ export default function ComparePage({
                         <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching IITs found.</div>
                       )}
                     </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
-                <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Sub-module</div>
-                  <div>
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-[220px] flex-1 max-w-[320px]">
-                        <SearchField value={submoduleSearch} onChange={setSubmoduleSearch} placeholder="Search sub-module" />
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button type="button" onClick={resetSubmodules} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
-                        <SelectionActionButton label="Select all" onClick={selectAllVisibleSubmodules} title="Select all sub-modules for the current modules" />
-                      </div>
-                    </div>
-                    {selectedModuleEntities.length ? (
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                        {visibleSubmodules.length ? visibleSubmodules.map((submodule) => (
-                          <FilterChoiceChip
-                            key={submodule.id}
-                            label={submodule.label}
-                            active={draft.submodules.includes(submodule.id)}
-                            onClick={() => toggleSubmoduleSelection(submodule.id)}
-                            title={`${submodule.moduleLabel} > ${submodule.label}`}
-                          />
-                        )) : (
-                          <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching sub-modules found for the selected module.</div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="mt-4 rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one module to view its sub-modules here.</div>
-                    )}
                   </div>
                 </div>
               </div>
@@ -2585,7 +2707,7 @@ export default function ComparePage({
             {applied.view === "grouped" && appliedModeValidity.grouped.valid ? (
               <div style={{ height: fullscreen ? 620 : 520 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={groupedRows} margin={{ top: 12, right: 18, left: 8, bottom: 72 }}>
+                  <BarChart data={useGroupedBreakdownStacks ? groupedBreakdownRows : groupedRows} margin={{ top: 12, right: 18, left: 8, bottom: 72 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                     <XAxis
                       dataKey="label"
@@ -2596,12 +2718,20 @@ export default function ComparePage({
                       height={88}
                     />
                     <YAxis tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} width={78} />
-                    <Tooltip content={<CompareTooltip metricLookup={appliedMetricLookup} scaleMode={applied.scale} mode="grouped" />} />
-                    {chartableAppliedItems.map((item, index) => (
-                      <Bar key={item.id} dataKey={`display_${item.id}`} name={item.label} fill={PALETTE[index % PALETTE.length]} radius={[10, 10, 0, 0]} maxBarSize={Math.max(16, chartableAppliedItems.length === 1 ? 38 : 30)}>
-                        {groupedRows.map((row) => <Cell key={`${item.id}-${row.instituteId}`} />)}
-                      </Bar>
-                    ))}
+                    <Tooltip
+                      content={useGroupedBreakdownStacks
+                        ? <CompareBreakdownTooltip kpi={primaryChartableAppliedItem?.kpi} scaleMode={applied.scale} />
+                        : <CompareTooltip metricLookup={appliedMetricLookup} scaleMode={applied.scale} mode="grouped" />}
+                    />
+                    {useGroupedBreakdownStacks
+                      ? groupedBreakdownKeys.map((key, index) => (
+                          <Bar key={key} dataKey={key} name={key} stackId="compare-breakdown" fill={PALETTE[index % PALETTE.length]} radius={index === groupedBreakdownKeys.length - 1 ? [10, 10, 0, 0] : [0, 0, 0, 0]} maxBarSize={44} />
+                        ))
+                      : chartableAppliedItems.map((item, index) => (
+                          <Bar key={item.id} dataKey={`display_${item.id}`} name={item.label} fill={PALETTE[index % PALETTE.length]} radius={[10, 10, 0, 0]} maxBarSize={Math.max(16, chartableAppliedItems.length === 1 ? 38 : 30)}>
+                            {groupedRows.map((row) => <Cell key={`${item.id}-${row.instituteId}`} />)}
+                          </Bar>
+                        ))}
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -2762,6 +2892,8 @@ export default function ComparePage({
             >
               ALL
             </button>
+            <SelectionActionButton label="Top 10" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "top") }))} title="Select top 10 IITs for the selected KPI and focus year" />
+            <SelectionActionButton label="Bottom 10" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "bottom") }))} title="Select bottom 10 IITs for the selected KPI and focus year" />
             <SelectionActionButton
               label="More"
               onClick={() => openBuilder(1)}

@@ -192,22 +192,56 @@ export default function CurtainFilter({
                 if (f.control === "year_range") {
                   const from = draft?.YearRange?.from ?? YEARS[0];
                   const to   = draft?.YearRange?.to   ?? YEARS[YEARS.length - 1];
+                  const rangeMode = Number(from) !== Number(to);
+                  const safeFrom = Math.min(Number(from), Number(to));
+                  const safeTo = Math.max(Number(from), Number(to));
                   return (
                     <div key={f.key} className="rounded-2xl border border-zinc-200 bg-white p-4">
-                      <div className="text-sm font-extrabold text-zinc-900">{f.label}</div>
-                      <div className="mt-3 grid grid-cols-2 gap-3">
-                        <Select
-                          label="from"
-                          value={String(from)}
-                          onChange={(v) => setKey("YearRange", { from: Number(v), to: Number(to) })}
-                          options={yearOpts}
-                        />
-                        <Select
-                          label="to"
-                          value={String(to)}
-                          onChange={(v) => setKey("YearRange", { from: Number(from), to: Number(v) })}
-                          options={yearOpts}
-                        />
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-extrabold text-zinc-900">{f.label}</div>
+                        <div className="flex rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
+                          <button
+                            type="button"
+                            onClick={() => setKey("YearRange", { from: Number(safeTo), to: Number(safeTo) })}
+                            className="rounded-xl px-3 py-1.5 text-[11px] font-extrabold transition"
+                            style={{ background: !rangeMode ? accent : "transparent", color: !rangeMode ? "white" : "#475569" }}
+                          >
+                            Select Year
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setKey("YearRange", { from: safeFrom, to: safeTo })}
+                            className="rounded-xl px-3 py-1.5 text-[11px] font-extrabold transition"
+                            style={{ background: rangeMode ? accent : "transparent", color: rangeMode ? "white" : "#475569" }}
+                          >
+                            Select Year Range
+                          </button>
+                        </div>
+                      </div>
+                      <div className={`mt-3 grid gap-3 ${rangeMode ? "grid-cols-2" : "grid-cols-1"}`}>
+                        {rangeMode ? (
+                          <>
+                            <Select
+                              label="from"
+                              value={String(safeFrom)}
+                              onChange={(v) => setKey("YearRange", { from: Math.min(Number(v), safeTo), to: Math.max(Number(v), safeTo) })}
+                              options={yearOpts}
+                            />
+                            <Select
+                              label="to"
+                              value={String(safeTo)}
+                              onChange={(v) => setKey("YearRange", { from: Math.min(safeFrom, Number(v)), to: Math.max(safeFrom, Number(v)) })}
+                              options={yearOpts}
+                            />
+                          </>
+                        ) : (
+                          <Select
+                            label="year"
+                            value={String(safeTo)}
+                            onChange={(v) => setKey("YearRange", { from: Number(v), to: Number(v) })}
+                            options={yearOpts}
+                          />
+                        )}
                       </div>
                     </div>
                   );

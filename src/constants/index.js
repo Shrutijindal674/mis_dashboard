@@ -77,10 +77,10 @@ export const SORT_MODES = [
 // ----------------------------- Filter schemas (Compare / Reports) -----------------------------
 
 export const COMPARE_FILTER_SCHEMA = [
-  { panel: "Basic",    label: "Module",               key: "CompareModule",    control: "compare_module"      },
-  { panel: "Basic",    label: "Measures / sub-modules", key: "CompareMetricIds", control: "compare_metric_multi" },
+  { panel: "Basic",    label: "Category",             key: "CompareModule",    control: "compare_module"      },
+  { panel: "Basic",    label: "Sheet / KPI",          key: "CompareMetricIds", control: "compare_metric_multi" },
+  { panel: "Basic",    label: "Year",                 key: "YearRange",        control: "year_range"          },
   { panel: "Basic",    label: "IIT selection (2–23)", key: "InstituteId",      control: "iit_multi"           },
-  { panel: "Basic",    label: "Year range",           key: "YearRange",        control: "year_range"          },
   { panel: "Advanced", label: "Compare style",        key: "CompareView",      control: "compare_view"        },
   { panel: "Advanced", label: "Scale",                key: "CompareScale",     control: "compare_scale"       },
   { panel: "Advanced", label: "Sort",                 key: "Sort",             control: "sort_single"         },
