@@ -38,7 +38,6 @@ const PALETTE = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2
 const TOP_TABS = ["Compare View", "Filters", "Compare Mode", "Saved Sets"];
 const VIEW_OPTIONS = [
   { id: "grouped", label: "Bar graph", help: "Compare selected KPI values across IITs for the focus year." },
-  { id: "trend", label: "Line / time series", help: "Track selected KPI, IIT, and breakdown series across the selected year range." },
   { id: "smallMultiples", label: "Small multiples", help: "Keep dense or mixed comparisons in separate tiles." },
   { id: "table", label: "Table", help: "Show the broadest structurally valid comparison in tabular form." },
 ];
@@ -239,12 +238,6 @@ function compareIcon(kind, active = false, tone = "#2563eb") {
         <path {...common} d="M11 19V6" />
         <path {...common} d="M17 19V13" />
         <path {...common} d="M21 19V8" />
-      </>
-    ),
-    trend: (
-      <>
-        <path {...common} d="M4 16l5-5 4 3 7-8" />
-        <path {...common} d="M20 9V6h-3" />
       </>
     ),
     smallMultiples: (
@@ -771,7 +764,7 @@ function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLook
       </div>
     );
   }
-  if (mode === "trend") {
+  if (mode === "smallMultiples") {
     const row = payload[0]?.payload;
     return (
       <div className="max-w-[360px] rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-xl">
@@ -819,47 +812,63 @@ function CompareBreakdownTooltip({ active, payload, label, kpi, scaleMode }) {
   );
 }
 
-function CompareLegend({ items = [] }) {
+function InChartLegend({ items = [], title = "Legend", compact = false }) {
   if (!items.length) return null;
   return (
-    <div className="mb-3 flex max-h-28 flex-wrap gap-2 overflow-auto rounded-2xl border border-slate-100 bg-slate-50/60 px-3 py-2">
-      {items.map((item) => (
-        <div key={item.id ?? item.label} className="inline-flex max-w-[260px] items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm">
-          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: item.color }} />
-          <span className="truncate" title={item.label}>{item.label}</span>
+    <div className="pointer-events-none absolute left-4 right-4 top-2 z-10 flex justify-center">
+      <div className={cn(
+        "pointer-events-auto max-w-full overflow-auto rounded-2xl border border-slate-200/80 bg-white/95 px-3 py-2 shadow-[0_12px_30px_rgba(15,23,42,0.10)] backdrop-blur",
+        compact ? "max-h-16" : "max-h-24",
+      )}>
+        <div className="mb-1 text-center text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{title}</div>
+        <div className="flex flex-wrap justify-center gap-2">
+          {items.map((item) => (
+            <div key={item.id ?? item.label} className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-700">
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: item.color }} />
+              <span className="truncate" title={item.label}>{item.label}</span>
+            </div>
+          ))}
         </div>
-      ))}
+      </div>
     </div>
   );
 }
 
-function SmallMultipleCard({ series, accent, scaleMode }) {
-  const { item, rows } = series;
+function SmallMultipleCard({ series, scaleMode }) {
+  const { rows, lines, label, subtitle, legendTitle } = series;
+  const seriesLookup = useMemo(
+    () => Object.fromEntries((lines ?? []).map((line) => [line.id, line])),
+    [lines],
+  );
+  const legendItems = (lines ?? []).map((line) => ({ id: line.id, label: line.shortLabel ?? line.label, color: line.color }));
   return (
-    <div className="rounded-[24px] border border-slate-200 bg-white p-3">
+    <div className="rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm">
       <div className="mb-3">
-        <div className="text-sm font-semibold text-slate-900">{item.label}</div>
-        <div className="mt-1 text-xs text-slate-500">{item.submoduleLabel}</div>
+        <div className="text-sm font-semibold text-slate-900">{label}</div>
+        <div className="mt-1 text-xs text-slate-500">{subtitle}</div>
       </div>
-      <div style={{ height: 220 }}>
+      <div className="relative" style={{ height: 270 }}>
+        <InChartLegend items={legendItems} title={legendTitle ?? "Compare lines"} compact />
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows} margin={{ top: 8, right: 16, left: 0, bottom: 10 }}>
+          <LineChart data={rows} margin={{ top: 74, right: 16, left: 0, bottom: 12 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-            <XAxis dataKey="shortName" tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} width={70} />
-            <Tooltip
-              formatter={(value) => fmtDisplay(item.kpi, value, scaleMode)}
-              labelFormatter={(label) => IITs.find((iit) => iit.id === label)?.name ?? label}
-            />
-            <Line
-              type="monotone"
-              dataKey="display"
-              stroke={accent}
-              strokeWidth={2.8}
-              dot={{ r: 4, fill: accent }}
-              activeDot={{ r: 6 }}
-              isAnimationActive={false}
-            />
+            <Tooltip content={<CompareTooltip seriesLookup={seriesLookup} scaleMode={scaleMode} mode="smallMultiples" />} />
+            {(lines ?? []).map((line) => (
+              <Line
+                key={line.id}
+                type="monotone"
+                dataKey={`display_${line.id}`}
+                name={line.label}
+                stroke={line.color}
+                strokeWidth={2.6}
+                dot={{ r: 3.2, fill: line.color }}
+                activeDot={{ r: 5.5 }}
+                connectNulls
+                isAnimationActive={false}
+              />
+            ))}
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -1044,16 +1053,6 @@ function deriveModeValidity(items, iits, yearFrom, yearTo) {
         : iits.length < 1
           ? "Select at least one IIT."
           : "",
-    },
-    trend: {
-      valid: chartable.length >= 1 && years.length >= 2 && iits.length >= 1,
-      reason: chartable.length < 1
-        ? "Select at least one chartable KPI."
-        : years.length < 2
-          ? "Line / time series needs at least two years."
-          : iits.length < 1
-            ? "Select at least one IIT."
-            : "",
     },
     smallMultiples: {
       valid: chartable.length >= 1 && iits.length >= 1,
@@ -1385,19 +1384,17 @@ export default function ComparePage({
     });
   }, [applied, facts, groupedIITs, groupedBreakdownKeys, primaryChartableAppliedItem, useGroupedBreakdownStacks]);
 
-  const primaryAppliedItem = chartableAppliedItems[0];
-
-  const trendSeries = useMemo(() => {
+  const smallMultipleSeries = useMemo(() => {
     if (!applied) return [];
-    const series = [];
-    chartableAppliedItems.forEach((item) => {
-      const itemBreakdowns = itemSupportsBreakdown(item) && appliedBreakdownKeys.length
-        ? appliedBreakdownKeys
-        : [TOTAL_COMPARISON_KEY];
-      itemBreakdowns.forEach((breakdownKey) => {
-        appliedIITs.forEach((iid) => {
-          const id = normalizeSeriesKey(`${item.id}__${breakdownKey}__${iid}`);
-          series.push({
+    return appliedIITs.map((iid) => {
+      const lines = [];
+      chartableAppliedItems.forEach((item) => {
+        const itemBreakdowns = itemSupportsBreakdown(item) && appliedBreakdownKeys.length
+          ? appliedBreakdownKeys
+          : [TOTAL_COMPARISON_KEY];
+        itemBreakdowns.forEach((breakdownKey) => {
+          const id = normalizeSeriesKey(`${iid}__${item.id}__${breakdownKey}`);
+          lines.push({
             id,
             itemId: item.id,
             item,
@@ -1405,66 +1402,46 @@ export default function ComparePage({
             iid,
             breakdownKey,
             label: compareSeriesLabel({ item, breakdownKey, iid }),
-            color: PALETTE[series.length % PALETTE.length],
+            shortLabel: breakdownKey && breakdownKey !== TOTAL_COMPARISON_KEY
+              ? `${item.kpiLabel ?? item.label ?? item.kpi?.label} · ${breakdownKey}`
+              : (item.kpiLabel ?? item.label ?? item.kpi?.label),
+            color: PALETTE[lines.length % PALETTE.length],
           });
         });
       });
-    });
-    return series;
-  }, [applied, appliedIITs, chartableAppliedItems, appliedBreakdownKeys]);
 
-  const trendSeriesLookup = useMemo(
-    () => Object.fromEntries(trendSeries.map((series) => [series.id, series])),
-    [trendSeries],
-  );
+      const rawSeriesValues = Object.fromEntries(
+        lines.map((line) => [
+          line.id,
+          appliedYears.map((year) => valueForBreakdownKey(facts, line.kpi, iid, year, line.breakdownKey)),
+        ]),
+      );
+      const indexedSeriesValues = Object.fromEntries(
+        Object.entries(rawSeriesValues).map(([seriesId, values]) => [seriesId, normalizeToBase(values)]),
+      );
 
-  const trendRows = useMemo(() => {
-    if (!applied || !trendSeries.length) return [];
-    const rawSeriesValues = Object.fromEntries(
-      trendSeries.map((series) => [
-        series.id,
-        appliedYears.map((year) => valueForBreakdownKey(facts, series.kpi, series.iid, year, series.breakdownKey)),
-      ]),
-    );
-    const indexedSeriesValues = Object.fromEntries(
-      Object.entries(rawSeriesValues).map(([seriesId, values]) => [seriesId, normalizeToBase(values)]),
-    );
-
-    return appliedYears.map((year, yearIndex) => {
-      const row = { year, label: String(year) };
-      trendSeries.forEach((series) => {
-        const raw = rawSeriesValues[series.id]?.[yearIndex] ?? null;
-        row[`raw_${series.id}`] = raw;
-        row[`display_${series.id}`] = applied.scale === "indexed"
-          ? indexedSeriesValues[series.id]?.[yearIndex] ?? null
-          : (series.kpi?.format === "pct" && raw != null ? Number(raw) * 100 : raw);
+      const rows = appliedYears.map((year, yearIndex) => {
+        const row = { year, label: String(year), instituteId: iid, instituteName: instituteNameById(iid) };
+        lines.forEach((line) => {
+          const raw = rawSeriesValues[line.id]?.[yearIndex] ?? null;
+          row[`raw_${line.id}`] = raw;
+          row[`display_${line.id}`] = applied.scale === "indexed"
+            ? indexedSeriesValues[line.id]?.[yearIndex] ?? null
+            : (line.kpi?.format === "pct" && raw != null ? Number(raw) * 100 : raw);
+        });
+        return row;
       });
-      return row;
-    });
-  }, [applied, appliedYears, facts, trendSeries]);
 
-  const trendSeriesCrowded = trendSeries.length > 24;
-
-  const smallMultipleSeries = useMemo(() => {
-    if (!applied) return [];
-    return chartableAppliedItems.map((item) => {
-      const rawValues = appliedIITs.map((iid) => valueForKpi(facts, item.kpi, iid, applied.focusYear));
-      const displayValues = applied.scale === "indexed"
-        ? normalizeToLeader(rawValues)
-        : rawValues.map((value) => (item.kpi?.format === "pct" && value != null ? Number(value) * 100 : value));
       return {
-        item,
-        rows: appliedIITs.map((iid, index) => ({
-          instituteId: iid,
-          shortName: iid,
-          instituteName: IITs.find((entry) => entry.id === iid)?.name ?? iid,
-          rawValue: rawValues[index],
-          display: displayValues[index],
-          color: PALETTE[index % PALETTE.length],
-        })),
+        id: iid,
+        label: instituteShortLabel(iid),
+        subtitle: `${instituteNameById(iid)} · ${applied.yearFrom}-${applied.yearTo}`,
+        legendTitle: lines.length > 1 ? "Selected compare items" : "Selected compare item",
+        lines,
+        rows,
       };
     });
-  }, [applied, appliedIITs, chartableAppliedItems, facts]);
+  }, [applied, appliedBreakdownKeys, appliedIITs, appliedYears, chartableAppliedItems, facts]);
 
   const tableRows = useMemo(() => {
     if (!applied) return [];
@@ -1553,31 +1530,22 @@ export default function ComparePage({
       }
     }
 
-    if (applied.view === "trend" && primaryAppliedItem && trendRows.length) {
-      const lastRow = trendRows[trendRows.length - 1];
-      let leader = null;
-      appliedIITs.forEach((iid) => {
-        const value = lastRow?.[`raw_${iid}`];
-        if (value == null || !Number.isFinite(Number(value))) return;
-        if (!leader || Number(value) > Number(leader.value)) {
-          leader = { iid, value };
-        }
-      });
-      if (leader) {
-        lines.push(
-          `${primaryAppliedItem.label} ends highest with ${instituteShortLabel(leader.iid)} at ${fmtRaw(primaryAppliedItem.kpi, leader.value)} in ${trendRows[trendRows.length - 1]?.label}.`,
-        );
-      }
-    }
-
     if (applied.view === "smallMultiples" && smallMultipleSeries.length) {
-      const firstSeries = smallMultipleSeries[0];
-      const leader = [...firstSeries.rows]
-        .filter((row) => row.rawValue != null && Number.isFinite(Number(row.rawValue)))
-        .sort((a, b) => Number(b.rawValue) - Number(a.rawValue))[0];
-      if (leader) {
+      let strongest = null;
+      smallMultipleSeries.forEach((tile) => {
+        tile.rows.forEach((row) => {
+          (tile.lines ?? []).forEach((line) => {
+            const value = row[`raw_${line.id}`];
+            if (value == null || !Number.isFinite(Number(value))) return;
+            if (!strongest || Number(value) > Number(strongest.value)) {
+              strongest = { tile, line, value, year: row.year };
+            }
+          });
+        });
+      });
+      if (strongest) {
         lines.push(
-          `In small multiples, ${firstSeries.item.label} is currently led by ${leader.instituteName} at ${fmtRaw(firstSeries.item.kpi, leader.rawValue)}.`,
+          `In small multiples, ${strongest.line.shortLabel ?? strongest.line.label} is strongest for ${strongest.tile.label} at ${fmtRaw(strongest.line.kpi, strongest.value)} in ${strongest.year}.`,
         );
       }
     }
@@ -1587,7 +1555,7 @@ export default function ComparePage({
     }
 
     return lines.join("\n\n");
-  }, [applied, appliedItems, appliedIITs, appliedMetricLookup, chartableAppliedItems, groupedIITs, groupedRows, primaryAppliedItem, smallMultipleSeries, tableRows, trendRows]);
+  }, [applied, appliedItems, appliedIITs, appliedMetricLookup, chartableAppliedItems, groupedIITs, groupedRows, smallMultipleSeries, tableRows]);
 
   const canApply = Boolean(
     draft.modules.length &&
@@ -3046,7 +3014,6 @@ export default function ComparePage({
     const barLegendItems = useGroupedBreakdownStacks
       ? groupedBreakdownKeys.map((key, index) => ({ id: key, label: key, color: PALETTE[index % PALETTE.length] }))
       : chartableAppliedItems.map((item, index) => ({ id: item.id, label: item.kpiLabel ?? item.label ?? item.kpi?.label, color: PALETTE[index % PALETTE.length] }));
-    const trendLegendItems = trendSeries.map((series) => ({ id: series.id, label: series.label, color: series.color }));
 
     return (
       <div
@@ -3129,12 +3096,6 @@ export default function ComparePage({
             </div>
           ) : null}
 
-          {trendSeriesCrowded && applied.view === "trend" ? (
-            <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-              This line chart contains many KPI, breakdown, and IIT series. It is allowed, but a narrower Compare by selection will produce a clearer trend view.
-            </div>
-          ) : null}
-
           <div className="mt-4 bg-white pt-2">
             {applied.view !== "table" && !appliedModeValidity[applied.view]?.valid ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -3144,11 +3105,16 @@ export default function ComparePage({
 
             {applied.view === "grouped" && appliedModeValidity.grouped.valid ? (
               <>
-                <CompareLegend items={barLegendItems} />
-                <div style={{ height: fullscreen ? 620 : 520 }}>
+                <div className="relative" style={{ height: fullscreen ? 620 : 520 }}>
+                <InChartLegend items={barLegendItems} title={useGroupedBreakdownStacks ? "Stacked breakdown" : "Bar comparison"} />
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={useGroupedBreakdownStacks ? groupedBreakdownRows : groupedRows} margin={{ top: 12, right: 18, left: 8, bottom: 72 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <BarChart
+                    data={useGroupedBreakdownStacks ? groupedBreakdownRows : groupedRows}
+                    margin={{ top: 86, right: 18, left: 8, bottom: 72 }}
+                    barCategoryGap="24%"
+                    barGap={8}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical stroke="#e5e7eb" />
                     <XAxis
                       dataKey="label"
                       tick={(props) => <WrappedWorksheetTick {...props} />}
@@ -3163,6 +3129,9 @@ export default function ComparePage({
                         ? <CompareBreakdownTooltip kpi={primaryChartableAppliedItem?.kpi} scaleMode={applied.scale} />
                         : <CompareTooltip metricLookup={appliedMetricLookup} scaleMode={applied.scale} mode="grouped" />}
                     />
+                    {(useGroupedBreakdownStacks ? groupedBreakdownRows : groupedRows).slice(1).map((row) => (
+                      <ReferenceLine key={`separator-${row.instituteId}`} x={row.label} stroke="#cbd5e1" strokeWidth={1.4} ifOverflow="visible" />
+                    ))}
                     {useGroupedBreakdownStacks
                       ? groupedBreakdownKeys.map((key, index) => (
                           <Bar key={key} dataKey={key} name={key} stackId="compare-breakdown" fill={PALETTE[index % PALETTE.length]} radius={index === groupedBreakdownKeys.length - 1 ? [10, 10, 0, 0] : [0, 0, 0, 0]} maxBarSize={44} />
@@ -3178,41 +3147,10 @@ export default function ComparePage({
               </>
             ) : null}
 
-            {applied.view === "trend" && appliedModeValidity.trend.valid ? (
-              <>
-                <CompareLegend items={trendLegendItems} />
-                <div style={{ height: fullscreen ? 620 : 520 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={trendRows} margin={{ top: 14, right: 20, left: 8, bottom: 18 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                      <XAxis dataKey="label" tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} width={78} />
-                      <Tooltip content={<CompareTooltip seriesLookup={trendSeriesLookup} scaleMode={applied.scale} mode="trend" />} />
-                      <ReferenceLine x={String(applied.focusYear)} stroke={uiAccent} strokeDasharray="4 4" />
-                      {trendSeries.map((series) => (
-                        <Line
-                          key={series.id}
-                          type="monotone"
-                          dataKey={`display_${series.id}`}
-                          name={series.label}
-                          stroke={series.color}
-                          strokeWidth={2.4}
-                          dot={{ r: 2.8 }}
-                          activeDot={{ r: 5 }}
-                          connectNulls
-                          isAnimationActive={false}
-                        />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </>
-            ) : null}
-
             {applied.view === "smallMultiples" && appliedModeValidity.smallMultiples.valid ? (
               <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
                 {smallMultipleSeries.map((series) => (
-                  <SmallMultipleCard key={series.item.id} series={series} accent={uiAccent} scaleMode={applied.scale} />
+                  <SmallMultipleCard key={series.id} series={series} scaleMode={applied.scale} />
                 ))}
               </div>
             ) : null}
