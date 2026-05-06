@@ -4,9 +4,9 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   Line,
   LineChart,
+  LabelList,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -47,6 +47,63 @@ const SCALE_OPTIONS = [
   { id: "raw", label: "Raw" },
   { id: "indexed", label: "Indexed 100" },
 ];
+const COMPARE_LABEL_ACRONYMS = new Set([
+  "ai",
+  "api",
+  "cgpa",
+  "gpa",
+  "iit",
+  "iits",
+  "iqac",
+  "ip",
+  "ipr",
+  "iso",
+  "mooc",
+  "naac",
+  "nba",
+  "nirf",
+  "phd",
+  "qa",
+  "ugc",
+]);
+
+function humanizeCompareLabel(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+
+  const spaced = raw
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!spaced) return raw;
+
+  return spaced
+    .split(" ")
+    .map((word) => {
+      const lower = word.toLowerCase();
+      if (COMPARE_LABEL_ACRONYMS.has(lower)) return lower.toUpperCase();
+      if (/^\(?unknown\)?$/i.test(word)) return "Unknown";
+      if (/^[A-Z0-9]{2,}$/.test(word)) return word;
+      return `${word.slice(0, 1).toUpperCase()}${word.slice(1).toLowerCase()}`;
+    })
+    .join(" ");
+}
+
+function compareBreakdownLabel(key) {
+  if (!key || key === TOTAL_COMPARISON_KEY) return TOTAL_COMPARISON_LABEL;
+  return humanizeCompareLabel(key);
+}
+
+function compareItemLabel(item) {
+  return humanizeCompareLabel(item?.kpiLabel ?? item?.label ?? item?.kpi?.label ?? item?.id ?? "");
+}
+
+function compareSeriesLegendId(itemId, breakdownKey = TOTAL_COMPARISON_KEY) {
+  return normalizeSeriesKey(`${itemId || "item"}__${breakdownKey || TOTAL_COMPARISON_KEY}`);
+}
+
 function cn(...parts) {
   return parts.filter(Boolean).join(" ");
 }
@@ -100,7 +157,11 @@ function normalizeSeriesKey(value) {
 }
 
 function compareSeriesLabel({ item, breakdownKey, iid }) {
-  const parts = [item?.kpiLabel ?? item?.label ?? item?.kpi?.label, breakdownKey && breakdownKey !== TOTAL_COMPARISON_KEY ? breakdownKey : null, instituteShortLabel(iid)].filter(Boolean);
+  const parts = [
+    compareItemLabel(item),
+    breakdownKey && breakdownKey !== TOTAL_COMPARISON_KEY ? compareBreakdownLabel(breakdownKey) : null,
+    instituteShortLabel(iid),
+  ].filter(Boolean);
   return parts.join(" · ");
 }
 
@@ -752,7 +813,7 @@ function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLook
             const raw = row?.[`raw_${metricId}`];
             return (
               <div key={metricId} className="flex items-center justify-between gap-4">
-                <span style={{ color: entry.color }}>{metric?.label ?? metric?.kpi?.label ?? metricId}</span>
+                <span style={{ color: entry.color }}>{compareItemLabel(metric) || humanizeCompareLabel(metricId)}</span>
                 <span className="font-semibold text-slate-800">
                   {fmtDisplay(metric?.kpi, entry.value, scaleMode)}
                   {scaleMode === "indexed" && raw != null ? ` - ${fmtRaw(metric?.kpi, raw)}` : ""}
@@ -776,7 +837,7 @@ function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLook
             const raw = row?.[`raw_${seriesId}`];
             return (
               <div key={seriesId} className="flex items-center justify-between gap-4">
-                <span className="min-w-0 truncate" style={{ color: entry.color }}>{series?.label ?? seriesId}</span>
+                <span className="min-w-0 truncate" style={{ color: entry.color }}>{series?.label ?? humanizeCompareLabel(seriesId)}</span>
                 <span className="shrink-0 font-semibold text-slate-800">
                   {fmtDisplay(series?.kpi, entry.value, scaleMode)}
                   {scaleMode === "indexed" && raw != null ? ` - ${fmtRaw(series?.kpi, raw)}` : ""}
@@ -801,7 +862,7 @@ function CompareBreakdownTooltip({ active, payload, label, kpi, scaleMode }) {
       <div className="mt-2 space-y-1.5">
         {payload.map((entry) => (
           <div key={entry.dataKey} className="flex items-center justify-between gap-4">
-            <span style={{ color: entry.color }}>{entry.name}</span>
+            <span style={{ color: entry.color }}>{compareBreakdownLabel(entry.name)}</span>
             <span className="font-semibold text-slate-800">
               {fmtDisplay(kpi, entry.value, scaleMode)}
             </span>
@@ -812,50 +873,106 @@ function CompareBreakdownTooltip({ active, payload, label, kpi, scaleMode }) {
   );
 }
 
-function InChartLegend({ items = [], title = "Legend", compact = false }) {
-  if (!items.length) return null;
+function StackTotalLabel({ x = 0, y = 0, width = 0, payload, item, scaleMode }) {
+  const value = payload?.[`displayTotal_${item?.id}`];
+  if (value == null || !Number.isFinite(Number(value)) || Number(value) <= 0) return null;
   return (
-    <div className="pointer-events-none absolute left-4 right-4 top-2 z-10 flex justify-center">
+    <text
+      x={Number(x) + Number(width) / 2}
+      y={Number(y) - 7}
+      textAnchor="middle"
+      fill="#0f172a"
+      fontSize="12"
+      fontWeight="800"
+    >
+      {fmtDisplay(item?.kpi, value, scaleMode)}
+    </text>
+  );
+}
+
+function InteractiveCompareLegend({
+  items = [],
+  activeIds = [],
+  title = "Legend",
+  compact = false,
+  maxVisible = 10,
+  onToggle,
+  onMore,
+}) {
+  if (!items.length) return null;
+  const activeSet = new Set(activeIds?.length ? activeIds : items.map((item) => item.id));
+  const orderedItems = [
+    ...items.filter((item) => activeSet.has(item.id)),
+    ...items.filter((item) => !activeSet.has(item.id)),
+  ];
+  const visibleItems = orderedItems.slice(0, maxVisible);
+  const hiddenCount = Math.max(items.length - visibleItems.length, 0);
+
+  return (
+    <div className="flex justify-center">
       <div className={cn(
-        "pointer-events-auto max-w-full overflow-auto rounded-2xl border border-slate-200/80 bg-white/95 px-3 py-2 shadow-[0_12px_30px_rgba(15,23,42,0.10)] backdrop-blur",
-        compact ? "max-h-16" : "max-h-24",
+        "max-w-full rounded-2xl border border-slate-200/80 bg-white/95 px-3 py-2 shadow-[0_12px_30px_rgba(15,23,42,0.10)] backdrop-blur",
+        compact ? "" : "",
       )}>
         <div className="mb-1 text-center text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{title}</div>
-        <div className="flex flex-wrap justify-center gap-2">
-          {items.map((item) => (
-            <div key={item.id ?? item.label} className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-700">
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: item.color }} />
-              <span className="truncate" title={item.label}>{item.label}</span>
-            </div>
-          ))}
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {visibleItems.map((item) => {
+            const active = activeSet.has(item.id);
+            return (
+              <button
+                key={item.id ?? item.label}
+                type="button"
+                onClick={() => onToggle?.(item.id)}
+                className={cn(
+                  "inline-flex max-w-[250px] items-center gap-2 rounded-full border px-2.5 py-1.5 text-[11px] font-bold transition",
+                  active ? "border-slate-200 bg-slate-50 text-slate-800" : "border-slate-100 bg-white text-slate-400 opacity-60",
+                )}
+                title={`${active ? "Hide" : "Show"} ${item.label}`}
+                aria-pressed={active}
+              >
+                <span className="h-3 w-3 shrink-0 rounded-[4px]" style={{ background: item.color }} />
+                <span className="truncate">{item.label}</span>
+              </button>
+            );
+          })}
+          {hiddenCount > 0 || onMore ? (
+            <button
+              type="button"
+              onClick={onMore}
+              className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50 px-3 py-1.5 text-[11px] font-extrabold text-sky-700 transition hover:bg-sky-100"
+              title="Open Compare by filter"
+            >
+              {hiddenCount > 0 ? `More (+${hiddenCount})` : "More"}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
-function SmallMultipleCard({ series, scaleMode }) {
-  const { rows, lines, label, subtitle, legendTitle } = series;
+function SmallMultipleCard({ series, scaleMode, activeLegendIds = [] }) {
+  const { rows, lines, label, subtitle } = series;
+  const activeSet = new Set(activeLegendIds?.length ? activeLegendIds : (lines ?? []).map((line) => line.legendId ?? line.id));
+  const visibleLines = (lines ?? []).filter((line) => activeSet.has(line.legendId ?? line.id));
   const seriesLookup = useMemo(
     () => Object.fromEntries((lines ?? []).map((line) => [line.id, line])),
     [lines],
   );
-  const legendItems = (lines ?? []).map((line) => ({ id: line.id, label: line.shortLabel ?? line.label, color: line.color }));
   return (
     <div className="rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm">
       <div className="mb-3">
-        <div className="text-sm font-semibold text-slate-900">{label}</div>
+        <div className="text-sm font-semibold text-slate-900">{humanizeCompareLabel(label)}</div>
         <div className="mt-1 text-xs text-slate-500">{subtitle}</div>
       </div>
       <div className="relative" style={{ height: 270 }}>
-        <InChartLegend items={legendItems} title={legendTitle ?? "Compare lines"} compact />
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows} margin={{ top: 74, right: 16, left: 0, bottom: 12 }}>
+          <LineChart data={rows} margin={{ top: 18, right: 16, left: 0, bottom: 30 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
             <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} width={70} />
             <Tooltip content={<CompareTooltip seriesLookup={seriesLookup} scaleMode={scaleMode} mode="smallMultiples" />} />
-            {(lines ?? []).map((line) => (
+            {visibleLines.map((line) => (
               <Line
                 key={line.id}
                 type="monotone"
@@ -872,6 +989,7 @@ function SmallMultipleCard({ series, scaleMode }) {
           </LineChart>
         </ResponsiveContainer>
       </div>
+      <div className="mt-1 text-center text-[11px] font-semibold text-slate-500">Year</div>
     </div>
   );
 }
@@ -1150,6 +1268,7 @@ export default function ComparePage({
   const [openPopover, setOpenPopover] = useState(null);
   const [lastDownloadedAt, setLastDownloadedAt] = useState(null);
   const [toolbarSearch, setToolbarSearch] = useState("");
+  const [visibleCompareLegendIds, setVisibleCompareLegendIds] = useState([]);
   const [moduleSearch, setModuleSearch] = useState("");
   const [submoduleSearch, setSubmoduleSearch] = useState("");
   const [iitSearch, setIitSearch] = useState("");
@@ -1307,108 +1426,133 @@ export default function ComparePage({
     return appliedBreakdownOptions.slice(0, Math.min(6, appliedBreakdownOptions.length));
   }, [applied, appliedBreakdownOptions]);
 
-  const groupedRows = useMemo(() => {
+  const groupedStackSeries = useMemo(() => {
     if (!applied) return [];
-    const rawValuesByMetric = Object.fromEntries(
-      chartableAppliedItems.map((item) => [
-        item.id,
-        groupedIITs.map((iid) => valueForKpi(facts, item.kpi, iid, applied.focusYear)),
+    const series = [];
+    chartableAppliedItems.forEach((item) => {
+      const itemBreakdowns = itemSupportsBreakdown(item) && appliedBreakdownKeys.length
+        ? appliedBreakdownKeys
+        : [TOTAL_COMPARISON_KEY];
+      itemBreakdowns.forEach((breakdownKey) => {
+        const id = compareSeriesLegendId(item.id, breakdownKey);
+        const breakdownLabel = compareBreakdownLabel(breakdownKey);
+        const itemLabel = compareItemLabel(item);
+        series.push({
+          id,
+          itemId: item.id,
+          item,
+          kpi: item.kpi,
+          breakdownKey,
+          label: breakdownKey === TOTAL_COMPARISON_KEY ? itemLabel : `${itemLabel} · ${breakdownLabel}`,
+          shortLabel: breakdownKey === TOTAL_COMPARISON_KEY ? itemLabel : `${itemLabel} · ${breakdownLabel}`,
+          color: PALETTE[series.length % PALETTE.length],
+          stackId: `stack_${normalizeSeriesKey(item.id)}`,
+        });
+      });
+    });
+    return series;
+  }, [applied, appliedBreakdownKeys, chartableAppliedItems]);
+
+  const comparisonLegendItems = useMemo(
+    () => groupedStackSeries.map((series) => ({ id: series.id, label: series.shortLabel, color: series.color })),
+    [groupedStackSeries],
+  );
+  const allComparisonLegendIds = useMemo(() => comparisonLegendItems.map((item) => item.id), [comparisonLegendItems]);
+  const activeComparisonLegendIds = useMemo(() => {
+    const allowed = new Set(allComparisonLegendIds);
+    const selected = visibleCompareLegendIds.filter((id) => allowed.has(id));
+    return selected.length ? selected : allComparisonLegendIds;
+  }, [allComparisonLegendIds, visibleCompareLegendIds]);
+  const activeComparisonLegendIdSet = useMemo(() => new Set(activeComparisonLegendIds), [activeComparisonLegendIds]);
+  const activeGroupedStackSeries = useMemo(
+    () => groupedStackSeries.filter((series) => activeComparisonLegendIdSet.has(series.id)),
+    [groupedStackSeries, activeComparisonLegendIdSet],
+  );
+  const groupedTopStackSeriesByItem = useMemo(() => {
+    const lookup = {};
+    activeGroupedStackSeries.forEach((series) => {
+      lookup[series.itemId] = series;
+    });
+    return lookup;
+  }, [activeGroupedStackSeries]);
+
+  useEffect(() => {
+    setVisibleCompareLegendIds((prev) => prev.filter((id) => allComparisonLegendIds.includes(id)));
+  }, [allComparisonLegendIds.join("|")]);
+
+  const groupedStackRows = useMemo(() => {
+    if (!applied) return [];
+    const rawValuesBySeries = Object.fromEntries(
+      groupedStackSeries.map((series) => [
+        series.id,
+        groupedIITs.map((iid) => valueForBreakdownKey(facts, series.kpi, iid, applied.focusYear, series.breakdownKey)),
       ]),
     );
-    const displayValuesByMetric = Object.fromEntries(
-      chartableAppliedItems.map((item) => {
-        const rawValues = rawValuesByMetric[item.id] ?? [];
+    const displayValuesBySeries = Object.fromEntries(
+      groupedStackSeries.map((series) => {
+        const rawValues = rawValuesBySeries[series.id] ?? [];
         return [
-          item.id,
+          series.id,
           applied.scale === "indexed"
             ? normalizeToLeader(rawValues)
-            : rawValues.map((value) => (item.kpi?.format === "pct" && value != null ? Number(value) * 100 : value)),
+            : rawValues.map((value) => (series.kpi?.format === "pct" && value != null ? Number(value) * 100 : value)),
         ];
       }),
     );
 
-    return groupedIITs.map((iid, instituteIndex) => {
+    const rows = groupedIITs.map((iid, instituteIndex) => {
       const row = {
         instituteId: iid,
         instituteName: instituteNameById(iid),
         shortName: instituteShortLabel(iid),
         label: instituteShortLabel(iid),
       };
+      groupedStackSeries.forEach((series) => {
+        row[`display_${series.id}`] = displayValuesBySeries[series.id]?.[instituteIndex] ?? null;
+        row[`raw_${series.id}`] = rawValuesBySeries[series.id]?.[instituteIndex] ?? null;
+      });
       chartableAppliedItems.forEach((item) => {
-        row[`display_${item.id}`] = displayValuesByMetric[item.id]?.[instituteIndex] ?? null;
-        row[`raw_${item.id}`] = rawValuesByMetric[item.id]?.[instituteIndex] ?? null;
+        const itemSeries = groupedStackSeries.filter((series) => series.itemId === item.id);
+        row[`displayTotal_${item.id}`] = itemSeries.reduce((sum, series) => sum + Number(row[`display_${series.id}`] ?? 0), 0);
+        row[`rawTotal_${item.id}`] = itemSeries.reduce((sum, series) => sum + Number(row[`raw_${series.id}`] ?? 0), 0);
       });
       return row;
-    }).sort((left, right) => {
+    });
+
+    return rows.sort((left, right) => {
       const primaryId = chartableAppliedItems[0]?.id;
-      const leftValue = Number(left?.[`raw_${primaryId}`]);
-      const rightValue = Number(right?.[`raw_${primaryId}`]);
+      const leftValue = Number(left?.[`rawTotal_${primaryId}`]);
+      const rightValue = Number(right?.[`rawTotal_${primaryId}`]);
       const leftValid = Number.isFinite(leftValue);
       const rightValid = Number.isFinite(rightValue);
       if (leftValid && rightValid && rightValue !== leftValue) return rightValue - leftValue;
       if (leftValid !== rightValid) return leftValid ? -1 : 1;
       return String(left.label).localeCompare(String(right.label));
     });
-  }, [applied, chartableAppliedItems, facts, groupedIITs]);
+  }, [applied, chartableAppliedItems, facts, groupedIITs, groupedStackSeries]);
 
-  const groupedBreakdownKeys = useMemo(() => {
-    if (!applied || chartableAppliedItems.length !== 1 || !primaryChartableAppliedItem?.kpi?.levels?.length) return [];
-    return appliedBreakdownKeys;
-  }, [applied, chartableAppliedItems, primaryChartableAppliedItem, appliedBreakdownKeys]);
-
-  const useGroupedBreakdownStacks = Boolean(applied?.view === "grouped" && groupedBreakdownKeys.length > 1 && primaryChartableAppliedItem);
-
-  const groupedBreakdownRows = useMemo(() => {
-    if (!applied || !useGroupedBreakdownStacks || !primaryChartableAppliedItem) return [];
-    const rows = groupedIITs.map((iid) => {
-      const sourceRows = scopeRowsForKpi(primaryChartableAppliedItem.kpi, facts?.[primaryChartableAppliedItem.kpi.fact] ?? []).filter(
-        (row) => row.InstituteId === iid && Number(row.Year ?? 0) === Number(applied.focusYear),
-      );
-      const breakdown = kpiBreakdown(primaryChartableAppliedItem.kpi, sourceRows, []);
-      const row = {
-        instituteId: iid,
-        instituteName: instituteNameById(iid),
-        shortName: instituteShortLabel(iid),
-        label: instituteShortLabel(iid),
-      };
-      groupedBreakdownKeys.forEach((key) => {
-        const raw = valueForBreakdownKey(facts, primaryChartableAppliedItem.kpi, iid, applied.focusYear, key) ?? 0;
-        row[key] = primaryChartableAppliedItem.kpi?.format === "pct" && raw != null ? Number(raw) * 100 : raw;
-      });
-      row.__total = groupedBreakdownKeys.reduce((sum, key) => sum + Number(row[key] ?? 0), 0);
-      return row;
+  const groupedRows = groupedStackRows;
+  const groupedChartRows = useMemo(() => groupedStackRows.map((row) => {
+    const next = { ...row };
+    chartableAppliedItems.forEach((item) => {
+      const visibleItemSeries = groupedStackSeries.filter((series) => series.itemId === item.id && activeComparisonLegendIdSet.has(series.id));
+      next[`displayTotal_${item.id}`] = visibleItemSeries.reduce((sum, series) => sum + Number(row[`display_${series.id}`] ?? 0), 0);
+      next[`rawTotal_${item.id}`] = visibleItemSeries.reduce((sum, series) => sum + Number(row[`raw_${series.id}`] ?? 0), 0);
     });
-    return rows.sort((left, right) => {
-      if (Number(right.__total) !== Number(left.__total)) return Number(right.__total) - Number(left.__total);
-      return String(left.label).localeCompare(String(right.label));
-    });
-  }, [applied, facts, groupedIITs, groupedBreakdownKeys, primaryChartableAppliedItem, useGroupedBreakdownStacks]);
+    return next;
+  }), [activeComparisonLegendIdSet, chartableAppliedItems, groupedStackRows, groupedStackSeries]);
 
   const smallMultipleSeries = useMemo(() => {
     if (!applied) return [];
     return appliedIITs.map((iid) => {
-      const lines = [];
-      chartableAppliedItems.forEach((item) => {
-        const itemBreakdowns = itemSupportsBreakdown(item) && appliedBreakdownKeys.length
-          ? appliedBreakdownKeys
-          : [TOTAL_COMPARISON_KEY];
-        itemBreakdowns.forEach((breakdownKey) => {
-          const id = normalizeSeriesKey(`${iid}__${item.id}__${breakdownKey}`);
-          lines.push({
-            id,
-            itemId: item.id,
-            item,
-            kpi: item.kpi,
-            iid,
-            breakdownKey,
-            label: compareSeriesLabel({ item, breakdownKey, iid }),
-            shortLabel: breakdownKey && breakdownKey !== TOTAL_COMPARISON_KEY
-              ? `${item.kpiLabel ?? item.label ?? item.kpi?.label} · ${breakdownKey}`
-              : (item.kpiLabel ?? item.label ?? item.kpi?.label),
-            color: PALETTE[lines.length % PALETTE.length],
-          });
-        });
-      });
+      const lines = groupedStackSeries.map((series) => ({
+        ...series,
+        id: series.id,
+        legendId: series.id,
+        iid,
+        label: compareSeriesLabel({ item: series.item, breakdownKey: series.breakdownKey, iid }),
+        shortLabel: series.shortLabel,
+      }));
 
       const rawSeriesValues = Object.fromEntries(
         lines.map((line) => [
@@ -1436,12 +1580,11 @@ export default function ComparePage({
         id: iid,
         label: instituteShortLabel(iid),
         subtitle: `${instituteNameById(iid)} · ${applied.yearFrom}-${applied.yearTo}`,
-        legendTitle: lines.length > 1 ? "Selected compare items" : "Selected compare item",
         lines,
         rows,
       };
     });
-  }, [applied, appliedBreakdownKeys, appliedIITs, appliedYears, chartableAppliedItems, facts]);
+  }, [applied, appliedIITs, appliedYears, facts, groupedStackSeries]);
 
   const tableRows = useMemo(() => {
     if (!applied) return [];
@@ -1458,11 +1601,11 @@ export default function ComparePage({
           return {
             Institute: institute,
             InstituteCode: iid,
-            Module: item.categoryLabel ?? item.moduleLabel,
-            Submodule: item.submoduleLabel,
-            Sheet: item.sheetLabel ?? item.label,
-            CompareItem: item.kpiLabel ?? item.kpi?.label ?? item.label,
-            CompareBy: breakdownKey === TOTAL_COMPARISON_KEY ? TOTAL_COMPARISON_LABEL : breakdownKey,
+            Module: humanizeCompareLabel(item.categoryLabel ?? item.moduleLabel),
+            Submodule: humanizeCompareLabel(item.submoduleLabel),
+            Sheet: humanizeCompareLabel(item.sheetLabel ?? item.label),
+            CompareItem: compareItemLabel(item),
+            CompareBy: compareBreakdownLabel(breakdownKey),
             Value: latest,
             YoY: latest != null && prev != null && prev !== 0 && prevYear !== applied.focusYear ? (latest - prev) / prev : null,
             Range: appliedYears.map((year) => `${year}: ${fmtRaw(item.kpi, valueForBreakdownKey(facts, item.kpi, iid, year, breakdownKey))}`).join(" - "),
@@ -1516,7 +1659,7 @@ export default function ComparePage({
           if (!strongest || Number(value) > Number(strongest.value)) {
             strongest = {
               iid: row.instituteId,
-              label: item.label,
+              label: compareItemLabel(item),
               value,
               kpi: item.kpi,
             };
@@ -1667,11 +1810,11 @@ export default function ComparePage({
     if (!applied) return;
     const summary = [
       "IIT MIS Compare",
-      `Categories: ${(applied.modules ?? []).join(", ")}`,
-      `Sub-modules: ${(applied.submodules ?? []).map((id) => submoduleMap[id]?.label ?? id).join(", ")}`,
-      `Sheets: ${(applied.sheets ?? []).map((id) => sheetMap[id]?.label ?? id).join(", ")}`,
-      `KPIs: ${(applied.items ?? []).map((id) => worksheetMap[id]?.kpiLabel ?? worksheetMap[id]?.kpi?.label ?? worksheetMap[id]?.label ?? id).join(", ")}`,
-      `Compare by: ${(applied.breakdowns ?? []).length ? applied.breakdowns.join(", ") : "Default breakdown / total"}`,
+      `Categories: ${(applied.modules ?? []).map((id) => humanizeCompareLabel(moduleMap[id]?.label ?? id)).join(", ")}`,
+      `Sub-modules: ${(applied.submodules ?? []).map((id) => humanizeCompareLabel(submoduleMap[id]?.label ?? id)).join(", ")}`,
+      `Sheets: ${(applied.sheets ?? []).map((id) => humanizeCompareLabel(sheetMap[id]?.label ?? id)).join(", ")}`,
+      `KPIs: ${(applied.items ?? []).map((id) => compareItemLabel(worksheetMap[id] ?? { id })).join(", ")}`,
+      `Compare by: ${(applied.breakdowns ?? []).length ? applied.breakdowns.map(compareBreakdownLabel).join(", ") : "Default breakdown / total"}`,
       `IITs: ${(applied.iits ?? []).join(", ")}`,
       `Years: ${applied.yearFrom}-${applied.yearTo}`,
       `Focus year: ${applied.focusYear}`,
@@ -1801,6 +1944,27 @@ export default function ComparePage({
     setBuilderOpen(true);
     setActiveStep(step);
     setOpenPopover(step === 4 ? "mode" : "filters");
+  }
+
+  function openCompareByFilters() {
+    setBuilderOpen(true);
+    setActiveStep(1);
+    setOpenPopover("filters");
+    window.setTimeout(() => {
+      document.getElementById("compare-by-filter-section")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+  }
+
+  function toggleComparisonLegendItem(itemId) {
+    setVisibleCompareLegendIds((prev) => {
+      const validPrev = prev.filter((id) => allComparisonLegendIds.includes(id));
+      if (!validPrev.length) return [itemId];
+      if (validPrev.includes(itemId)) {
+        const next = validPrev.filter((id) => id !== itemId);
+        return next.length ? next : [];
+      }
+      return [...validPrev, itemId];
+    });
   }
 
   function closeBuilder() {
@@ -2168,8 +2332,8 @@ export default function ComparePage({
   const compareCarouselModuleItems = useMemo(
     () => hierarchy.map((module) => ({
       id: module.id,
-      label: module.label ?? module.id,
-      tooltip: module.description ?? module.label ?? module.id,
+      label: humanizeCompareLabel(module.label ?? module.id),
+      tooltip: humanizeCompareLabel(module.description ?? module.label ?? module.id),
     })),
     [hierarchy],
   );
@@ -2179,8 +2343,8 @@ export default function ComparePage({
     return sourceModules.flatMap((module) =>
       module.submodules.map((submodule) => ({
         id: submodule.id,
-        label: submodule.label ?? submodule.id,
-        tooltip: `${module.label ?? module.id} > ${submodule.label ?? submodule.id}`,
+        label: humanizeCompareLabel(submodule.label ?? submodule.id),
+        tooltip: `${humanizeCompareLabel(module.label ?? module.id)} > ${humanizeCompareLabel(submodule.label ?? submodule.id)}`,
       })),
     );
   }, [selectionSource.modules, moduleMap]);
@@ -2190,8 +2354,8 @@ export default function ComparePage({
     return sourceSubmodules.flatMap((submodule) =>
       (submodule.sheets ?? []).map((sheet) => ({
         id: sheet.id,
-        label: sheet.label ?? sheet.id,
-        tooltip: `${moduleMap[submodule.moduleId]?.label ?? submodule.moduleId} > ${submodule.label ?? submodule.id} > ${sheet.label ?? sheet.id}`,
+        label: humanizeCompareLabel(sheet.label ?? sheet.id),
+        tooltip: `${humanizeCompareLabel(moduleMap[submodule.moduleId]?.label ?? submodule.moduleId)} > ${humanizeCompareLabel(submodule.label ?? submodule.id)} > ${humanizeCompareLabel(sheet.label ?? sheet.id)}`,
       })),
     );
   }, [selectionSource.submodules, submoduleMap, moduleMap]);
@@ -2201,8 +2365,8 @@ export default function ComparePage({
     return sourceSheets.flatMap((sheet) =>
       (sheet.kpis ?? []).map((item) => ({
         id: item.id,
-        label: item.kpiLabel ?? item.kpi?.label ?? item.label ?? item.id,
-        tooltip: `${moduleMap[sheet.moduleId]?.label ?? sheet.moduleId} > ${submoduleMap[sheet.submoduleId]?.label ?? sheet.submoduleId} > ${sheet.label ?? sheet.id} > ${item.kpiLabel ?? item.kpi?.label ?? item.label ?? item.id}`,
+        label: compareItemLabel(item),
+        tooltip: `${humanizeCompareLabel(moduleMap[sheet.moduleId]?.label ?? sheet.moduleId)} > ${humanizeCompareLabel(submoduleMap[sheet.submoduleId]?.label ?? sheet.submoduleId)} > ${humanizeCompareLabel(sheet.label ?? sheet.id)} > ${compareItemLabel(item)}`,
       })),
     );
   }, [selectionSource.sheets, sheetMap, submoduleMap, moduleMap]);
@@ -2384,10 +2548,10 @@ export default function ComparePage({
             key={module.id}
             type="button"
             onClick={() => openBuilder(1)}
-            title={module.label ?? module.id}
+            title={humanizeCompareLabel(module.label ?? module.id)}
             className="inline-flex items-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_2px_10px_rgba(15,23,42,0.05)] transition hover:border-sky-200 hover:bg-sky-50/40"
           >
-            {module.label ?? module.id}
+            {humanizeCompareLabel(module.label ?? module.id)}
           </button>
         )) : (
           <span className="text-sm text-slate-500">No module selected.</span>
@@ -2432,10 +2596,10 @@ export default function ComparePage({
             key={submodule.id}
             type="button"
             onClick={() => openBuilder(1)}
-            title={`${submodule.moduleLabel} > ${submodule.label}`}
+            title={`${humanizeCompareLabel(submodule.moduleLabel)} > ${humanizeCompareLabel(submodule.label)}`}
             className="inline-flex items-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_2px_10px_rgba(15,23,42,0.05)] transition hover:border-sky-200 hover:bg-sky-50/40"
           >
-            {submodule.label}
+            {humanizeCompareLabel(submodule.label)}
           </button>
         ))}
         <SelectionActionButton
@@ -2674,10 +2838,10 @@ export default function ComparePage({
                       {visibleModules.length ? visibleModules.map((module) => (
                         <FilterChoiceChip
                           key={module.id}
-                          label={module.label ?? module.id}
+                          label={humanizeCompareLabel(module.label ?? module.id)}
                           active={draft.modules.includes(module.id)}
                           onClick={() => toggleModuleSelection(module.id)}
-                          title={module.description || module.label || module.id}
+                          title={humanizeCompareLabel(module.description || module.label || module.id)}
                         />
                       )) : (
                         <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching categories found.</div>
@@ -2705,10 +2869,10 @@ export default function ComparePage({
                         {visibleSubmodules.length ? visibleSubmodules.map((submodule) => (
                           <FilterChoiceChip
                             key={submodule.id}
-                            label={submodule.label}
+                            label={humanizeCompareLabel(submodule.label)}
                             active={draft.submodules.includes(submodule.id)}
                             onClick={() => toggleSubmoduleSelection(submodule.id)}
-                            title={`${submodule.moduleLabel} > ${submodule.label}`}
+                            title={`${humanizeCompareLabel(submodule.moduleLabel)} > ${humanizeCompareLabel(submodule.label)}`}
                           />
                         )) : (
                           <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching sub-modules found for the selected category.</div>
@@ -2734,10 +2898,10 @@ export default function ComparePage({
                         {visibleSheets.length ? visibleSheets.map((sheet) => (
                           <FilterChoiceChip
                             key={`sheet-${sheet.id}`}
-                            label={sheet.label}
+                            label={humanizeCompareLabel(sheet.label)}
                             active={(draft.sheets ?? []).includes(sheet.id)}
                             onClick={() => toggleSheetSelection(sheet.id)}
-                            title={`${sheet.submoduleLabel} > ${sheet.label}`}
+                            title={`${humanizeCompareLabel(sheet.submoduleLabel)} > ${humanizeCompareLabel(sheet.label)}`}
                           />
                         )) : (
                           <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching sheets found for the selected sub-module.</div>
@@ -2764,10 +2928,10 @@ export default function ComparePage({
                           {visibleKpis.length ? visibleKpis.map((item) => (
                             <FilterChoiceChip
                               key={`kpi-${item.id}`}
-                              label={item.kpiLabel ?? item.kpi?.label ?? item.label}
+                              label={compareItemLabel(item)}
                               active={draft.items.includes(item.id)}
                               onClick={() => toggleItemSelection(item.id)}
-                              title={`${item.sheetLabel ?? item.sheetId} > ${item.kpiLabel ?? item.kpi?.label ?? item.kpiId}`}
+                              title={`${humanizeCompareLabel(item.sheetLabel ?? item.sheetId)} > ${compareItemLabel(item)}`}
                             />
                           )) : (
                             <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No KPI found for the selected sheet.</div>
@@ -2786,7 +2950,7 @@ export default function ComparePage({
                 </div>
               </div>
 
-              <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+              <div id="compare-by-filter-section" className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
                   <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Compare by</div>
                   <div>
@@ -2803,10 +2967,10 @@ export default function ComparePage({
                           {draftBreakdownOptions.map((key) => (
                             <FilterChoiceChip
                               key={`breakdown-${key}`}
-                              label={key}
+                              label={compareBreakdownLabel(key)}
                               active={(draft.breakdowns ?? []).includes(key)}
                               onClick={() => toggleBreakdownSelection(key)}
-                              title={`Compare by ${key}`}
+                              title={`Compare by ${compareBreakdownLabel(key)}`}
                             />
                           ))}
                         </div>
@@ -2999,7 +3163,7 @@ export default function ComparePage({
   function renderChartCard(targetRef, fullscreen = false) {
     if (!applied) return null;
     const appliedCompareLabel = summarizeList(
-      appliedItems.map((item) => item.kpiLabel ?? item.kpi?.label ?? item.label),
+      appliedItems.map((item) => compareItemLabel(item)),
       4,
     );
     const appliedYearsLabel = `${applied.yearFrom}-${applied.yearTo}`;
@@ -3011,9 +3175,8 @@ export default function ComparePage({
         label: option.label,
         icon: compareIcon(option.id, option.id === applied.view, option.id === applied.view ? "#ffffff" : uiAccent),
       }));
-    const barLegendItems = useGroupedBreakdownStacks
-      ? groupedBreakdownKeys.map((key, index) => ({ id: key, label: key, color: PALETTE[index % PALETTE.length] }))
-      : chartableAppliedItems.map((item, index) => ({ id: item.id, label: item.kpiLabel ?? item.label ?? item.kpi?.label, color: PALETTE[index % PALETTE.length] }));
+    const comparisonSeriesLookup = Object.fromEntries(groupedStackSeries.map((series) => [series.id, series]));
+    const compareLegendTitle = chartableAppliedItems.length > 1 ? "KPI and compare by" : "Compare by";
 
     return (
       <div
@@ -3105,12 +3268,21 @@ export default function ComparePage({
 
             {applied.view === "grouped" && appliedModeValidity.grouped.valid ? (
               <>
+                <div className="mb-3">
+                  <InteractiveCompareLegend
+                    items={comparisonLegendItems}
+                    activeIds={activeComparisonLegendIds}
+                    title={compareLegendTitle}
+                    maxVisible={fullscreen ? 16 : 10}
+                    onToggle={toggleComparisonLegendItem}
+                    onMore={openCompareByFilters}
+                  />
+                </div>
                 <div className="relative" style={{ height: fullscreen ? 620 : 520 }}>
-                <InChartLegend items={barLegendItems} title={useGroupedBreakdownStacks ? "Stacked breakdown" : "Bar comparison"} />
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
-                    data={useGroupedBreakdownStacks ? groupedBreakdownRows : groupedRows}
-                    margin={{ top: 86, right: 18, left: 8, bottom: 72 }}
+                    data={groupedChartRows}
+                    margin={{ top: 42, right: 18, left: 8, bottom: 72 }}
                     barCategoryGap="24%"
                     barGap={8}
                   >
@@ -3125,34 +3297,55 @@ export default function ComparePage({
                     />
                     <YAxis tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} width={78} />
                     <Tooltip
-                      content={useGroupedBreakdownStacks
-                        ? <CompareBreakdownTooltip kpi={primaryChartableAppliedItem?.kpi} scaleMode={applied.scale} />
-                        : <CompareTooltip metricLookup={appliedMetricLookup} scaleMode={applied.scale} mode="grouped" />}
+                      content={<CompareTooltip metricLookup={comparisonSeriesLookup} scaleMode={applied.scale} mode="grouped" />}
                     />
-                    {(useGroupedBreakdownStacks ? groupedBreakdownRows : groupedRows).slice(1).map((row) => (
+                    {groupedChartRows.slice(1).map((row) => (
                       <ReferenceLine key={`separator-${row.instituteId}`} x={row.label} stroke="#cbd5e1" strokeWidth={1.4} ifOverflow="visible" />
                     ))}
-                    {useGroupedBreakdownStacks
-                      ? groupedBreakdownKeys.map((key, index) => (
-                          <Bar key={key} dataKey={key} name={key} stackId="compare-breakdown" fill={PALETTE[index % PALETTE.length]} radius={index === groupedBreakdownKeys.length - 1 ? [10, 10, 0, 0] : [0, 0, 0, 0]} maxBarSize={44} />
-                        ))
-                      : chartableAppliedItems.map((item, index) => (
-                          <Bar key={item.id} dataKey={`display_${item.id}`} name={item.label} fill={PALETTE[index % PALETTE.length]} radius={[10, 10, 0, 0]} maxBarSize={Math.max(16, chartableAppliedItems.length === 1 ? 38 : 30)}>
-                            {groupedRows.map((row) => <Cell key={`${item.id}-${row.instituteId}`} />)}
-                          </Bar>
-                        ))}
+                    {activeGroupedStackSeries.map((series) => {
+                      const topSeries = groupedTopStackSeriesByItem[series.itemId];
+                      const isTopVisibleSeries = topSeries?.id === series.id;
+                      return (
+                        <Bar
+                          key={series.id}
+                          dataKey={`display_${series.id}`}
+                          name={series.label}
+                          stackId={series.stackId}
+                          fill={series.color}
+                          radius={isTopVisibleSeries ? [10, 10, 0, 0] : [0, 0, 0, 0]}
+                          maxBarSize={Math.max(16, chartableAppliedItems.length === 1 ? 44 : 30)}
+                        >
+                          {isTopVisibleSeries ? (
+                            <LabelList content={(props) => <StackTotalLabel {...props} item={series.item} scaleMode={applied.scale} />} />
+                          ) : null}
+                        </Bar>
+                      );
+                    })}
                   </BarChart>
                 </ResponsiveContainer>
+                <div className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-[11px] font-semibold text-slate-500">IIT(s)</div>
                 </div>
               </>
             ) : null}
 
             {applied.view === "smallMultiples" && appliedModeValidity.smallMultiples.valid ? (
-              <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-                {smallMultipleSeries.map((series) => (
-                  <SmallMultipleCard key={series.id} series={series} scaleMode={applied.scale} />
-                ))}
-              </div>
+              <>
+                <div className="mb-4">
+                  <InteractiveCompareLegend
+                    items={comparisonLegendItems}
+                    activeIds={activeComparisonLegendIds}
+                    title={compareLegendTitle}
+                    maxVisible={fullscreen ? 16 : 10}
+                    onToggle={toggleComparisonLegendItem}
+                    onMore={openCompareByFilters}
+                  />
+                </div>
+                <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+                  {smallMultipleSeries.map((series) => (
+                    <SmallMultipleCard key={series.id} series={series} scaleMode={applied.scale} activeLegendIds={activeComparisonLegendIds} />
+                  ))}
+                </div>
+              </>
             ) : null}
 
             {applied.view === "table" && appliedModeValidity.table.valid ? (
