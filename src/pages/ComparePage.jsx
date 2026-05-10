@@ -3752,7 +3752,7 @@ export default function ComparePage({
         icon: compareIcon(option.id, option.id === applied.view, option.id === applied.view ? "#ffffff" : uiAccent),
       }));
     const comparisonSeriesLookup = Object.fromEntries(groupedStackSeries.map((series) => [series.id, series]));
-    const compareLegendTitle = chartableAppliedItems.length > 1 ? "KPI and compare by" : "Compare by";
+    const compareLegendTitle = chartableAppliedItems.length > 1 ? "Compare by" : "Compare by";
     const viewInstruction = {
       grouped: ["Hover/click a colored segment for details."],
       smallBars: ["Hover/click a colored segment for details."],
