@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
+  ComposedChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -35,10 +36,48 @@ import VisualToolbar from "../components/ui/VisualToolbar";
 
 const LEGACY_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
 const PALETTE = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2", "#db2777", "#475569"];
+const COMPARE_SERIES_TONE_STEPS = [-0.26, -0.08, 0.12, 0.28, 0.42, -0.42, 0.56, -0.56];
+
+function clampColorChannel(value) {
+  return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function hexToRgb(hex) {
+  const normalized = String(hex || "#2563eb").replace("#", "");
+  if (normalized.length !== 6) return { r: 37, g: 99, b: 235 };
+  return {
+    r: parseInt(normalized.slice(0, 2), 16),
+    g: parseInt(normalized.slice(2, 4), 16),
+    b: parseInt(normalized.slice(4, 6), 16),
+  };
+}
+
+function rgbToHex({ r, g, b }) {
+  return `#${[r, g, b].map((channel) => clampColorChannel(channel).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function mixHexColor(source, target, weight = 0) {
+  const left = hexToRgb(source);
+  const right = hexToRgb(target);
+  const amount = Math.max(0, Math.min(1, Math.abs(weight)));
+  return rgbToHex({
+    r: left.r + (right.r - left.r) * amount,
+    g: left.g + (right.g - left.g) * amount,
+    b: left.b + (right.b - left.b) * amount,
+  });
+}
+
+function compareSeriesColor(itemIndex = 0, breakdownIndex = 0, breakdownCount = 1) {
+  const baseColor = PALETTE[itemIndex % PALETTE.length];
+  if (breakdownCount <= 1) return baseColor;
+  const tone = COMPARE_SERIES_TONE_STEPS[breakdownIndex % COMPARE_SERIES_TONE_STEPS.length];
+  return tone < 0 ? mixHexColor(baseColor, "#0f172a", tone) : mixHexColor(baseColor, "#ffffff", tone);
+}
 const TOP_TABS = ["Compare View", "Filters", "Compare Mode", "Saved Sets"];
 const VIEW_OPTIONS = [
   { id: "grouped", label: "Bar graph", help: "Compare selected KPI values across IITs for the focus year." },
-  { id: "smallMultiples", label: "Small multiples", help: "Keep dense or mixed comparisons in separate tiles." },
+  { id: "smallBars", label: "Small bars", help: "Show year-wise small multiple bar cards." },
+  { id: "smallLines", label: "Small lines", help: "Show year-wise small multiple line cards." },
   { id: "table", label: "Table", help: "Show the broadest structurally valid comparison in tabular form." },
 ];
 const TOTAL_COMPARISON_KEY = "__total__";
@@ -129,6 +168,19 @@ function valueForBreakdownKey(facts, kpi, instituteId, year, breakdownKey = TOTA
   if (!breakdownKey || breakdownKey === TOTAL_COMPARISON_KEY || !kpi?.levels?.length) return kpiValue(kpi, rows);
   const match = kpiBreakdown(kpi, rows, []).find((item) => String(item.name ?? "Unknown") === String(breakdownKey));
   return match?.value ?? null;
+}
+
+function aggregateCompareSeriesYearValue(facts, series, instituteIds = [], year) {
+  const values = (instituteIds ?? [])
+    .map((iid) => valueForBreakdownKey(facts, series.kpi, iid, year, series.breakdownKey))
+    .filter((value) => value != null && Number.isFinite(Number(value)))
+    .map(Number);
+
+  if (!values.length) return null;
+  if (series?.kpi?.format === "pct") {
+    return values.reduce((sum, value) => sum + value, 0) / values.length;
+  }
+  return values.reduce((sum, value) => sum + value, 0);
 }
 
 function itemSupportsBreakdown(item) {
@@ -299,6 +351,27 @@ function compareIcon(kind, active = false, tone = "#2563eb") {
         <path {...common} d="M11 19V6" />
         <path {...common} d="M17 19V13" />
         <path {...common} d="M21 19V8" />
+      </>
+    ),
+    smallBars: (
+      <>
+        <rect {...common} x="4" y="4" width="7" height="7" rx="1.6" />
+        <rect {...common} x="13" y="4" width="7" height="7" rx="1.6" />
+        <path {...common} d="M6 19v-4" />
+        <path {...common} d="M10 19v-7" />
+        <path {...common} d="M15 19v-5" />
+        <path {...common} d="M19 19v-8" />
+      </>
+    ),
+    smallLines: (
+      <>
+        <rect {...common} x="4" y="4" width="7" height="7" rx="1.6" />
+        <rect {...common} x="13" y="4" width="7" height="7" rx="1.6" />
+        <path {...common} d="M5 18l4-4 4 2 6-6" />
+        <circle {...common} cx="5" cy="18" r="1" />
+        <circle {...common} cx="9" cy="14" r="1" />
+        <circle {...common} cx="13" cy="16" r="1" />
+        <circle {...common} cx="19" cy="10" r="1" />
       </>
     ),
     smallMultiples: (
@@ -798,26 +871,162 @@ function EmptyStateCard({ onBuild }) {
   );
 }
 
-function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLookup, scaleMode }) {
+
+function BarSegmentDetailCard({ segment, scaleMode, onClose }) {
+  if (!segment) return null;
+  const valueLabel = fmtDisplay(segment.kpi, segment.displayValue, scaleMode);
+  const rawLabel = fmtRaw(segment.kpi, segment.rawValue);
+  const previousLabel = segment.previousYear ? fmtRaw(segment.kpi, segment.previousRawValue) : "—";
+  const changeLabel = segment.changePct == null || !Number.isFinite(Number(segment.changePct))
+    ? "—"
+    : `${Number(segment.changePct) >= 0 ? "+" : ""}${formatPct(segment.changePct)}`;
+  const shareLabel = segment.sharePct == null || !Number.isFinite(Number(segment.sharePct))
+    ? "—"
+    : `${(Number(segment.sharePct) * 100).toFixed(1)}%`;
+
+  return (
+    <div className="min-w-[300px] max-w-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-white text-xs shadow-xl">
+      <div className="border-b border-slate-100 px-4 py-3 text-center">
+        <div className="text-sm font-extrabold text-slate-900">{segment.instituteName}</div>
+        <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Selected bar segment</div>
+      </div>
+      <div className="space-y-2 px-4 py-3">
+        <div className="flex items-start justify-between gap-5">
+          <span className="shrink-0 font-bold uppercase tracking-[0.12em] text-slate-400">Series</span>
+          <span className="min-w-0 text-right font-extrabold text-slate-900" style={{ color: segment.color }}>
+            {segment.seriesLabel}
+          </span>
+        </div>
+        <div className="flex items-start justify-between gap-5">
+          <span className="shrink-0 font-bold uppercase tracking-[0.12em] text-slate-400">Path</span>
+          <span className="min-w-0 text-right font-semibold text-slate-600">{segment.fullLabel}</span>
+        </div>
+        <div className="flex items-center justify-between gap-5">
+          <span className="font-bold uppercase tracking-[0.12em] text-slate-400">Year</span>
+          <span className="font-extrabold text-slate-700">{segment.year}</span>
+        </div>
+        <div className="flex items-center justify-between gap-5">
+          <span className="font-bold uppercase tracking-[0.12em] text-slate-400">Value</span>
+          <span className="font-extrabold text-slate-900">{valueLabel}</span>
+        </div>
+        {scaleMode === "indexed" ? (
+          <div className="flex items-center justify-between gap-5">
+            <span className="font-bold uppercase tracking-[0.12em] text-slate-400">Raw value</span>
+            <span className="font-extrabold text-slate-900">{rawLabel}</span>
+          </div>
+        ) : null}
+        <div className="flex items-center justify-between gap-5">
+          <span className="font-bold uppercase tracking-[0.12em] text-slate-400">Share in stack</span>
+          <span className="font-extrabold text-slate-900">{shareLabel}</span>
+        </div>
+        <div className="flex items-center justify-between gap-5">
+          <span className="font-bold uppercase tracking-[0.12em] text-slate-400">Previous year</span>
+          <span className="font-extrabold text-slate-900">{segment.previousYear ? `${segment.previousYear}: ${previousLabel}` : "—"}</span>
+        </div>
+        <div className="flex items-center justify-between gap-5">
+          <span className="font-bold uppercase tracking-[0.12em] text-slate-400">YoY change</span>
+          <span className={cn("font-extrabold", Number(segment.changePct) >= 0 ? "text-emerald-600" : "text-rose-600")}>{changeLabel}</span>
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+        <span>{segment.pinned ? "Pinned selection" : "Click segment to pin"}</span>
+        {onClose ? (
+          <button type="button" onClick={onClose} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-extrabold text-slate-600">
+            Clear
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLookup, scaleMode, activeSegment }) {
   if (!active || !payload?.length) return null;
   if (mode === "grouped") {
+    if (activeSegment) {
+      return <BarSegmentDetailCard segment={activeSegment} scaleMode={scaleMode} />;
+    }
     const row = payload[0]?.payload;
+    const seenMetricIds = new Set();
+    const visibleEntries = payload
+      .map((entry) => {
+        const metricId = String(entry.dataKey).replace(/^display_/, "");
+        if (seenMetricIds.has(metricId)) return null;
+        seenMetricIds.add(metricId);
+        const metric = metricLookup?.[metricId];
+        const value = row?.[`display_${metricId}`] ?? entry.value;
+        const numericValue = Number(value);
+        if (!metric || value == null || !Number.isFinite(numericValue)) return null;
+        return {
+          id: metricId,
+          metric,
+          value: numericValue,
+          raw: row?.[`raw_${metricId}`],
+          color: entry.color ?? metric.color,
+          label: metric.legendLabel ?? metric.shortLabel ?? metric.label,
+        };
+      })
+      .filter(Boolean);
+    const total = visibleEntries.reduce((sum, entry) => sum + Number(entry.value ?? 0), 0);
+    const topEntry = visibleEntries.reduce((best, entry) => (!best || Number(entry.value) > Number(best.value) ? entry : best), null);
+    const trendStart = Number(row?.trendStartValue);
+    const trendEnd = Number(row?.trendEndValue);
+    const trendDelta = row?.trendDeltaPct;
+
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-xl">
-        <div className="font-semibold text-slate-900">{row?.instituteName ?? label}</div>
-        <div className="mt-1 text-slate-500">Focus year comparison by institute</div>
-        <div className="mt-2 space-y-1.5">
+      <div className="min-w-[280px] max-w-[340px] overflow-hidden rounded-2xl border border-slate-200 bg-white text-xs shadow-xl">
+        <div className="border-b border-slate-100 px-4 py-3 text-center">
+          <div className="text-sm font-extrabold text-slate-900">{row?.instituteName ?? label}</div>
+          <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Focus year summary</div>
+        </div>
+        <div className="space-y-2 px-4 py-3">
+          <div className="flex items-center justify-between gap-5">
+            <span className="font-bold uppercase tracking-[0.12em] text-slate-400">Year</span>
+            <span className="font-extrabold text-slate-700">{row?.focusYear ?? "—"}</span>
+          </div>
+          <div className="flex items-center justify-between gap-5">
+            <span className="font-bold uppercase tracking-[0.12em] text-slate-400">Visible total</span>
+            <span className="font-extrabold text-slate-900">{Number.isFinite(total) ? formatCompact(total) : "—"}</span>
+          </div>
+          <div className="flex items-center justify-between gap-5">
+            <span className="font-bold uppercase tracking-[0.12em] text-slate-400">Top series</span>
+            <span className="max-w-[170px] truncate text-right font-extrabold text-slate-900" style={{ color: topEntry?.color }}>
+              {topEntry ? `${topEntry.label} · ${fmtDisplay(topEntry.metric?.kpi, topEntry.value, scaleMode)}` : "—"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-5">
+            <span className="font-bold uppercase tracking-[0.12em] text-slate-400">Range change</span>
+            <span className="font-extrabold text-slate-900">
+              {Number.isFinite(trendStart) && Number.isFinite(trendEnd)
+                ? `${formatCompact(trendStart)} → ${formatCompact(trendEnd)}`
+                : "—"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-5">
+            <span className="font-bold uppercase tracking-[0.12em] text-slate-400">Change %</span>
+            <span className={cn("font-extrabold", Number(trendDelta) >= 0 ? "text-emerald-600" : "text-rose-600")}>
+              {trendDelta == null || !Number.isFinite(Number(trendDelta)) ? "—" : `${Number(trendDelta) >= 0 ? "+" : ""}${formatPct(trendDelta)}`}
+            </span>
+          </div>
+        </div>
+        <div className="border-t border-slate-100 px-4 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+          Hover or click a colored bar segment for exact details
+        </div>
+      </div>
+    );
+  }
+  if (mode === "yearTrend") {
+    return (
+      <div className="max-w-[340px] rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-xl">
+        <div className="font-semibold text-slate-900">Year {label}</div>
+        <div className="mt-2 max-h-64 space-y-1.5 overflow-auto pr-1">
           {payload.map((entry) => {
-            const metricId = String(entry.dataKey).replace("display_", "");
-            const metric = metricLookup[metricId];
-            const raw = row?.[`raw_${metricId}`];
+            const seriesId = String(entry.dataKey).replace("display_", "");
+            const series = metricLookup?.[seriesId];
             return (
-              <div key={metricId} className="flex items-center justify-between gap-4">
-                <span style={{ color: entry.color }}>{compareItemLabel(metric) || humanizeCompareLabel(metricId)}</span>
-                <span className="font-semibold text-slate-800">
-                  {fmtDisplay(metric?.kpi, entry.value, scaleMode)}
-                  {scaleMode === "indexed" && raw != null ? ` - ${fmtRaw(metric?.kpi, raw)}` : ""}
-                </span>
+              <div key={seriesId} className="flex items-center justify-between gap-4">
+                <span className="min-w-0 truncate" style={{ color: entry.color }}>{series?.legendLabel ?? series?.shortLabel ?? series?.label ?? humanizeCompareLabel(seriesId)}</span>
+                <span className="shrink-0 font-semibold text-slate-800">{fmtDisplay(series?.kpi, entry.value, scaleMode)}</span>
               </div>
             );
           })}
@@ -826,25 +1035,53 @@ function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLook
     );
   }
   if (mode === "smallMultiples") {
+    if (activeSegment) {
+      return <BarSegmentDetailCard segment={activeSegment} scaleMode={scaleMode} />;
+    }
     const row = payload[0]?.payload;
+    const visibleEntries = payload
+      .map((entry) => {
+        const seriesId = String(entry.dataKey).replace("display_", "");
+        const series = seriesLookup?.[seriesId];
+        const value = row?.[`display_${seriesId}`] ?? entry.value;
+        if (!series || value == null || !Number.isFinite(Number(value))) return null;
+        return {
+          id: seriesId,
+          series,
+          value: Number(value),
+          raw: row?.[`raw_${seriesId}`],
+          color: entry.color ?? series.color,
+          label: series.legendLabel ?? series.shortLabel ?? series.label,
+        };
+      })
+      .filter(Boolean);
+    const total = visibleEntries.reduce((sum, entry) => sum + Number(entry.value ?? 0), 0);
+    const topEntry = visibleEntries.reduce((best, entry) => (!best || Number(entry.value) > Number(best.value) ? entry : best), null);
+
     return (
-      <div className="max-w-[360px] rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-xl">
-        <div className="font-semibold text-slate-900">{label}</div>
-        <div className="mt-2 max-h-64 space-y-1.5 overflow-auto pr-1">
-          {payload.map((entry) => {
-            const seriesId = String(entry.dataKey).replace("display_", "");
-            const series = seriesLookup?.[seriesId];
-            const raw = row?.[`raw_${seriesId}`];
-            return (
-              <div key={seriesId} className="flex items-center justify-between gap-4">
-                <span className="min-w-0 truncate" style={{ color: entry.color }}>{series?.label ?? humanizeCompareLabel(seriesId)}</span>
-                <span className="shrink-0 font-semibold text-slate-800">
-                  {fmtDisplay(series?.kpi, entry.value, scaleMode)}
-                  {scaleMode === "indexed" && raw != null ? ` - ${fmtRaw(series?.kpi, raw)}` : ""}
-                </span>
-              </div>
-            );
-          })}
+      <div className="max-w-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-white text-xs shadow-xl">
+        <div className="border-b border-slate-100 px-4 py-3 text-center">
+          <div className="text-sm font-extrabold text-slate-900">{row?.instituteName ?? label}</div>
+          <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{row?.year ? `Year ${row.year}` : "Small multiple summary"}</div>
+        </div>
+        <div className="space-y-2 px-4 py-3">
+          <div className="flex items-center justify-between gap-5">
+            <span className="font-bold uppercase tracking-[0.12em] text-slate-400">Visible total</span>
+            <span className="font-extrabold text-slate-900">{Number.isFinite(total) ? formatCompact(total) : "—"}</span>
+          </div>
+          <div className="flex items-center justify-between gap-5">
+            <span className="font-bold uppercase tracking-[0.12em] text-slate-400">Top series</span>
+            <span className="max-w-[170px] truncate text-right font-extrabold text-slate-900" style={{ color: topEntry?.color }}>
+              {topEntry ? `${topEntry.label} · ${fmtDisplay(topEntry.series?.kpi, topEntry.value, scaleMode)}` : "—"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-5">
+            <span className="font-bold uppercase tracking-[0.12em] text-slate-400">IIT</span>
+            <span className="font-extrabold text-slate-700">{row?.instituteName ?? row?.label ?? "—"}</span>
+          </div>
+        </div>
+        <div className="border-t border-slate-100 px-4 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+          Hover or click a colored bar segment for exact details
         </div>
       </div>
     );
@@ -894,6 +1131,7 @@ function InteractiveCompareLegend({
   items = [],
   activeIds = [],
   title = "Legend",
+  helper = "",
   compact = false,
   maxVisible = 10,
   onToggle,
@@ -914,10 +1152,14 @@ function InteractiveCompareLegend({
         "max-w-full rounded-2xl border border-slate-200/80 bg-white/95 px-3 py-2 shadow-[0_12px_30px_rgba(15,23,42,0.10)] backdrop-blur",
         compact ? "" : "",
       )}>
-        <div className="mb-1 text-center text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{title}</div>
+        <div className="mb-1 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-center">
+          <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{title}</div>
+          {helper ? <div className="text-[10px] font-semibold text-slate-500">{helper}</div> : null}
+        </div>
         <div className="flex flex-wrap items-center justify-center gap-2">
           {visibleItems.map((item) => {
             const active = activeSet.has(item.id);
+            const fullLabel = item.title ?? item.fullLabel ?? item.label;
             return (
               <button
                 key={item.id ?? item.label}
@@ -927,7 +1169,8 @@ function InteractiveCompareLegend({
                   "inline-flex max-w-[250px] items-center gap-2 rounded-full border px-2.5 py-1.5 text-[11px] font-bold transition",
                   active ? "border-slate-200 bg-slate-50 text-slate-800" : "border-slate-100 bg-white text-slate-400 opacity-60",
                 )}
-                title={`${active ? "Hide" : "Show"} ${item.label}`}
+                title={`${active ? "Deselect / hide" : "Select / show"} ${fullLabel}`}
+                aria-label={`${active ? "Deselect / hide" : "Select / show"} ${fullLabel}`}
                 aria-pressed={active}
               >
                 <span className="h-3 w-3 shrink-0 rounded-[4px]" style={{ background: item.color }} />
@@ -951,14 +1194,85 @@ function InteractiveCompareLegend({
   );
 }
 
-function SmallMultipleCard({ series, scaleMode, activeLegendIds = [] }) {
+function SmallMultipleBarCard({
+  series,
+  scaleMode,
+  activeLegendIds = [],
+  sharedYMax = null,
+  detailSegment = null,
+  onSegmentHover,
+  onSegmentClick,
+  onChartLeave,
+  onDetailClose,
+}) {
   const { rows, lines, label, subtitle } = series;
   const activeSet = new Set(activeLegendIds?.length ? activeLegendIds : (lines ?? []).map((line) => line.legendId ?? line.id));
   const visibleLines = (lines ?? []).filter((line) => activeSet.has(line.legendId ?? line.id));
+  const topLineIdByStack = useMemo(() => {
+    const lookup = {};
+    visibleLines.forEach((line) => {
+      const stackKey = line.stackId ?? `stack_${normalizeSeriesKey(line.itemId ?? "item")}`;
+      lookup[stackKey] = line.id;
+    });
+    return lookup;
+  }, [visibleLines]);
+  return (
+    <div className="relative rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm">
+      {detailSegment ? (
+        <div className="absolute right-4 top-4 z-20" data-export-hide="true">
+          <BarSegmentDetailCard segment={detailSegment} scaleMode={scaleMode} onClose={onDetailClose} />
+        </div>
+      ) : null}
+      <div className="mb-3 pr-2">
+        <div className="text-sm font-semibold text-slate-900">{humanizeCompareLabel(label)}</div>
+        <div className="mt-1 text-xs text-slate-500">{subtitle}</div>
+      </div>
+      <div className="relative" style={{ height: 270 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={rows}
+            margin={{ top: 18, right: 16, left: 0, bottom: 34 }}
+            barCategoryGap="28%"
+            barGap={6}
+            onMouseLeave={onChartLeave}
+          >
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+            <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#475569" }} axisLine={false} tickLine={false} interval={0} />
+            <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} width={70} domain={sharedYMax ? [0, sharedYMax] : [0, "auto"]} />
+            <Tooltip cursor={{ fill: "rgba(148,163,184,0.08)" }} content={() => null} />
+            {visibleLines.map((line) => {
+              const stackKey = line.stackId ?? `stack_${normalizeSeriesKey(line.itemId ?? "item")}`;
+              const isTopVisibleSeries = topLineIdByStack[stackKey] === line.id;
+              return (
+                <Bar
+                  key={line.id}
+                  dataKey={`display_${line.id}`}
+                  name={line.fullLabel ?? line.label}
+                  stackId={stackKey}
+                  fill={line.color}
+                  radius={isTopVisibleSeries ? [8, 8, 0, 0] : [0, 0, 0, 0]}
+                  maxBarSize={24}
+                  isAnimationActive={false}
+                  onMouseEnter={(entry) => onSegmentHover?.(line, entry?.payload ?? entry)}
+                  onClick={(entry, index, event) => onSegmentClick?.(line, entry?.payload ?? entry, event)}
+                />
+              );
+            })}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-1 text-center text-[11px] font-semibold text-slate-500">IIT(s)</div>
+    </div>
+  );
+}
+
+function SmallMultipleLineCard({ series, scaleMode, sharedYMax = null }) {
+  const { rows, lines, label, subtitle } = series;
   const seriesLookup = useMemo(
     () => Object.fromEntries((lines ?? []).map((line) => [line.id, line])),
     [lines],
   );
+
   return (
     <div className="rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm">
       <div className="mb-3">
@@ -970,18 +1284,18 @@ function SmallMultipleCard({ series, scaleMode, activeLegendIds = [] }) {
           <LineChart data={rows} margin={{ top: 18, right: 16, left: 0, bottom: 30 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
             <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} width={70} />
+            <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} width={70} domain={sharedYMax ? [0, sharedYMax] : [0, "auto"]} />
             <Tooltip content={<CompareTooltip seriesLookup={seriesLookup} scaleMode={scaleMode} mode="smallMultiples" />} />
-            {visibleLines.map((line) => (
+            {(lines ?? []).map((line) => (
               <Line
                 key={line.id}
                 type="monotone"
                 dataKey={`display_${line.id}`}
                 name={line.label}
                 stroke={line.color}
-                strokeWidth={2.6}
-                dot={{ r: 3.2, fill: line.color }}
-                activeDot={{ r: 5.5 }}
+                strokeWidth={2.4}
+                dot={{ r: 3, fill: line.color }}
+                activeDot={{ r: 5 }}
                 connectNulls
                 isAnimationActive={false}
               />
@@ -1084,6 +1398,18 @@ function BuilderFooter({ onBack, onClear, onApply, applyDisabled, applyLabel = "
   );
 }
 
+function normalizeCompareView(viewId) {
+  const aliases = {
+    smallMultiples: "smallBars",
+    smallMultipleBars: "smallBars",
+    smallMultipleLines: "smallLines",
+    smallBarMultiples: "smallBars",
+    smallLineMultiples: "smallLines",
+  };
+  const normalized = aliases[viewId] ?? viewId;
+  return VIEW_OPTIONS.some((option) => option.id === normalized) ? normalized : "grouped";
+}
+
 function createDefaultDraft() {
   return {
     modules: [],
@@ -1152,7 +1478,7 @@ function createDraftFromConfig(config, moduleMap, submoduleMap, sheetMap, worksh
     yearFrom,
     yearTo,
     focusYear: focusYear >= yearFrom && focusYear <= yearTo ? focusYear : yearTo,
-    view: VIEW_OPTIONS.some((option) => option.id === config?.CompareView) ? config.CompareView : "grouped",
+    view: normalizeCompareView(config?.CompareView),
     scale: SCALE_OPTIONS.some((option) => option.id === config?.CompareScale) ? config.CompareScale : "raw",
   };
 }
@@ -1171,6 +1497,14 @@ function deriveModeValidity(items, iits, yearFrom, yearTo) {
         : iits.length < 1
           ? "Select at least one IIT."
           : "",
+    },
+    smallBars: {
+      valid: chartable.length >= 1 && iits.length >= 1,
+      reason: chartable.length < 1 ? "Select at least one chartable KPI." : "",
+    },
+    smallLines: {
+      valid: chartable.length >= 1 && iits.length >= 1 && years.length >= 1,
+      reason: chartable.length < 1 ? "Select at least one chartable KPI." : "",
     },
     smallMultiples: {
       valid: chartable.length >= 1 && iits.length >= 1,
@@ -1269,6 +1603,7 @@ export default function ComparePage({
   const [lastDownloadedAt, setLastDownloadedAt] = useState(null);
   const [toolbarSearch, setToolbarSearch] = useState("");
   const [visibleCompareLegendIds, setVisibleCompareLegendIds] = useState([]);
+  const [activeBarSegment, setActiveBarSegment] = useState(null);
   const [moduleSearch, setModuleSearch] = useState("");
   const [submoduleSearch, setSubmoduleSearch] = useState("");
   const [iitSearch, setIitSearch] = useState("");
@@ -1429,23 +1764,27 @@ export default function ComparePage({
   const groupedStackSeries = useMemo(() => {
     if (!applied) return [];
     const series = [];
-    chartableAppliedItems.forEach((item) => {
+    chartableAppliedItems.forEach((item, itemIndex) => {
       const itemBreakdowns = itemSupportsBreakdown(item) && appliedBreakdownKeys.length
         ? appliedBreakdownKeys
         : [TOTAL_COMPARISON_KEY];
-      itemBreakdowns.forEach((breakdownKey) => {
+      itemBreakdowns.forEach((breakdownKey, breakdownIndex) => {
         const id = compareSeriesLegendId(item.id, breakdownKey);
         const breakdownLabel = compareBreakdownLabel(breakdownKey);
         const itemLabel = compareItemLabel(item);
+        const fullLabel = breakdownKey === TOTAL_COMPARISON_KEY ? itemLabel : `${itemLabel} > ${breakdownLabel}`;
+        const visibleLabel = breakdownKey === TOTAL_COMPARISON_KEY ? itemLabel : breakdownLabel;
         series.push({
           id,
           itemId: item.id,
           item,
           kpi: item.kpi,
           breakdownKey,
-          label: breakdownKey === TOTAL_COMPARISON_KEY ? itemLabel : `${itemLabel} · ${breakdownLabel}`,
-          shortLabel: breakdownKey === TOTAL_COMPARISON_KEY ? itemLabel : `${itemLabel} · ${breakdownLabel}`,
-          color: PALETTE[series.length % PALETTE.length],
+          label: fullLabel,
+          shortLabel: visibleLabel,
+          fullLabel,
+          legendLabel: visibleLabel,
+          color: compareSeriesColor(itemIndex, breakdownIndex, itemBreakdowns.length),
           stackId: `stack_${normalizeSeriesKey(item.id)}`,
         });
       });
@@ -1454,7 +1793,12 @@ export default function ComparePage({
   }, [applied, appliedBreakdownKeys, chartableAppliedItems]);
 
   const comparisonLegendItems = useMemo(
-    () => groupedStackSeries.map((series) => ({ id: series.id, label: series.shortLabel, color: series.color })),
+    () => groupedStackSeries.map((series) => ({
+      id: series.id,
+      label: series.legendLabel ?? series.shortLabel,
+      title: series.fullLabel ?? series.label,
+      color: series.color,
+    })),
     [groupedStackSeries],
   );
   const allComparisonLegendIds = useMemo(() => comparisonLegendItems.map((item) => item.id), [comparisonLegendItems]);
@@ -1479,6 +1823,10 @@ export default function ComparePage({
   useEffect(() => {
     setVisibleCompareLegendIds((prev) => prev.filter((id) => allComparisonLegendIds.includes(id)));
   }, [allComparisonLegendIds.join("|")]);
+
+  useEffect(() => {
+    setActiveBarSegment(null);
+  }, [activeComparisonLegendIds.join("|"), applied?.focusYear, applied?.scale]);
 
   const groupedStackRows = useMemo(() => {
     if (!applied) return [];
@@ -1533,58 +1881,210 @@ export default function ComparePage({
 
   const groupedRows = groupedStackRows;
   const groupedChartRows = useMemo(() => groupedStackRows.map((row) => {
-    const next = { ...row };
+    const next = { ...row, focusYear: applied?.focusYear };
     chartableAppliedItems.forEach((item) => {
       const visibleItemSeries = groupedStackSeries.filter((series) => series.itemId === item.id && activeComparisonLegendIdSet.has(series.id));
+      let cumulativeDisplayValue = 0;
+      let cumulativeRawValue = 0;
+      visibleItemSeries.forEach((series) => {
+        const displayValue = row[`display_${series.id}`];
+        const rawValue = row[`raw_${series.id}`];
+        const hasDisplayValue = displayValue != null && Number.isFinite(Number(displayValue));
+        const hasRawValue = rawValue != null && Number.isFinite(Number(rawValue));
+        if (hasDisplayValue) cumulativeDisplayValue += Number(displayValue);
+        if (hasRawValue) cumulativeRawValue += Number(rawValue);
+        next[`tip_${series.id}`] = hasDisplayValue ? cumulativeDisplayValue : null;
+        next[`rawTip_${series.id}`] = hasRawValue ? cumulativeRawValue : null;
+      });
       next[`displayTotal_${item.id}`] = visibleItemSeries.reduce((sum, series) => sum + Number(row[`display_${series.id}`] ?? 0), 0);
       next[`rawTotal_${item.id}`] = visibleItemSeries.reduce((sum, series) => sum + Number(row[`raw_${series.id}`] ?? 0), 0);
     });
+
+    const trendStartYear = appliedYears[0] ?? applied?.focusYear;
+    const trendEndYear = applied?.focusYear ?? appliedYears[appliedYears.length - 1] ?? trendStartYear;
+    const valueForTrendYear = (year) => activeGroupedStackSeries.reduce((sum, series) => {
+      const raw = valueForBreakdownKey(facts, series.kpi, row.instituteId, year, series.breakdownKey);
+      if (raw == null || !Number.isFinite(Number(raw))) return sum;
+      return sum + (series.kpi?.format === "pct" ? Number(raw) * 100 : Number(raw));
+    }, 0);
+
+    const trendStartValue = valueForTrendYear(trendStartYear);
+    const trendEndValue = valueForTrendYear(trendEndYear);
+    next.trendStartYear = trendStartYear;
+    next.trendEndYear = trendEndYear;
+    next.trendStartValue = trendStartValue;
+    next.trendEndValue = trendEndValue;
+    next.trendDeltaPct = trendStartValue ? (trendEndValue - trendStartValue) / trendStartValue : null;
     return next;
-  }), [activeComparisonLegendIdSet, chartableAppliedItems, groupedStackRows, groupedStackSeries]);
+  }), [activeComparisonLegendIdSet, activeGroupedStackSeries, applied, appliedYears, chartableAppliedItems, facts, groupedStackRows, groupedStackSeries]);
 
-  const smallMultipleSeries = useMemo(() => {
-    if (!applied) return [];
-    return appliedIITs.map((iid) => {
-      const lines = groupedStackSeries.map((series) => ({
-        ...series,
-        id: series.id,
-        legendId: series.id,
-        iid,
-        label: compareSeriesLabel({ item: series.item, breakdownKey: series.breakdownKey, iid }),
-        shortLabel: series.shortLabel,
-      }));
+  const yearTrendRows = useMemo(() => {
+    if (!applied || !appliedYears.length || !activeGroupedStackSeries.length) return [];
 
-      const rawSeriesValues = Object.fromEntries(
-        lines.map((line) => [
-          line.id,
-          appliedYears.map((year) => valueForBreakdownKey(facts, line.kpi, iid, year, line.breakdownKey)),
+    const rawValuesBySeries = Object.fromEntries(
+      activeGroupedStackSeries.map((series) => [
+        series.id,
+        appliedYears.map((year) => aggregateCompareSeriesYearValue(facts, series, groupedIITs, year)),
+      ]),
+    );
+    const displayValuesBySeries = Object.fromEntries(
+      activeGroupedStackSeries.map((series) => {
+        const rawValues = rawValuesBySeries[series.id] ?? [];
+        return [
+          series.id,
+          applied.scale === "indexed"
+            ? normalizeToBase(rawValues)
+            : rawValues.map((value) => (series.kpi?.format === "pct" && value != null ? Number(value) * 100 : value)),
+        ];
+      }),
+    );
+
+    return appliedYears.map((year, yearIndex) => {
+      const row = { year, label: String(year) };
+      activeGroupedStackSeries.forEach((series) => {
+        row[`raw_${series.id}`] = rawValuesBySeries[series.id]?.[yearIndex] ?? null;
+        row[`display_${series.id}`] = displayValuesBySeries[series.id]?.[yearIndex] ?? null;
+      });
+      return row;
+    });
+  }, [activeGroupedStackSeries, applied, appliedYears, facts, groupedIITs]);
+
+  const smallMultipleBarSeries = useMemo(() => {
+    if (!applied || !appliedYears.length || !groupedIITs.length || !activeGroupedStackSeries.length) return [];
+
+    return appliedYears.map((year) => {
+      const rawValuesBySeries = Object.fromEntries(
+        activeGroupedStackSeries.map((series) => [
+          series.id,
+          groupedIITs.map((iid) => valueForBreakdownKey(facts, series.kpi, iid, year, series.breakdownKey)),
         ]),
       );
-      const indexedSeriesValues = Object.fromEntries(
-        Object.entries(rawSeriesValues).map(([seriesId, values]) => [seriesId, normalizeToBase(values)]),
+      const displayValuesBySeries = Object.fromEntries(
+        activeGroupedStackSeries.map((series) => {
+          const rawValues = rawValuesBySeries[series.id] ?? [];
+          return [
+            series.id,
+            applied.scale === "indexed"
+              ? normalizeToLeader(rawValues)
+              : rawValues.map((value) => (series.kpi?.format === "pct" && value != null ? Number(value) * 100 : value)),
+          ];
+        }),
       );
 
-      const rows = appliedYears.map((year, yearIndex) => {
-        const row = { year, label: String(year), instituteId: iid, instituteName: instituteNameById(iid) };
-        lines.forEach((line) => {
-          const raw = rawSeriesValues[line.id]?.[yearIndex] ?? null;
-          row[`raw_${line.id}`] = raw;
-          row[`display_${line.id}`] = applied.scale === "indexed"
-            ? indexedSeriesValues[line.id]?.[yearIndex] ?? null
-            : (line.kpi?.format === "pct" && raw != null ? Number(raw) * 100 : raw);
+      const rows = groupedIITs.map((iid, instituteIndex) => {
+        const row = {
+          instituteId: iid,
+          instituteName: instituteNameById(iid),
+          label: instituteShortLabel(iid),
+          year,
+          cardId: `year-bars-${year}`,
+        };
+        activeGroupedStackSeries.forEach((series) => {
+          row[`raw_${series.id}`] = rawValuesBySeries[series.id]?.[instituteIndex] ?? null;
+          row[`display_${series.id}`] = displayValuesBySeries[series.id]?.[instituteIndex] ?? null;
+        });
+        row.displayTotal_all = activeGroupedStackSeries.reduce((sum, series) => sum + Number(row[`display_${series.id}`] ?? 0), 0);
+        row.rawTotal_all = activeGroupedStackSeries.reduce((sum, series) => sum + Number(row[`raw_${series.id}`] ?? 0), 0);
+        dedupeList(activeGroupedStackSeries.map((series) => series.itemId)).forEach((itemId) => {
+          const itemSeries = activeGroupedStackSeries.filter((series) => series.itemId === itemId);
+          row[`displayTotal_${itemId}`] = itemSeries.reduce((sum, series) => sum + Number(row[`display_${series.id}`] ?? 0), 0);
+          row[`rawTotal_${itemId}`] = itemSeries.reduce((sum, series) => sum + Number(row[`raw_${series.id}`] ?? 0), 0);
         });
         return row;
       });
 
       return {
-        id: iid,
-        label: instituteShortLabel(iid),
-        subtitle: `${instituteNameById(iid)} · ${applied.yearFrom}-${applied.yearTo}`,
-        lines,
+        id: `year-bars-${year}`,
+        chartKind: "yearBars",
+        label: `Year ${year}`,
+        subtitle: `${groupedIITs.length} IIT(s) · bars by selected compare values`,
+        lines: activeGroupedStackSeries.map((series) => ({ ...series, legendId: series.id })),
         rows,
       };
     });
-  }, [applied, appliedIITs, appliedYears, facts, groupedStackSeries]);
+  }, [activeGroupedStackSeries, applied, appliedYears, facts, groupedIITs]);
+
+  const smallMultipleLineSeries = useMemo(() => {
+    if (!applied || !appliedYears.length || !groupedIITs.length || !activeGroupedStackSeries.length) return [];
+
+    return activeGroupedStackSeries.map((series) => {
+      const iitLines = groupedIITs.map((iid, instituteIndex) => ({
+        id: normalizeSeriesKey(iid),
+        iid,
+        label: instituteShortLabel(iid),
+        fullLabel: instituteNameById(iid),
+        kpi: series.kpi,
+        color: PALETTE[instituteIndex % PALETTE.length],
+      }));
+      const rawValuesByIit = Object.fromEntries(
+        iitLines.map((line) => [
+          line.id,
+          appliedYears.map((year) => valueForBreakdownKey(facts, series.kpi, line.iid, year, series.breakdownKey)),
+        ]),
+      );
+      const displayValuesByIit = Object.fromEntries(
+        iitLines.map((line) => {
+          const rawValues = rawValuesByIit[line.id] ?? [];
+          return [
+            line.id,
+            applied.scale === "indexed"
+              ? normalizeToBase(rawValues)
+              : rawValues.map((value) => (series.kpi?.format === "pct" && value != null ? Number(value) * 100 : value)),
+          ];
+        }),
+      );
+
+      const rows = appliedYears.map((year, yearIndex) => {
+        const row = { year, label: String(year), seriesId: series.id };
+        iitLines.forEach((line) => {
+          row[`raw_${line.id}`] = rawValuesByIit[line.id]?.[yearIndex] ?? null;
+          row[`display_${line.id}`] = displayValuesByIit[line.id]?.[yearIndex] ?? null;
+        });
+        return row;
+      });
+
+      return {
+        id: `year-lines-${series.id}`,
+        chartKind: "yearLines",
+        label: series.legendLabel ?? series.shortLabel,
+        subtitle: `${series.fullLabel ?? series.label} · IIT lines over ${applied.yearFrom}-${applied.yearTo}`,
+        lines: iitLines,
+        rows,
+      };
+    });
+  }, [activeGroupedStackSeries, applied, appliedYears, facts, groupedIITs]);
+
+  const smallMultipleSharedYMax = useMemo(() => {
+    const values = [];
+    smallMultipleBarSeries.forEach((card) => {
+      const itemIds = dedupeList((card.lines ?? []).map((line) => line.itemId));
+      (card.rows ?? []).forEach((row) => {
+        if (itemIds.length) {
+          itemIds.forEach((itemId) => {
+            const stackTotal = Number(row?.[`displayTotal_${itemId}`] ?? 0);
+            if (Number.isFinite(stackTotal)) values.push(stackTotal);
+          });
+          return;
+        }
+        const fallbackTotal = (card.lines ?? []).reduce((sum, line) => {
+          const value = row?.[`display_${line.id}`];
+          return value == null || !Number.isFinite(Number(value)) ? sum : sum + Number(value);
+        }, 0);
+        if (Number.isFinite(fallbackTotal)) values.push(fallbackTotal);
+      });
+    });
+    smallMultipleLineSeries.forEach((card) => {
+      (card.rows ?? []).forEach((row) => {
+        (card.lines ?? []).forEach((line) => {
+          const value = row?.[`display_${line.id}`];
+          if (value != null && Number.isFinite(Number(value))) values.push(Number(value));
+        });
+      });
+    });
+    const maxValue = values.length ? Math.max(...values) : 0;
+    if (!maxValue || !Number.isFinite(maxValue)) return null;
+    return Math.ceil(maxValue * 1.12);
+  }, [smallMultipleBarSeries, smallMultipleLineSeries]);
 
   const tableRows = useMemo(() => {
     if (!applied) return [];
@@ -1673,9 +2173,9 @@ export default function ComparePage({
       }
     }
 
-    if (applied.view === "smallMultiples" && smallMultipleSeries.length) {
+    if ((applied.view === "smallBars" || applied.view === "smallLines") && (smallMultipleBarSeries.length || smallMultipleLineSeries.length)) {
       let strongest = null;
-      smallMultipleSeries.forEach((tile) => {
+      smallMultipleBarSeries.forEach((tile) => {
         tile.rows.forEach((row) => {
           (tile.lines ?? []).forEach((line) => {
             const value = row[`raw_${line.id}`];
@@ -1698,7 +2198,7 @@ export default function ComparePage({
     }
 
     return lines.join("\n\n");
-  }, [applied, appliedItems, appliedIITs, appliedMetricLookup, chartableAppliedItems, groupedIITs, groupedRows, smallMultipleSeries, tableRows]);
+  }, [applied, appliedItems, appliedIITs, appliedMetricLookup, chartableAppliedItems, groupedIITs, groupedRows, smallMultipleBarSeries, smallMultipleLineSeries, tableRows]);
 
   const canApply = Boolean(
     draft.modules.length &&
@@ -2024,6 +2524,82 @@ export default function ComparePage({
     }
     setApplied(next);
     setDraft(next);
+  }
+
+
+  function selectCompareFocusYear(yearValue) {
+    const nextYear = Number(yearValue);
+    if (!Number.isFinite(nextYear)) return;
+    setActiveBarSegment(null);
+    if (applied) {
+      const nextApplied = { ...applied, focusYear: nextYear };
+      commitAppliedSelection(nextApplied);
+      onConfigChange?.((prev) => ({
+        ...prev,
+        ActiveYear: nextYear,
+        YearRange: { from: nextApplied.yearFrom, to: nextApplied.yearTo },
+        __compareApplied: true,
+      }));
+      return;
+    }
+    setDraft((prev) => ({ ...prev, focusYear: nextYear }));
+  }
+
+  function buildBarSegment(series, row, pinned = false) {
+    if (!series || !row) return null;
+    const year = Number(row?.year ?? row?.focusYear ?? applied?.focusYear ?? appliedYears[appliedYears.length - 1]);
+    const previousYear = appliedYears.filter((item) => Number(item) < year).slice(-1)[0] ?? null;
+    const rawValue = row[`raw_${series.id}`];
+    const displayValue = row[`display_${series.id}`];
+    const stackTotal = row[`displayTotal_${series.itemId}`] ?? row.displayTotal_all;
+    const previousRawValue = previousYear
+      ? valueForBreakdownKey(facts, series.kpi, row.instituteId, previousYear, series.breakdownKey)
+      : null;
+    const changePct = previousRawValue != null && Number(previousRawValue) !== 0 && rawValue != null
+      ? (Number(rawValue) - Number(previousRawValue)) / Number(previousRawValue)
+      : null;
+    const sharePct = stackTotal != null && Number(stackTotal) !== 0 && displayValue != null
+      ? Number(displayValue) / Number(stackTotal)
+      : null;
+
+    return {
+      pinned,
+      seriesId: series.id,
+      cardId: row.cardId ?? null,
+      instituteId: row.instituteId,
+      instituteName: row.instituteName ?? row.label,
+      year,
+      previousYear,
+      seriesLabel: series.legendLabel ?? series.shortLabel ?? series.label,
+      fullLabel: series.fullLabel ?? series.label,
+      color: series.color,
+      kpi: series.kpi,
+      rawValue,
+      displayValue,
+      previousRawValue,
+      changePct,
+      sharePct,
+    };
+  }
+
+  function handleBarSegmentHover(series, row) {
+    setActiveBarSegment((prev) => {
+      if (prev?.pinned) return prev;
+      return buildBarSegment(series, row, false);
+    });
+  }
+
+  function handleBarSegmentClick(series, row, event) {
+    event?.stopPropagation?.();
+    const nextSegment = buildBarSegment(series, row, true);
+    setActiveBarSegment((prev) => {
+      if (prev?.pinned && prev.seriesId === nextSegment?.seriesId && prev.instituteId === nextSegment?.instituteId && Number(prev.year) === Number(nextSegment?.year) && (prev.cardId ?? null) === (nextSegment?.cardId ?? null)) return null;
+      return nextSegment;
+    });
+  }
+
+  function handleBarChartMouseLeave() {
+    setActiveBarSegment((prev) => (prev?.pinned ? prev : null));
   }
 
   function updateSelectionSummarySource(updater) {
@@ -3177,6 +3753,14 @@ export default function ComparePage({
       }));
     const comparisonSeriesLookup = Object.fromEntries(groupedStackSeries.map((series) => [series.id, series]));
     const compareLegendTitle = chartableAppliedItems.length > 1 ? "KPI and compare by" : "Compare by";
+    const viewInstruction = {
+      grouped: ["Hover/click a colored segment for details."],
+      smallBars: ["Hover/click a colored segment for details."],
+      smallLines: ["Hover a line point for details."],
+    }[applied.view] ?? [];
+    const smallBarDetailTargetId = activeBarSegment?.cardId?.startsWith?.("year-bars-")
+      ? (smallMultipleBarSeries.find((card) => card.id !== activeBarSegment.cardId)?.id ?? activeBarSegment.cardId)
+      : null;
 
     return (
       <div
@@ -3186,28 +3770,37 @@ export default function ComparePage({
       >
         <div className={cn("relative", fullscreen ? "h-full p-5" : "p-4")}>
           <div className="grid gap-4 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-start">
-            <div className="flex flex-wrap items-center gap-2">
-              {SCALE_OPTIONS.map((option) => {
-                const disabled = option.id === "indexed" && (applied.view === "table" || !appliedModeValidity[applied.view]?.valid);
-                const active = applied.scale === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => commitAppliedSelection({ ...applied, scale: option.id })}
-                    className={cn("rounded-full px-4 py-2 text-[0.78rem] font-bold transition", disabled ? "cursor-not-allowed opacity-50" : "")}
-                    style={{
-                      background: "rgba(255,255,255,0.98)",
-                      border: `1px solid ${active ? uiAccent : "rgba(203,213,225,0.9)"}`,
-                      color: active ? uiAccent : "#475569",
-                      boxShadow: active ? "0 8px 24px rgba(59,130,246,0.14)" : "0 2px 10px rgba(15,23,42,0.04)",
-                    }}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                {SCALE_OPTIONS.map((option) => {
+                  const disabled = option.id === "indexed" && (applied.view === "table" || !appliedModeValidity[applied.view]?.valid);
+                  const active = applied.scale === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => commitAppliedSelection({ ...applied, scale: option.id })}
+                      className={cn("rounded-full px-4 py-2 text-[0.78rem] font-bold transition", disabled ? "cursor-not-allowed opacity-50" : "")}
+                      style={{
+                        background: "rgba(255,255,255,0.98)",
+                        border: `1px solid ${active ? uiAccent : "rgba(203,213,225,0.9)"}`,
+                        color: active ? uiAccent : "#475569",
+                        boxShadow: active ? "0 8px 24px rgba(59,130,246,0.14)" : "0 2px 10px rgba(15,23,42,0.04)",
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {viewInstruction.length ? (
+                <div className="mt-2 max-w-[560px] text-[11px] font-semibold leading-5 text-slate-500">
+                  {viewInstruction.map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             <div className="min-w-0 text-center lg:px-4">
@@ -3255,7 +3848,7 @@ export default function ComparePage({
 
           {compareKpiCrowded && applied.view !== "table" ? (
             <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-              More than 10 KPIs are selected. The comparison will still run, but visual density may reduce readability; use small multiples or table view for detailed review.
+              More than 10 KPIs are selected. The comparison will still run, but visual density may reduce readability; use small bar/line multiples or table view for detailed review.
             </div>
           ) : null}
 
@@ -3273,76 +3866,154 @@ export default function ComparePage({
                     items={comparisonLegendItems}
                     activeIds={activeComparisonLegendIds}
                     title={compareLegendTitle}
+                    helper="Click pills to show/hide series."
                     maxVisible={fullscreen ? 16 : 10}
                     onToggle={toggleComparisonLegendItem}
                     onMore={openCompareByFilters}
                   />
                 </div>
                 <div className="relative" style={{ height: fullscreen ? 620 : 520 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={groupedChartRows}
-                    margin={{ top: 42, right: 18, left: 8, bottom: 72 }}
-                    barCategoryGap="24%"
-                    barGap={8}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" vertical stroke="#e5e7eb" />
-                    <XAxis
-                      dataKey="label"
-                      tick={(props) => <WrappedWorksheetTick {...props} />}
-                      axisLine={false}
-                      tickLine={false}
-                      interval={0}
-                      height={88}
-                    />
-                    <YAxis tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} width={78} />
-                    <Tooltip
-                      content={<CompareTooltip metricLookup={comparisonSeriesLookup} scaleMode={applied.scale} mode="grouped" />}
-                    />
-                    {groupedChartRows.slice(1).map((row) => (
-                      <ReferenceLine key={`separator-${row.instituteId}`} x={row.label} stroke="#cbd5e1" strokeWidth={1.4} ifOverflow="visible" />
-                    ))}
-                    {activeGroupedStackSeries.map((series) => {
-                      const topSeries = groupedTopStackSeriesByItem[series.itemId];
-                      const isTopVisibleSeries = topSeries?.id === series.id;
-                      return (
-                        <Bar
-                          key={series.id}
-                          dataKey={`display_${series.id}`}
-                          name={series.label}
-                          stackId={series.stackId}
-                          fill={series.color}
-                          radius={isTopVisibleSeries ? [10, 10, 0, 0] : [0, 0, 0, 0]}
-                          maxBarSize={Math.max(16, chartableAppliedItems.length === 1 ? 44 : 30)}
-                        >
-                          {isTopVisibleSeries ? (
-                            <LabelList content={(props) => <StackTotalLabel {...props} item={series.item} scaleMode={applied.scale} />} />
-                          ) : null}
-                        </Bar>
-                      );
-                    })}
-                  </BarChart>
-                </ResponsiveContainer>
-                <div className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-[11px] font-semibold text-slate-500">IIT(s)</div>
+                  {activeBarSegment?.pinned ? (
+                    <div className="absolute right-4 top-3 z-20">
+                      <BarSegmentDetailCard
+                        segment={activeBarSegment}
+                        scaleMode={applied.scale}
+                        onClose={() => setActiveBarSegment(null)}
+                      />
+                    </div>
+                  ) : null}
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart
+                      data={groupedChartRows}
+                      margin={{ top: 42, right: 18, left: 8, bottom: 112 }}
+                      barCategoryGap="24%"
+                      barGap={8}
+                      onMouseLeave={handleBarChartMouseLeave}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" vertical stroke="#e5e7eb" />
+                      <XAxis
+                        dataKey="label"
+                        tick={(props) => <WrappedWorksheetTick {...props} />}
+                        axisLine={false}
+                        tickLine={false}
+                        interval={0}
+                        height={96}
+                      />
+                      <YAxis tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} width={78} />
+                      <Tooltip
+                        content={<CompareTooltip metricLookup={comparisonSeriesLookup} scaleMode={applied.scale} mode="grouped" activeSegment={activeBarSegment} />}
+                      />
+                      {groupedChartRows.slice(1).map((row) => (
+                        <ReferenceLine key={`separator-${row.instituteId}`} x={row.label} stroke="#cbd5e1" strokeWidth={1.4} ifOverflow="visible" />
+                      ))}
+                      {activeGroupedStackSeries.map((series) => {
+                        const topSeries = groupedTopStackSeriesByItem[series.itemId];
+                        const isTopVisibleSeries = topSeries?.id === series.id;
+                        return (
+                          <Bar
+                            key={series.id}
+                            dataKey={`display_${series.id}`}
+                            name={series.fullLabel ?? series.label}
+                            stackId={series.stackId}
+                            fill={series.color}
+                            radius={isTopVisibleSeries ? [10, 10, 0, 0] : [0, 0, 0, 0]}
+                            maxBarSize={Math.max(16, chartableAppliedItems.length === 1 ? 44 : 30)}
+                            onMouseEnter={(entry) => handleBarSegmentHover(series, entry?.payload ?? entry)}
+                            onClick={(entry, index, event) => handleBarSegmentClick(series, entry?.payload ?? entry, event)}
+                          >
+                            {isTopVisibleSeries ? (
+                              <LabelList content={(props) => <StackTotalLabel {...props} item={series.item} scaleMode={applied.scale} />} />
+                            ) : null}
+                          </Bar>
+                        );
+                      })}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                  <div className="pointer-events-none absolute bottom-12 left-0 right-0 text-center text-[11px] font-semibold text-slate-500">IIT(s)</div>
+                  {appliedYears.length > 1 ? (
+                    <div className="absolute bottom-1 left-0 right-0 flex flex-wrap items-center justify-center gap-1.5 px-3" data-export-hide="true">
+                      {appliedYears.map((year) => {
+                        const activeYear = Number(year) === Number(applied.focusYear);
+                        return (
+                          <button
+                            key={`compare-focus-year-${year}`}
+                            type="button"
+                            onClick={() => selectCompareFocusYear(year)}
+                            className={cn(
+                              "rounded-lg px-2.5 py-1.5 text-[11px] font-extrabold transition",
+                              activeYear ? "bg-slate-200 text-slate-700 shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800",
+                            )}
+                            title={`Show bars for ${year}`}
+                          >
+                            {year}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                 </div>
               </>
             ) : null}
 
-            {applied.view === "smallMultiples" && appliedModeValidity.smallMultiples.valid ? (
+            {applied.view === "smallBars" && appliedModeValidity.smallBars.valid ? (
               <>
                 <div className="mb-4">
                   <InteractiveCompareLegend
                     items={comparisonLegendItems}
                     activeIds={activeComparisonLegendIds}
                     title={compareLegendTitle}
+                    helper=""
                     maxVisible={fullscreen ? 16 : 10}
                     onToggle={toggleComparisonLegendItem}
                     onMore={openCompareByFilters}
                   />
                 </div>
+                {smallMultipleBarSeries.length ? (
+                  <div className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Year-wise bar small multiples</div>
+                ) : null}
                 <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-                  {smallMultipleSeries.map((series) => (
-                    <SmallMultipleCard key={series.id} series={series} scaleMode={applied.scale} activeLegendIds={activeComparisonLegendIds} />
+                  {smallMultipleBarSeries.map((series) => (
+                    <SmallMultipleBarCard
+                      key={series.id}
+                      series={series}
+                      scaleMode={applied.scale}
+                      activeLegendIds={activeComparisonLegendIds}
+                      sharedYMax={smallMultipleSharedYMax}
+                      detailSegment={smallBarDetailTargetId === series.id ? activeBarSegment : null}
+                      onSegmentHover={handleBarSegmentHover}
+                      onSegmentClick={handleBarSegmentClick}
+                      onChartLeave={handleBarChartMouseLeave}
+                      onDetailClose={handleBarChartMouseLeave}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : null}
+
+            {applied.view === "smallLines" && appliedModeValidity.smallLines.valid ? (
+              <>
+                <div className="mb-4">
+                  <InteractiveCompareLegend
+                    items={comparisonLegendItems}
+                    activeIds={activeComparisonLegendIds}
+                    title={compareLegendTitle}
+                    helper=""
+                    maxVisible={fullscreen ? 16 : 10}
+                    onToggle={toggleComparisonLegendItem}
+                    onMore={openCompareByFilters}
+                  />
+                </div>
+                {smallMultipleLineSeries.length ? (
+                  <div className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Year-wise line small multiples</div>
+                ) : null}
+                <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+                  {smallMultipleLineSeries.map((series) => (
+                    <SmallMultipleLineCard
+                      key={series.id}
+                      series={series}
+                      scaleMode={applied.scale}
+                      sharedYMax={smallMultipleSharedYMax}
+                    />
                   ))}
                 </div>
               </>
