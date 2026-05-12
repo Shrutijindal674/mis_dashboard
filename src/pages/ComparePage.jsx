@@ -37,6 +37,10 @@ import VisualToolbar from "../components/ui/VisualToolbar";
 const LEGACY_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
 const PALETTE = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2", "#db2777", "#475569"];
 const COMPARE_SERIES_TONE_STEPS = [-0.26, -0.08, 0.12, 0.28, 0.42, -0.42, 0.56, -0.56];
+const COMPARE_BREAKDOWN_SCAN_ITEM_LIMIT = 6;
+const COMPARE_BREAKDOWN_KPI_LIMIT = 3;
+const COMPARE_MAX_CHART_SERIES = 18;
+const COMPARE_MAX_SMALL_MULTIPLE_CARDS = 12;
 
 function clampColorChannel(value) {
   return Math.max(0, Math.min(255, Math.round(value)));
@@ -75,7 +79,7 @@ function compareSeriesColor(itemIndex = 0, breakdownIndex = 0, breakdownCount = 
 }
 const TOP_TABS = ["Compare View", "Filters", "Compare Mode", "Saved Sets"];
 const VIEW_OPTIONS = [
-  { id: "grouped", label: "Bar graph", help: "Compare selected KPI values across IITs for the focus year." },
+  { id: "grouped", label: "Bar graph", help: "Compare selected values year-wise across IITs." },
   { id: "smallBars", label: "Small bars", help: "Show year-wise small multiple bar cards." },
   { id: "smallLines", label: "Small lines", help: "Show year-wise small multiple line cards." },
   { id: "table", label: "Table", help: "Show the broadest structurally valid comparison in tabular form." },
@@ -84,7 +88,7 @@ const TOTAL_COMPARISON_KEY = "__total__";
 const TOTAL_COMPARISON_LABEL = "Total";
 const SCALE_OPTIONS = [
   { id: "raw", label: "Raw" },
-  { id: "indexed", label: "Indexed 100" },
+  { id: "indexed", label: "Percent" },
 ];
 const COMPARE_LABEL_ACRONYMS = new Set([
   "ai",
@@ -189,10 +193,14 @@ function itemSupportsBreakdown(item) {
 
 function breakdownOptionsForItems(items, facts, iits, years, limit = 80) {
   const keySet = new Set();
-  items.filter(itemSupportsBreakdown).forEach((item) => {
+  const scanItems = items.filter(itemSupportsBreakdown).slice(0, COMPARE_BREAKDOWN_SCAN_ITEM_LIMIT);
+  const scanIits = (iits?.length ? iits : LEGACY_IITS).slice(0, 10);
+  const scanYears = years?.length ? years : YEARS;
+
+  scanItems.forEach((item) => {
     const kpi = item.kpi;
-    (iits?.length ? iits : LEGACY_IITS).forEach((iid) => {
-      (years?.length ? years : YEARS).forEach((year) => {
+    scanIits.forEach((iid) => {
+      scanYears.forEach((year) => {
         const rows = scopedRowsForKpi(facts, kpi, iid, year);
         kpiBreakdown(kpi, rows, []).forEach((entry) => {
           const key = String(entry.name ?? "Unknown");
@@ -227,7 +235,7 @@ function fmtRaw(kpi, value) {
 
 function fmtDisplay(kpi, value, scale = "raw") {
   if (value == null || Number.isNaN(Number(value))) return "—";
-  if (scale === "indexed") return `${Math.round(Number(value))}`;
+  if (scale === "indexed") return `${Number(value).toFixed(1)}%`;
   if (kpi?.format === "pct") return `${Number(value).toFixed(1)}%`;
   return formatCompact(value);
 }
@@ -286,17 +294,54 @@ function splitLabelAcrossTwoLines(text) {
   return bestPair;
 }
 
-function WrappedWorksheetTick({ x = 0, y = 0, payload }) {
+function WrappedWorksheetTick({ x = 0, y = 0, payload, onClick, title }) {
   const lines = splitLabelAcrossTwoLines(payload?.value);
+  const clickable = typeof onClick === "function";
 
   return (
-    <g transform={`translate(${x},${y})`}>
+    <g
+      transform={`translate(${x},${y})`}
+      onClick={clickable ? () => onClick(payload?.value) : undefined}
+      style={{ cursor: clickable ? "pointer" : "default" }}
+      role={clickable ? "button" : undefined}
+      aria-label={clickable ? title ?? `Filter by ${payload?.value}` : undefined}
+    >
+      <title>{title ?? String(payload?.value ?? "")}</title>
       <text textAnchor="middle" fill="#475569" fontSize="13" fontWeight="600">
         {lines.map((line, index) => (
           <tspan key={`${payload?.value ?? "label"}-${index}`} x="0" dy={index === 0 ? 18 : 15}>
             {line}
           </tspan>
         ))}
+      </text>
+    </g>
+  );
+}
+
+function GroupedYearIitTick({ x = 0, y = 0, payload, onClick, yearLabelKeyByYear = {}, fontSize = 11 }) {
+  const rawValue = String(payload?.value ?? "");
+  if (!rawValue || rawValue.startsWith("__gap__")) return null;
+
+  const [year, iid] = rawValue.split("__");
+  const label = instituteShortLabel(iid);
+  const fullLabel = instituteNameById(iid);
+  const showYear = yearLabelKeyByYear?.[year] === rawValue;
+  const clickable = typeof onClick === "function" && iid;
+
+  return (
+    <g
+      transform={`translate(${x},${y})`}
+      onClick={clickable ? () => onClick(iid) : undefined}
+      style={{ cursor: clickable ? "pointer" : "default" }}
+      role={clickable ? "button" : undefined}
+      aria-label={clickable ? `Drill down to ${fullLabel}` : undefined}
+    >
+      <title>{clickable ? `Click to drill down to ${fullLabel}` : fullLabel}</title>
+      <text textAnchor="middle" fill="#475569" fontSize={fontSize} fontWeight="800">
+        <tspan x="0" dy="14">{label}</tspan>
+        <tspan x="0" dy={Math.max(12, fontSize + 4)} fill={showYear ? "#2563eb" : "transparent"} fontSize={Math.max(9, fontSize - 1)} fontWeight="900">
+          {showYear ? year : "·"}
+        </tspan>
       </text>
     </g>
   );
@@ -313,11 +358,39 @@ function instituteNameById(iid) {
 }
 
 function instituteShortLabel(iid) {
-  return IITs.find((item) => item.id === iid)?.name ?? iid;
+  return IITs.find((item) => item.id === iid)?.id ?? iid;
 }
 
 function sortIitsAlphabetically(iids = []) {
   return [...iids].sort((left, right) => instituteShortLabel(left).localeCompare(instituteShortLabel(right)));
+}
+
+function sameMembers(left = [], right = []) {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((item) => rightSet.has(item));
+}
+
+function compareIitScopeLabel(iids = []) {
+  if (!iids?.length) return "No IITs selected";
+  if (iids.length === 1) return instituteShortLabel(iids[0]);
+  if (sameMembers(iids, LEGACY_IITS)) return "OLD IITs";
+  if (sameMembers(iids, IITs.map((iit) => iit.id))) return "ALL IITs";
+  return `Comparing ${iids.length} IIT${iids.length === 1 ? "" : "s"}`;
+}
+
+function firstActiveIdInList(items = [], activeIds = []) {
+  const activeSet = new Set(activeIds ?? []);
+  return items.find((item) => activeSet.has(item.id))?.id ?? items[0]?.id ?? null;
+}
+
+function compareIitColor(iid, fallbackIndex = 0) {
+  const index = IITs.findIndex((item) => item.id === iid);
+  return PALETTE[(index >= 0 ? index : fallbackIndex) % PALETTE.length];
+}
+
+function compareYearKey(year) {
+  return `year_${year}`;
 }
 
 
@@ -472,6 +545,12 @@ function compareIcon(kind, active = false, tone = "#2563eb") {
         <path {...common} d="M5 19h14" />
       </>
     ),
+    copy: (
+      <>
+        <rect {...common} x="8" y="8" width="11" height="11" rx="2" />
+        <path {...common} d="M5 15V7a2 2 0 0 1 2-2h8" />
+      </>
+    ),
     details: (
       <>
         <rect {...common} x="4" y="5" width="16" height="14" rx="2" />
@@ -492,6 +571,96 @@ function compareIcon(kind, active = false, tone = "#2563eb") {
 
   if (!wrappers) return null;
   return <svg viewBox="0 0 24 24" className="h-5 w-5">{wrappers}</svg>;
+}
+
+function compareToolbarIcon(kind, active = false, tone = "#2563eb") {
+  const stroke = active ? "#ffffff" : tone;
+  const softStroke = active ? "rgba(255,255,255,0.82)" : "#2563eb";
+  const common = {
+    fill: "none",
+    stroke,
+    strokeWidth: 1.8,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
+
+  if (kind === "grouped") {
+    const barFill = active
+      ? ["#ffffff", "#dbeafe", "#bfdbfe", "#ffffff"]
+      : ["#93c5fd", "#60a5fa", "#22c55e", "#f59e0b"];
+    return (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+        <rect x="5" y="10" width="3.2" height="8" rx="1" fill={barFill[0]} />
+        <rect x="9.7" y="6" width="3.2" height="12" rx="1" fill={barFill[1]} />
+        <rect x="14.4" y="8" width="3.2" height="10" rx="1" fill={barFill[2]} />
+        <rect x="19.1" y="4" width="3.2" height="14" rx="1" fill={barFill[3]} />
+        <path d="M4 19h18" stroke={active ? "rgba(255,255,255,0.72)" : "#94a3b8"} strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (kind === "smallBars") {
+    const fills = active ? ["#ffffff", "#dbeafe", "#bfdbfe", "#ffffff"] : ["#93c5fd", "#60a5fa", "#22c55e", "#f59e0b"];
+    return (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+        <rect x="4.2" y="4.2" width="6.8" height="6.8" rx="1.4" fill="none" stroke={stroke} strokeWidth="1.35" opacity={active ? 0.9 : 0.8} />
+        <rect x="13" y="4.2" width="6.8" height="6.8" rx="1.4" fill="none" stroke={stroke} strokeWidth="1.35" opacity={active ? 0.9 : 0.8} />
+        <rect x="4.2" y="13" width="6.8" height="6.8" rx="1.4" fill="none" stroke={stroke} strokeWidth="1.35" opacity={active ? 0.9 : 0.8} />
+        <rect x="13" y="13" width="6.8" height="6.8" rx="1.4" fill="none" stroke={stroke} strokeWidth="1.35" opacity={active ? 0.9 : 0.8} />
+        <rect x="5.8" y="7.5" width="1.1" height="1.8" rx="0.4" fill={fills[0]} />
+        <rect x="7.4" y="6" width="1.1" height="3.3" rx="0.4" fill={fills[1]} />
+        <rect x="9" y="6.8" width="1.1" height="2.5" rx="0.4" fill={fills[2]} />
+        <rect x="14.6" y="7.1" width="1.1" height="2.2" rx="0.4" fill={fills[1]} />
+        <rect x="16.2" y="5.9" width="1.1" height="3.4" rx="0.4" fill={fills[2]} />
+        <rect x="17.8" y="6.7" width="1.1" height="2.6" rx="0.4" fill={fills[3]} />
+        <rect x="5.8" y="16.5" width="1.1" height="1.8" rx="0.4" fill={fills[0]} />
+        <rect x="7.4" y="15.1" width="1.1" height="3.2" rx="0.4" fill={fills[1]} />
+        <rect x="9" y="15.8" width="1.1" height="2.5" rx="0.4" fill={fills[2]} />
+        <rect x="14.6" y="16" width="1.1" height="2.3" rx="0.4" fill={fills[1]} />
+        <rect x="16.2" y="14.9" width="1.1" height="3.4" rx="0.4" fill={fills[2]} />
+        <rect x="17.8" y="15.7" width="1.1" height="2.6" rx="0.4" fill={fills[3]} />
+      </svg>
+    );
+  }
+
+  if (kind === "smallLines") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+        <rect x="4.2" y="4.2" width="6.8" height="6.8" rx="1.4" fill="none" stroke={stroke} strokeWidth="1.35" opacity={active ? 0.9 : 0.8} />
+        <rect x="13" y="4.2" width="6.8" height="6.8" rx="1.4" fill="none" stroke={stroke} strokeWidth="1.35" opacity={active ? 0.9 : 0.8} />
+        <rect x="4.2" y="13" width="6.8" height="6.8" rx="1.4" fill="none" stroke={stroke} strokeWidth="1.35" opacity={active ? 0.9 : 0.8} />
+        <rect x="13" y="13" width="6.8" height="6.8" rx="1.4" fill="none" stroke={stroke} strokeWidth="1.35" opacity={active ? 0.9 : 0.8} />
+        <path d="M5.8 8.8l1.5-1.4 1.4 1 1.2-2.2" fill="none" stroke={stroke} strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M14.5 8.8l1.4-2 1.3 1.2 1.4-2.1" fill="none" stroke={stroke} strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5.8 17.9l1.4-1.3 1.3.8 1.5-2" fill="none" stroke={stroke} strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M14.5 17.8l1.3-2 1.4 1.2 1.4-2.2" fill="none" stroke={stroke} strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+        {[ [5.8,8.8], [7.3,7.4], [8.7,8.4], [9.9,6.2], [14.5,8.8], [15.9,6.8], [17.2,8], [18.6,5.9], [5.8,17.9], [7.2,16.6], [8.5,17.4], [10,15.4], [14.5,17.8], [15.8,15.8], [17.2,17], [18.6,14.8] ].map(([cx, cy]) => (
+          <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="0.55" fill={active ? "#ffffff" : tone} />
+        ))}
+      </svg>
+    );
+  }
+
+  if (kind === "table") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+        <rect {...common} x="5" y="5" width="14" height="14" rx="1.8" />
+        <path {...common} d="M5 9.7h14M5 14.3h14M9.7 5v14M14.3 5v14" />
+      </svg>
+    );
+  }
+
+  if (kind === "ai") {
+    const sparkleFill = active ? "#ffffff" : tone;
+    return (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+        <path d="M12 3.5l1.8 4.4 4.4 1.8-4.4 1.8L12 16l-1.8-4.5-4.4-1.8 4.4-1.8L12 3.5Z" fill={sparkleFill} stroke={sparkleFill} strokeWidth="1.1" strokeLinejoin="round" />
+        <path d="M18.5 14l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8.8-1.9Z" fill={sparkleFill} stroke={sparkleFill} strokeWidth="1.1" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  return compareIcon(kind, active, tone);
 }
 
 function PillTab({ label, active, icon, onClick }) {
@@ -806,13 +975,13 @@ function SimpleChip({ children, tone = "#2563eb", removable = false, onRemove, o
   );
 }
 
-function SelectionActionButton({ label = "More", onClick, title }) {
+function SelectionActionButton({ label = "More filters", onClick, title }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title ?? label}
-      className="rounded-full border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] px-4 py-2 text-sm font-extrabold text-slate-700 transition hover:border-sky-200"
+      className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-4 py-2 text-sm font-extrabold text-sky-700 transition hover:border-sky-200 hover:bg-sky-100"
     >
       {label}
     </button>
@@ -977,7 +1146,7 @@ function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLook
       <div className="min-w-[280px] max-w-[340px] overflow-hidden rounded-2xl border border-slate-200 bg-white text-xs shadow-xl">
         <div className="border-b border-slate-100 px-4 py-3 text-center">
           <div className="text-sm font-extrabold text-slate-900">{row?.instituteName ?? label}</div>
-          <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Focus year summary</div>
+          <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Year summary</div>
         </div>
         <div className="space-y-2 px-4 py-3">
           <div className="flex items-center justify-between gap-5">
@@ -1076,8 +1245,8 @@ function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLook
             </span>
           </div>
           <div className="flex items-center justify-between gap-5">
-            <span className="font-bold uppercase tracking-[0.12em] text-slate-400">IIT</span>
-            <span className="font-extrabold text-slate-700">{row?.instituteName ?? row?.label ?? "—"}</span>
+            <span className="font-bold uppercase tracking-[0.12em] text-slate-400">{row?.instituteName ? "IIT" : "Year"}</span>
+            <span className="font-extrabold text-slate-700">{row?.instituteName ?? row?.year ?? row?.label ?? "—"}</span>
           </div>
         </div>
         <div className="border-t border-slate-100 px-4 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
@@ -1095,7 +1264,7 @@ function CompareBreakdownTooltip({ active, payload, label, kpi, scaleMode }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-xl">
       <div className="font-semibold text-slate-900">{row?.instituteName ?? label}</div>
-      <div className="mt-1 text-slate-500">Breakdown by institute for the focus year</div>
+      <div className="mt-1 text-slate-500">Breakdown by institute</div>
       <div className="mt-2 space-y-1.5">
         {payload.map((entry) => (
           <div key={entry.dataKey} className="flex items-center justify-between gap-4">
@@ -1130,7 +1299,7 @@ function StackTotalLabel({ x = 0, y = 0, width = 0, payload, item, scaleMode }) 
 function InteractiveCompareLegend({
   items = [],
   activeIds = [],
-  title = "Legend",
+  title = "",
   helper = "",
   compact = false,
   maxVisible = 10,
@@ -1147,48 +1316,46 @@ function InteractiveCompareLegend({
   const hiddenCount = Math.max(items.length - visibleItems.length, 0);
 
   return (
-    <div className="flex justify-center">
-      <div className={cn(
-        "max-w-full rounded-2xl border border-slate-200/80 bg-white/95 px-3 py-2 shadow-[0_12px_30px_rgba(15,23,42,0.10)] backdrop-blur",
-        compact ? "" : "",
-      )}>
-        <div className="mb-1 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-center">
-          <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{title}</div>
-          {helper ? <div className="text-[10px] font-semibold text-slate-500">{helper}</div> : null}
+    <div className={cn("flex flex-wrap items-center gap-3", compact ? "" : "")}> 
+      {helper ? (
+        <div className="max-w-[260px] text-left text-[11px] font-extrabold leading-snug text-[#2563eb]">
+          {helper}
         </div>
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          {visibleItems.map((item) => {
-            const active = activeSet.has(item.id);
-            const fullLabel = item.title ?? item.fullLabel ?? item.label;
-            return (
-              <button
-                key={item.id ?? item.label}
-                type="button"
-                onClick={() => onToggle?.(item.id)}
-                className={cn(
-                  "inline-flex max-w-[250px] items-center gap-2 rounded-full border px-2.5 py-1.5 text-[11px] font-bold transition",
-                  active ? "border-slate-200 bg-slate-50 text-slate-800" : "border-slate-100 bg-white text-slate-400 opacity-60",
-                )}
-                title={`${active ? "Deselect / hide" : "Select / show"} ${fullLabel}`}
-                aria-label={`${active ? "Deselect / hide" : "Select / show"} ${fullLabel}`}
-                aria-pressed={active}
-              >
-                <span className="h-3 w-3 shrink-0 rounded-[4px]" style={{ background: item.color }} />
-                <span className="truncate">{item.label}</span>
-              </button>
-            );
-          })}
-          {hiddenCount > 0 || onMore ? (
+      ) : title ? (
+        <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{title}</div>
+      ) : null}
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        {visibleItems.map((item) => {
+          const active = activeSet.has(item.id);
+          const fullLabel = item.title ?? item.fullLabel ?? item.label;
+          return (
             <button
+              key={item.id ?? item.label}
               type="button"
-              onClick={onMore}
-              className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50 px-3 py-1.5 text-[11px] font-extrabold text-sky-700 transition hover:bg-sky-100"
-              title="Open Compare by filter"
+              onClick={() => onToggle?.(item.id)}
+              className={cn(
+                "inline-flex max-w-[250px] cursor-pointer items-center gap-2 rounded-full border px-2.5 py-1.5 text-[11px] font-bold transition hover:-translate-y-0.5 hover:border-sky-200 hover:bg-sky-50",
+                active ? "border-slate-200 bg-white text-slate-800 shadow-[0_2px_10px_rgba(15,23,42,0.05)]" : "border-slate-100 bg-white text-slate-400 opacity-60",
+              )}
+              title={`${active ? "Deselect / hide" : "Select / show"} ${fullLabel}`}
+              aria-label={`${active ? "Deselect / hide" : "Select / show"} ${fullLabel}`}
+              aria-pressed={active}
             >
-              {hiddenCount > 0 ? `More (+${hiddenCount})` : "More"}
+              <span className="h-3 w-3 shrink-0 rounded-[4px]" style={{ background: item.color }} />
+              <span className="truncate">{item.label}</span>
             </button>
-          ) : null}
-        </div>
+          );
+        })}
+        {hiddenCount > 0 || onMore ? (
+          <button
+            type="button"
+            onClick={onMore}
+            className="inline-flex cursor-pointer items-center rounded-full border border-sky-100 bg-sky-50 px-3 py-1.5 text-[11px] font-extrabold text-sky-700 transition hover:-translate-y-0.5 hover:bg-sky-100"
+            title="Open more filters"
+          >
+            {hiddenCount > 0 ? `More filters (+${hiddenCount})` : "More filters"}
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -1208,14 +1375,8 @@ function SmallMultipleBarCard({
   const { rows, lines, label, subtitle } = series;
   const activeSet = new Set(activeLegendIds?.length ? activeLegendIds : (lines ?? []).map((line) => line.legendId ?? line.id));
   const visibleLines = (lines ?? []).filter((line) => activeSet.has(line.legendId ?? line.id));
-  const topLineIdByStack = useMemo(() => {
-    const lookup = {};
-    visibleLines.forEach((line) => {
-      const stackKey = line.stackId ?? `stack_${normalizeSeriesKey(line.itemId ?? "item")}`;
-      lookup[stackKey] = line.id;
-    });
-    return lookup;
-  }, [visibleLines]);
+  const barMaxSize = visibleLines.length > 8 ? 12 : visibleLines.length > 5 ? 16 : 22;
+
   return (
     <div className="relative rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm">
       {detailSegment ? (
@@ -1225,43 +1386,47 @@ function SmallMultipleBarCard({
       ) : null}
       <div className="mb-3 pr-2">
         <div className="text-sm font-semibold text-slate-900">{humanizeCompareLabel(label)}</div>
-        <div className="mt-1 text-xs text-slate-500">{subtitle}</div>
+        {subtitle ? <div className="mt-1 text-xs text-slate-500">{subtitle}</div> : null}
       </div>
       <div className="relative" style={{ height: 270 }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={rows}
-            margin={{ top: 18, right: 16, left: 0, bottom: 34 }}
-            barCategoryGap="28%"
-            barGap={6}
+            margin={{ top: 18, right: 16, left: 6, bottom: 34 }}
+            barCategoryGap={visibleLines.length > 6 ? "18%" : "26%"}
+            barGap={visibleLines.length > 6 ? 2 : 4}
             onMouseLeave={onChartLeave}
           >
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#475569" }} axisLine={false} tickLine={false} interval={0} />
-            <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} width={70} domain={sharedYMax ? [0, sharedYMax] : [0, "auto"]} />
+            <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} interval={0} />
+            <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} width={70} domain={sharedYMax ? [0, sharedYMax] : [0, "auto"]} />
             <Tooltip cursor={{ fill: "rgba(148,163,184,0.08)" }} content={() => null} />
-            {visibleLines.map((line) => {
-              const stackKey = line.stackId ?? `stack_${normalizeSeriesKey(line.itemId ?? "item")}`;
-              const isTopVisibleSeries = topLineIdByStack[stackKey] === line.id;
-              return (
-                <Bar
-                  key={line.id}
-                  dataKey={`display_${line.id}`}
-                  name={line.fullLabel ?? line.label}
-                  stackId={stackKey}
-                  fill={line.color}
-                  radius={isTopVisibleSeries ? [8, 8, 0, 0] : [0, 0, 0, 0]}
-                  maxBarSize={24}
-                  isAnimationActive={false}
-                  onMouseEnter={(entry) => onSegmentHover?.(line, entry?.payload ?? entry)}
-                  onClick={(entry, index, event) => onSegmentClick?.(line, entry?.payload ?? entry, event)}
-                />
-              );
-            })}
+            {visibleLines.map((line) => (
+              <Bar
+                key={line.id}
+                dataKey={`display_${line.id}`}
+                name={line.fullLabel ?? line.label}
+                fill={line.color}
+                radius={[7, 7, 0, 0]}
+                maxBarSize={barMaxSize}
+                isAnimationActive={false}
+                onMouseEnter={(entry) => onSegmentHover?.(line, entry?.payload ?? entry)}
+                onClick={(entry, index, event) => onSegmentClick?.(line, entry?.payload ?? entry, event)}
+              />
+            ))}
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-1 text-center text-[11px] font-semibold text-slate-500">IIT(s)</div>
+      <div className="mt-1 text-center text-[11px] font-semibold text-slate-500">Year</div>
+      <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+        {visibleLines.slice(0, 8).map((line) => (
+          <span key={`legend-${line.id}`} className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: line.color }} />
+            {line.label}
+          </span>
+        ))}
+        {visibleLines.length > 8 ? <span className="rounded-full bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-500">+{visibleLines.length - 8}</span> : null}
+      </div>
     </div>
   );
 }
@@ -1277,14 +1442,14 @@ function SmallMultipleLineCard({ series, scaleMode, sharedYMax = null }) {
     <div className="rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm">
       <div className="mb-3">
         <div className="text-sm font-semibold text-slate-900">{humanizeCompareLabel(label)}</div>
-        <div className="mt-1 text-xs text-slate-500">{subtitle}</div>
+        {subtitle ? <div className="mt-1 text-xs text-slate-500">{subtitle}</div> : null}
       </div>
       <div className="relative" style={{ height: 270 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows} margin={{ top: 18, right: 16, left: 0, bottom: 30 }}>
+          <LineChart data={rows} margin={{ top: 18, right: 16, left: 6, bottom: 30 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-            <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} width={70} domain={sharedYMax ? [0, sharedYMax] : [0, "auto"]} />
+            <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} />
+            <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} width={70} domain={sharedYMax ? [0, sharedYMax] : [0, "auto"]} />
             <Tooltip content={<CompareTooltip seriesLookup={seriesLookup} scaleMode={scaleMode} mode="smallMultiples" />} />
             {(lines ?? []).map((line) => (
               <Line
@@ -1304,6 +1469,15 @@ function SmallMultipleLineCard({ series, scaleMode, sharedYMax = null }) {
         </ResponsiveContainer>
       </div>
       <div className="mt-1 text-center text-[11px] font-semibold text-slate-500">Year</div>
+      <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+        {(lines ?? []).slice(0, 8).map((line) => (
+          <span key={`legend-${line.id}`} className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: line.color }} />
+            {line.label}
+          </span>
+        ))}
+        {(lines ?? []).length > 8 ? <span className="rounded-full bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-500">+{lines.length - 8}</span> : null}
+      </div>
     </div>
   );
 }
@@ -1604,6 +1778,7 @@ export default function ComparePage({
   const [toolbarSearch, setToolbarSearch] = useState("");
   const [visibleCompareLegendIds, setVisibleCompareLegendIds] = useState([]);
   const [activeBarSegment, setActiveBarSegment] = useState(null);
+  const [drillReturnSelection, setDrillReturnSelection] = useState(null);
   const [moduleSearch, setModuleSearch] = useState("");
   const [submoduleSearch, setSubmoduleSearch] = useState("");
   const [iitSearch, setIitSearch] = useState("");
@@ -1709,6 +1884,8 @@ export default function ComparePage({
     setSortBy("selected");
     setOpenPopover(null);
     setBuilderOpen(false);
+    setVisibleCompareLegendIds([]);
+    setActiveBarSegment(null);
 
     if (config?.CompareAutoApply || config?.__compareApplied || requestKey === "__initial__") {
       setApplied(nextDraft);
@@ -1764,8 +1941,9 @@ export default function ComparePage({
   const groupedStackSeries = useMemo(() => {
     if (!applied) return [];
     const series = [];
+    const useBreakdownSeries = chartableAppliedItems.length <= COMPARE_BREAKDOWN_KPI_LIMIT;
     chartableAppliedItems.forEach((item, itemIndex) => {
-      const itemBreakdowns = itemSupportsBreakdown(item) && appliedBreakdownKeys.length
+      const itemBreakdowns = useBreakdownSeries && itemSupportsBreakdown(item) && appliedBreakdownKeys.length
         ? appliedBreakdownKeys
         : [TOTAL_COMPARISON_KEY];
       itemBreakdowns.forEach((breakdownKey, breakdownIndex) => {
@@ -1812,13 +1990,22 @@ export default function ComparePage({
     () => groupedStackSeries.filter((series) => activeComparisonLegendIdSet.has(series.id)),
     [groupedStackSeries, activeComparisonLegendIdSet],
   );
+  const renderedGroupedStackSeries = useMemo(
+    () => activeGroupedStackSeries.slice(0, COMPARE_MAX_CHART_SERIES),
+    [activeGroupedStackSeries],
+  );
+  const renderedGroupedStackSeriesIdSet = useMemo(
+    () => new Set(renderedGroupedStackSeries.map((series) => series.id)),
+    [renderedGroupedStackSeries],
+  );
+  const compareRenderSeriesLimitHit = activeGroupedStackSeries.length > renderedGroupedStackSeries.length;
   const groupedTopStackSeriesByItem = useMemo(() => {
     const lookup = {};
-    activeGroupedStackSeries.forEach((series) => {
+    renderedGroupedStackSeries.forEach((series) => {
       lookup[series.itemId] = series;
     });
     return lookup;
-  }, [activeGroupedStackSeries]);
+  }, [renderedGroupedStackSeries]);
 
   useEffect(() => {
     setVisibleCompareLegendIds((prev) => prev.filter((id) => allComparisonLegendIds.includes(id)));
@@ -1880,55 +2067,147 @@ export default function ComparePage({
   }, [applied, chartableAppliedItems, facts, groupedIITs, groupedStackSeries]);
 
   const groupedRows = groupedStackRows;
-  const groupedChartRows = useMemo(() => groupedStackRows.map((row) => {
-    const next = { ...row, focusYear: applied?.focusYear };
-    chartableAppliedItems.forEach((item) => {
-      const visibleItemSeries = groupedStackSeries.filter((series) => series.itemId === item.id && activeComparisonLegendIdSet.has(series.id));
-      let cumulativeDisplayValue = 0;
-      let cumulativeRawValue = 0;
-      visibleItemSeries.forEach((series) => {
-        const displayValue = row[`display_${series.id}`];
-        const rawValue = row[`raw_${series.id}`];
-        const hasDisplayValue = displayValue != null && Number.isFinite(Number(displayValue));
-        const hasRawValue = rawValue != null && Number.isFinite(Number(rawValue));
-        if (hasDisplayValue) cumulativeDisplayValue += Number(displayValue);
-        if (hasRawValue) cumulativeRawValue += Number(rawValue);
-        next[`tip_${series.id}`] = hasDisplayValue ? cumulativeDisplayValue : null;
-        next[`rawTip_${series.id}`] = hasRawValue ? cumulativeRawValue : null;
+  const groupedChartRows = useMemo(() => {
+    if (!applied || !appliedYears.length || !groupedIITs.length) return [];
+
+    return appliedYears.flatMap((year, yearIndex) => {
+      const rawValuesBySeries = Object.fromEntries(
+        groupedStackSeries.map((series) => [
+          series.id,
+          groupedIITs.map((iid) => valueForBreakdownKey(facts, series.kpi, iid, year, series.breakdownKey)),
+        ]),
+      );
+      const displayValuesBySeries = Object.fromEntries(
+        renderedGroupedStackSeries.map((series) => {
+          const rawValues = rawValuesBySeries[series.id] ?? [];
+          return [
+            series.id,
+            applied.scale === "indexed"
+              ? normalizeToLeader(rawValues)
+              : rawValues.map((value) => (series.kpi?.format === "pct" && value != null ? Number(value) * 100 : value)),
+          ];
+        }),
+      );
+
+      const rowsForYear = groupedIITs.map((iid, instituteIndex) => {
+        const row = {
+          xKey: `${year}__${iid}`,
+          year,
+          focusYear: year,
+          instituteId: iid,
+          instituteName: instituteNameById(iid),
+          shortName: instituteShortLabel(iid),
+          label: instituteShortLabel(iid),
+          isYearStart: instituteIndex === 0,
+        };
+
+        renderedGroupedStackSeries.forEach((series) => {
+          row[`display_${series.id}`] = displayValuesBySeries[series.id]?.[instituteIndex] ?? null;
+          row[`raw_${series.id}`] = rawValuesBySeries[series.id]?.[instituteIndex] ?? null;
+        });
+
+        chartableAppliedItems.forEach((item) => {
+          const visibleItemSeries = renderedGroupedStackSeries.filter((series) => series.itemId === item.id && renderedGroupedStackSeriesIdSet.has(series.id));
+          let cumulativeDisplayValue = 0;
+          let cumulativeRawValue = 0;
+          visibleItemSeries.forEach((series) => {
+            const displayValue = row[`display_${series.id}`];
+            const rawValue = row[`raw_${series.id}`];
+            const hasDisplayValue = displayValue != null && Number.isFinite(Number(displayValue));
+            const hasRawValue = rawValue != null && Number.isFinite(Number(rawValue));
+            if (hasDisplayValue) cumulativeDisplayValue += Number(displayValue);
+            if (hasRawValue) cumulativeRawValue += Number(rawValue);
+            row[`tip_${series.id}`] = hasDisplayValue ? cumulativeDisplayValue : null;
+            row[`rawTip_${series.id}`] = hasRawValue ? cumulativeRawValue : null;
+          });
+          row[`displayTotal_${item.id}`] = visibleItemSeries.reduce((sum, series) => sum + Number(row[`display_${series.id}`] ?? 0), 0);
+          row[`rawTotal_${item.id}`] = visibleItemSeries.reduce((sum, series) => sum + Number(row[`raw_${series.id}`] ?? 0), 0);
+        });
+
+        const trendStartYear = appliedYears[0] ?? year;
+        const trendEndYear = year;
+        const valueForTrendYear = (trendYear) => renderedGroupedStackSeries.reduce((sum, series) => {
+          const raw = valueForBreakdownKey(facts, series.kpi, row.instituteId, trendYear, series.breakdownKey);
+          if (raw == null || !Number.isFinite(Number(raw))) return sum;
+          return sum + (series.kpi?.format === "pct" ? Number(raw) * 100 : Number(raw));
+        }, 0);
+
+        const trendStartValue = valueForTrendYear(trendStartYear);
+        const trendEndValue = valueForTrendYear(trendEndYear);
+        row.trendStartYear = trendStartYear;
+        row.trendEndYear = trendEndYear;
+        row.trendStartValue = trendStartValue;
+        row.trendEndValue = trendEndValue;
+        row.trendDeltaPct = trendStartValue ? (trendEndValue - trendStartValue) / trendStartValue : null;
+        return row;
       });
-      next[`displayTotal_${item.id}`] = visibleItemSeries.reduce((sum, series) => sum + Number(row[`display_${series.id}`] ?? 0), 0);
-      next[`rawTotal_${item.id}`] = visibleItemSeries.reduce((sum, series) => sum + Number(row[`raw_${series.id}`] ?? 0), 0);
+
+      if (yearIndex === appliedYears.length - 1) return rowsForYear;
+      return [
+        ...rowsForYear,
+        {
+          xKey: `__gap__${year}`,
+          year,
+          label: "",
+          isGap: true,
+        },
+      ];
     });
+  }, [renderedGroupedStackSeries, renderedGroupedStackSeriesIdSet, applied, appliedYears, chartableAppliedItems, facts, groupedIITs]);
 
-    const trendStartYear = appliedYears[0] ?? applied?.focusYear;
-    const trendEndYear = applied?.focusYear ?? appliedYears[appliedYears.length - 1] ?? trendStartYear;
-    const valueForTrendYear = (year) => activeGroupedStackSeries.reduce((sum, series) => {
-      const raw = valueForBreakdownKey(facts, series.kpi, row.instituteId, year, series.breakdownKey);
-      if (raw == null || !Number.isFinite(Number(raw))) return sum;
-      return sum + (series.kpi?.format === "pct" ? Number(raw) * 100 : Number(raw));
-    }, 0);
+  const groupedYearLabelKeyByYear = useMemo(() => {
+    const rowsByYear = {};
+    groupedChartRows.forEach((row) => {
+      if (row?.isGap) return;
+      if (!rowsByYear[row.year]) rowsByYear[row.year] = [];
+      rowsByYear[row.year].push(row.xKey);
+    });
+    const lookup = {};
+    Object.entries(rowsByYear).forEach(([year, keys]) => {
+      lookup[year] = keys[Math.floor((keys.length - 1) / 2)] ?? keys[0];
+    });
+    return lookup;
+  }, [groupedChartRows]);
 
-    const trendStartValue = valueForTrendYear(trendStartYear);
-    const trendEndValue = valueForTrendYear(trendEndYear);
-    next.trendStartYear = trendStartYear;
-    next.trendEndYear = trendEndYear;
-    next.trendStartValue = trendStartValue;
-    next.trendEndValue = trendEndValue;
-    next.trendDeltaPct = trendStartValue ? (trendEndValue - trendStartValue) / trendStartValue : null;
-    return next;
-  }), [activeComparisonLegendIdSet, activeGroupedStackSeries, applied, appliedYears, chartableAppliedItems, facts, groupedStackRows, groupedStackSeries]);
+  const groupedYearSeparatorRows = useMemo(
+    () => groupedChartRows.filter((row) => !row?.isGap && row?.isYearStart && Number(row.year) !== Number(appliedYears[0])),
+    [appliedYears, groupedChartRows],
+  );
+
+  const groupedBarMaxSize = useMemo(() => {
+    const slotCount = Math.max(1, groupedChartRows.length);
+    const visibleStackCount = Math.max(1, dedupeList(renderedGroupedStackSeries.map((series) => series.itemId)).length);
+    if (slotCount > 80 || visibleStackCount > 8) return 10;
+    if (slotCount > 55 || visibleStackCount > 5) return 14;
+    if (slotCount > 35 || visibleStackCount > 3) return 18;
+    if (slotCount > 20 || visibleStackCount > 2) return 24;
+    return 34;
+  }, [renderedGroupedStackSeries, groupedChartRows]);
+
+  const groupedTickFontSize = useMemo(() => {
+    const visibleSlots = groupedChartRows.filter((row) => !row?.isGap).length;
+    if (visibleSlots > 80 || groupedIITs.length > 14) return 8;
+    if (visibleSlots > 55 || groupedIITs.length > 10) return 9;
+    if (visibleSlots > 35 || groupedIITs.length > 6) return 10;
+    return 11;
+  }, [groupedChartRows, groupedIITs.length]);
+
+  const groupedChartHeight = useMemo(() => {
+    const base = 400 + Math.min(160, appliedYears.length * 24 + groupedIITs.length * 5);
+    return Math.max(460, Math.min(640, base));
+  }, [appliedYears.length, groupedIITs.length]);
 
   const yearTrendRows = useMemo(() => {
-    if (!applied || !appliedYears.length || !activeGroupedStackSeries.length) return [];
+    if (!applied || !appliedYears.length || !renderedGroupedStackSeries.length) return [];
 
     const rawValuesBySeries = Object.fromEntries(
-      activeGroupedStackSeries.map((series) => [
+      renderedGroupedStackSeries.map((series) => [
         series.id,
         appliedYears.map((year) => aggregateCompareSeriesYearValue(facts, series, groupedIITs, year)),
       ]),
     );
     const displayValuesBySeries = Object.fromEntries(
-      activeGroupedStackSeries.map((series) => {
+      renderedGroupedStackSeries.map((series) => {
         const rawValues = rawValuesBySeries[series.id] ?? [];
         return [
           series.id,
@@ -1941,80 +2220,90 @@ export default function ComparePage({
 
     return appliedYears.map((year, yearIndex) => {
       const row = { year, label: String(year) };
-      activeGroupedStackSeries.forEach((series) => {
+      renderedGroupedStackSeries.forEach((series) => {
         row[`raw_${series.id}`] = rawValuesBySeries[series.id]?.[yearIndex] ?? null;
         row[`display_${series.id}`] = displayValuesBySeries[series.id]?.[yearIndex] ?? null;
       });
       return row;
     });
-  }, [activeGroupedStackSeries, applied, appliedYears, facts, groupedIITs]);
+  }, [renderedGroupedStackSeries, applied, appliedYears, facts, groupedIITs]);
 
   const smallMultipleBarSeries = useMemo(() => {
-    if (!applied || !appliedYears.length || !groupedIITs.length || !activeGroupedStackSeries.length) return [];
+    if (!applied || !appliedYears.length || !groupedIITs.length || !renderedGroupedStackSeries.length) return [];
 
-    return appliedYears.map((year) => {
-      const rawValuesBySeries = Object.fromEntries(
-        activeGroupedStackSeries.map((series) => [
-          series.id,
-          groupedIITs.map((iid) => valueForBreakdownKey(facts, series.kpi, iid, year, series.breakdownKey)),
+    return renderedGroupedStackSeries.slice(0, COMPARE_MAX_SMALL_MULTIPLE_CARDS).map((series) => {
+      const iitBars = groupedIITs.map((iid, instituteIndex) => ({
+        id: normalizeSeriesKey(`${series.id}_${iid}`),
+        legendId: series.id,
+        iid,
+        itemId: series.itemId,
+        breakdownKey: series.breakdownKey,
+        label: instituteShortLabel(iid),
+        fullLabel: `${series.fullLabel ?? series.label} · ${instituteNameById(iid)}`,
+        kpi: series.kpi,
+        color: compareIitColor(iid, instituteIndex),
+      }));
+
+      const rawValuesByIit = Object.fromEntries(
+        iitBars.map((bar) => [
+          bar.id,
+          appliedYears.map((year) => valueForBreakdownKey(facts, series.kpi, bar.iid, year, series.breakdownKey)),
         ]),
       );
-      const displayValuesBySeries = Object.fromEntries(
-        activeGroupedStackSeries.map((series) => {
-          const rawValues = rawValuesBySeries[series.id] ?? [];
+      const displayValuesByIit = Object.fromEntries(
+        iitBars.map((bar) => {
+          const rawValues = rawValuesByIit[bar.id] ?? [];
           return [
-            series.id,
+            bar.id,
             applied.scale === "indexed"
-              ? normalizeToLeader(rawValues)
+              ? normalizeToBase(rawValues)
               : rawValues.map((value) => (series.kpi?.format === "pct" && value != null ? Number(value) * 100 : value)),
           ];
         }),
       );
 
-      const rows = groupedIITs.map((iid, instituteIndex) => {
+      const rows = appliedYears.map((year, yearIndex) => {
         const row = {
-          instituteId: iid,
-          instituteName: instituteNameById(iid),
-          label: instituteShortLabel(iid),
           year,
-          cardId: `year-bars-${year}`,
+          label: String(year),
+          cardId: `year-bars-${series.id}`,
         };
-        activeGroupedStackSeries.forEach((series) => {
-          row[`raw_${series.id}`] = rawValuesBySeries[series.id]?.[instituteIndex] ?? null;
-          row[`display_${series.id}`] = displayValuesBySeries[series.id]?.[instituteIndex] ?? null;
+        iitBars.forEach((bar) => {
+          row[`raw_${bar.id}`] = rawValuesByIit[bar.id]?.[yearIndex] ?? null;
+          row[`display_${bar.id}`] = displayValuesByIit[bar.id]?.[yearIndex] ?? null;
         });
-        row.displayTotal_all = activeGroupedStackSeries.reduce((sum, series) => sum + Number(row[`display_${series.id}`] ?? 0), 0);
-        row.rawTotal_all = activeGroupedStackSeries.reduce((sum, series) => sum + Number(row[`raw_${series.id}`] ?? 0), 0);
-        dedupeList(activeGroupedStackSeries.map((series) => series.itemId)).forEach((itemId) => {
-          const itemSeries = activeGroupedStackSeries.filter((series) => series.itemId === itemId);
-          row[`displayTotal_${itemId}`] = itemSeries.reduce((sum, series) => sum + Number(row[`display_${series.id}`] ?? 0), 0);
-          row[`rawTotal_${itemId}`] = itemSeries.reduce((sum, series) => sum + Number(row[`raw_${series.id}`] ?? 0), 0);
-        });
+        row.displayTotal_all = iitBars.reduce((sum, bar) => sum + Number(row[`display_${bar.id}`] ?? 0), 0);
+        row.rawTotal_all = iitBars.reduce((sum, bar) => sum + Number(row[`raw_${bar.id}`] ?? 0), 0);
+        row[`displayTotal_${series.itemId}`] = row.displayTotal_all;
+        row[`rawTotal_${series.itemId}`] = row.rawTotal_all;
         return row;
       });
 
       return {
-        id: `year-bars-${year}`,
+        id: `year-bars-${series.id}`,
         chartKind: "yearBars",
-        label: `Year ${year}`,
-        subtitle: `${groupedIITs.length} IIT(s) · bars by selected compare values`,
-        lines: activeGroupedStackSeries.map((series) => ({ ...series, legendId: series.id })),
+        label: series.legendLabel ?? series.shortLabel,
+        subtitle: "",
+        lines: iitBars,
         rows,
       };
     });
-  }, [activeGroupedStackSeries, applied, appliedYears, facts, groupedIITs]);
+  }, [renderedGroupedStackSeries, applied, appliedYears, facts, groupedIITs]);
 
   const smallMultipleLineSeries = useMemo(() => {
-    if (!applied || !appliedYears.length || !groupedIITs.length || !activeGroupedStackSeries.length) return [];
+    if (!applied || !appliedYears.length || !groupedIITs.length || !renderedGroupedStackSeries.length) return [];
 
-    return activeGroupedStackSeries.map((series) => {
+    return renderedGroupedStackSeries.slice(0, COMPARE_MAX_SMALL_MULTIPLE_CARDS).map((series) => {
       const iitLines = groupedIITs.map((iid, instituteIndex) => ({
-        id: normalizeSeriesKey(iid),
+        id: normalizeSeriesKey(`${series.id}_${iid}`),
+        legendId: series.id,
         iid,
+        itemId: series.itemId,
+        breakdownKey: series.breakdownKey,
         label: instituteShortLabel(iid),
-        fullLabel: instituteNameById(iid),
+        fullLabel: `${series.fullLabel ?? series.label} · ${instituteNameById(iid)}`,
         kpi: series.kpi,
-        color: PALETTE[instituteIndex % PALETTE.length],
+        color: compareIitColor(iid, instituteIndex),
       }));
       const rawValuesByIit = Object.fromEntries(
         iitLines.map((line) => [
@@ -2047,30 +2336,21 @@ export default function ComparePage({
         id: `year-lines-${series.id}`,
         chartKind: "yearLines",
         label: series.legendLabel ?? series.shortLabel,
-        subtitle: `${series.fullLabel ?? series.label} · IIT lines over ${applied.yearFrom}-${applied.yearTo}`,
+        subtitle: "",
         lines: iitLines,
         rows,
       };
     });
-  }, [activeGroupedStackSeries, applied, appliedYears, facts, groupedIITs]);
+  }, [renderedGroupedStackSeries, applied, appliedYears, facts, groupedIITs]);
 
   const smallMultipleSharedYMax = useMemo(() => {
     const values = [];
     smallMultipleBarSeries.forEach((card) => {
-      const itemIds = dedupeList((card.lines ?? []).map((line) => line.itemId));
       (card.rows ?? []).forEach((row) => {
-        if (itemIds.length) {
-          itemIds.forEach((itemId) => {
-            const stackTotal = Number(row?.[`displayTotal_${itemId}`] ?? 0);
-            if (Number.isFinite(stackTotal)) values.push(stackTotal);
-          });
-          return;
-        }
-        const fallbackTotal = (card.lines ?? []).reduce((sum, line) => {
+        (card.lines ?? []).forEach((line) => {
           const value = row?.[`display_${line.id}`];
-          return value == null || !Number.isFinite(Number(value)) ? sum : sum + Number(value);
-        }, 0);
-        if (Number.isFinite(fallbackTotal)) values.push(fallbackTotal);
+          if (value != null && Number.isFinite(Number(value))) values.push(Number(value));
+        });
       });
     });
     smallMultipleLineSeries.forEach((card) => {
@@ -2091,26 +2371,24 @@ export default function ComparePage({
     return appliedIITs.flatMap((iid) => {
       const institute = IITs.find((entry) => entry.id === iid)?.name ?? iid;
       return appliedItems.flatMap((item) => {
-        const breakdownsForItem = itemSupportsBreakdown(item) && appliedBreakdownKeys.length
+        const selectedBreakdowns = itemSupportsBreakdown(item) && appliedBreakdownKeys.length
           ? appliedBreakdownKeys
+          : [];
+        const breakdownsForItem = selectedBreakdowns.length
+          ? [TOTAL_COMPARISON_KEY, ...selectedBreakdowns]
           : [TOTAL_COMPARISON_KEY];
         return breakdownsForItem.map((breakdownKey) => {
-          const latest = valueForBreakdownKey(facts, item.kpi, iid, applied.focusYear, breakdownKey);
-          const prevYear = appliedYears[Math.max(0, appliedYears.indexOf(applied.focusYear) - 1)] ?? applied.focusYear;
-          const prev = valueForBreakdownKey(facts, item.kpi, iid, prevYear, breakdownKey);
-          return {
+          const row = {
             Institute: institute,
             InstituteCode: iid,
-            Module: humanizeCompareLabel(item.categoryLabel ?? item.moduleLabel),
-            Submodule: humanizeCompareLabel(item.submoduleLabel),
-            Sheet: humanizeCompareLabel(item.sheetLabel ?? item.label),
             CompareItem: compareItemLabel(item),
             CompareBy: compareBreakdownLabel(breakdownKey),
-            Value: latest,
-            YoY: latest != null && prev != null && prev !== 0 && prevYear !== applied.focusYear ? (latest - prev) / prev : null,
-            Range: appliedYears.map((year) => `${year}: ${fmtRaw(item.kpi, valueForBreakdownKey(facts, item.kpi, iid, year, breakdownKey))}`).join(" - "),
             _item: item,
           };
+          appliedYears.forEach((year) => {
+            row[compareYearKey(year)] = valueForBreakdownKey(facts, item.kpi, iid, year, breakdownKey);
+          });
+          return row;
         });
       });
     });
@@ -2119,26 +2397,23 @@ export default function ComparePage({
   const compareDetailColumns = useMemo(
     () => [
       { key: "Institute", label: "Institute" },
-      { key: "Module", label: "Category" },
-      { key: "Submodule", label: "Sub-module" },
-      { key: "Sheet", label: "Sheet" },
       { key: "CompareItem", label: "KPI" },
-      { key: "CompareBy", label: "Compare by" },
-      { key: "Value", label: `Value (${applied?.focusYear ?? ""})` },
-      { key: "YoY", label: "YoY" },
-      { key: "Range", label: `${applied?.yearFrom ?? YEARS[0]}-${applied?.yearTo ?? YEARS[YEARS.length - 1]}` },
+      { key: "CompareBy", label: "Category / Status" },
+      ...appliedYears.map((year) => ({ key: compareYearKey(year), label: String(year) })),
     ],
-    [applied],
+    [appliedYears],
   );
 
   const compareDetailRows = useMemo(
     () =>
-      tableRows.map((row) => ({
-        ...row,
-        Value: fmtRaw(row._item?.kpi, row.Value),
-        YoY: formatPct(row.YoY),
-      })),
-    [tableRows],
+      tableRows.map((row) => {
+        const next = { ...row };
+        appliedYears.forEach((year) => {
+          next[compareYearKey(year)] = fmtRaw(row._item?.kpi, row[compareYearKey(year)]);
+        });
+        return next;
+      }),
+    [appliedYears, tableRows],
   );
 
   const compareInterpretation = useMemo(() => {
@@ -2146,7 +2421,7 @@ export default function ComparePage({
 
     const lines = [
       `This comparison covers ${appliedItems.length} compare item(s) across ${appliedIITs.length} IIT(s) from ${applied.yearFrom} to ${applied.yearTo}.`,
-      `Current visual: ${VIEW_OPTIONS.find((option) => option.id === applied.view)?.label ?? applied.view}. Scale: ${applied.scale === "indexed" ? "Indexed 100" : "Raw"}. Focus year: ${applied.focusYear}.`,
+      `Current visual: ${VIEW_OPTIONS.find((option) => option.id === applied.view)?.label ?? applied.view}. Scale: Raw. Years: ${applied.yearFrom}-${applied.yearTo}.`,
       `Selected IITs: ${summarizeList(appliedIITs.map((iid) => instituteShortLabel(iid)), 4)}.`,
     ];
 
@@ -2317,7 +2592,7 @@ export default function ComparePage({
       `Compare by: ${(applied.breakdowns ?? []).length ? applied.breakdowns.map(compareBreakdownLabel).join(", ") : "Default breakdown / total"}`,
       `IITs: ${(applied.iits ?? []).join(", ")}`,
       `Years: ${applied.yearFrom}-${applied.yearTo}`,
-      `Focus year: ${applied.focusYear}`,
+      `Ranking year: ${applied.focusYear}`,
       `Mode: ${applied.view}`,
       `Scale: ${applied.scale}`,
     ].join("\n");
@@ -2353,27 +2628,9 @@ export default function ComparePage({
   }
 
   function handleDownloadCsv() {
-    const columns = [
-      { key: "Institute", label: "Institute" },
-      { key: "Module", label: "Category" },
-      { key: "Submodule", label: "Sub-module" },
-      { key: "Sheet", label: "Sheet" },
-      { key: "CompareItem", label: "KPI" },
-      { key: "CompareBy", label: "Compare by" },
-      { key: "Value", label: `Value (${applied?.focusYear ?? ""})` },
-      { key: "YoY", label: "YoY" },
-      { key: "Range", label: `${applied?.yearFrom ?? YEARS[0]}-${applied?.yearTo ?? YEARS[YEARS.length - 1]}` },
-    ];
     downloadText(
       "iitmis_compare.csv",
-      toCsv(
-        tableRows.map((row) => ({
-          ...row,
-          Value: fmtRaw(row._item?.kpi, row.Value),
-          YoY: formatPct(row.YoY),
-        })),
-        columns,
-      ),
+      toCsv(compareDetailRows, compareDetailColumns),
       "text/csv;charset=utf-8",
     );
     markDownloaded("CSV downloaded.");
@@ -2397,6 +2654,11 @@ export default function ComparePage({
       return;
     }
     setAiPanelOpen(true);
+  }
+
+  async function handleCopyAiInterpretation() {
+    const ok = await copyToClipboard(compareInterpretation);
+    setToast(ok ? "AI interpretation copied." : "Copy failed. Select and copy the text manually.");
   }
 
   function openWorksheetFilters() {
@@ -2495,6 +2757,8 @@ export default function ComparePage({
       iits: [...draft.iits],
     };
     setApplied(payload);
+    setDrillReturnSelection(null);
+    setActiveBarSegment(null);
     setBuilderOpen(false);
     setActiveStep(1);
     setOpenPopover(null);
@@ -2517,13 +2781,42 @@ export default function ComparePage({
 
   function commitAppliedSelection(next) {
     if (!next) return;
-    if (!next.modules.length || !next.submodules.length || !(next.sheets ?? []).length || !next.items.length || !next.iits.length) {
+    setActiveBarSegment(null);
+    const normalizedNext = {
+      ...next,
+      modules: [...(next.modules ?? [])],
+      submodules: [...(next.submodules ?? [])],
+      sheets: [...(next.sheets ?? [])],
+      items: [...(next.items ?? [])],
+      breakdowns: [...(next.breakdowns ?? [])],
+      iits: [...(next.iits ?? [])],
+    };
+    if (!normalizedNext.modules.length || !normalizedNext.submodules.length || !(normalizedNext.sheets ?? []).length || !normalizedNext.items.length || !normalizedNext.iits.length) {
       setApplied(null);
-      setDraft(next);
+      setDraft(normalizedNext);
       return;
     }
-    setApplied(next);
-    setDraft(next);
+    setApplied(normalizedNext);
+    setDraft(normalizedNext);
+  }
+
+  function syncCompareConfig(next) {
+    if (!next) return;
+    onConfigChange?.((prev) => ({
+      ...prev,
+      CompareModule: next.modules?.[0] ?? prev.CompareModule,
+      CompareSubmoduleId: next.submodules?.[0] ?? prev.CompareSubmoduleId,
+      CompareSheetIds: next.sheets ?? [],
+      CompareMetricIds: next.items ?? [],
+      CompareBreakdowns: next.breakdowns ?? [],
+      MetricId: worksheetMap[next.items?.[0]]?.kpiId ?? next.items?.[0] ?? prev.MetricId,
+      CompareView: next.view,
+      CompareScale: next.scale,
+      ActiveYear: next.focusYear,
+      InstituteId: next.iits ?? [],
+      YearRange: { from: next.yearFrom, to: next.yearTo },
+      __compareApplied: true,
+    }));
   }
 
 
@@ -2545,15 +2838,54 @@ export default function ComparePage({
     setDraft((prev) => ({ ...prev, focusYear: nextYear }));
   }
 
+  function drillToIitFromAxisLabel(axisValue) {
+    if (!applied) return;
+    const parsedIid = String(axisValue ?? "").includes("__") ? String(axisValue).split("__")[1] : axisValue;
+    const match = groupedIITs.find((iid) => iid === parsedIid || instituteShortLabel(iid) === axisValue || instituteNameById(iid) === axisValue);
+    if (!match) return;
+    if (applied.iits?.length > 1) {
+      setDrillReturnSelection({
+        ...applied,
+        iits: [...applied.iits],
+        items: [...(applied.items ?? [])],
+        breakdowns: [...(applied.breakdowns ?? [])],
+        modules: [...(applied.modules ?? [])],
+        submodules: [...(applied.submodules ?? [])],
+        sheets: [...(applied.sheets ?? [])],
+      });
+    }
+    const nextApplied = { ...applied, iits: [match] };
+    commitAppliedSelection(nextApplied);
+    syncCompareConfig(nextApplied);
+  }
+
+  function returnFromIitDrill() {
+    if (!drillReturnSelection) return;
+    const nextApplied = {
+      ...drillReturnSelection,
+      iits: [...(drillReturnSelection.iits ?? [])],
+      items: [...(drillReturnSelection.items ?? [])],
+      breakdowns: [...(drillReturnSelection.breakdowns ?? [])],
+      modules: [...(drillReturnSelection.modules ?? [])],
+      submodules: [...(drillReturnSelection.submodules ?? [])],
+      sheets: [...(drillReturnSelection.sheets ?? [])],
+    };
+    setDrillReturnSelection(null);
+    commitAppliedSelection(nextApplied);
+    syncCompareConfig(nextApplied);
+  }
+
   function buildBarSegment(series, row, pinned = false) {
     if (!series || !row) return null;
     const year = Number(row?.year ?? row?.focusYear ?? applied?.focusYear ?? appliedYears[appliedYears.length - 1]);
     const previousYear = appliedYears.filter((item) => Number(item) < year).slice(-1)[0] ?? null;
+    const instituteId = series.iid ?? row.instituteId;
+    const instituteName = instituteId ? instituteNameById(instituteId) : (row.instituteName ?? row.label);
     const rawValue = row[`raw_${series.id}`];
     const displayValue = row[`display_${series.id}`];
     const stackTotal = row[`displayTotal_${series.itemId}`] ?? row.displayTotal_all;
-    const previousRawValue = previousYear
-      ? valueForBreakdownKey(facts, series.kpi, row.instituteId, previousYear, series.breakdownKey)
+    const previousRawValue = previousYear && instituteId
+      ? valueForBreakdownKey(facts, series.kpi, instituteId, previousYear, series.breakdownKey)
       : null;
     const changePct = previousRawValue != null && Number(previousRawValue) !== 0 && rawValue != null
       ? (Number(rawValue) - Number(previousRawValue)) / Number(previousRawValue)
@@ -2566,8 +2898,8 @@ export default function ComparePage({
       pinned,
       seriesId: series.id,
       cardId: row.cardId ?? null,
-      instituteId: row.instituteId,
-      instituteName: row.instituteName ?? row.label,
+      instituteId,
+      instituteName,
       year,
       previousYear,
       seriesLabel: series.legendLabel ?? series.shortLabel ?? series.label,
@@ -2604,10 +2936,13 @@ export default function ComparePage({
 
   function updateSelectionSummarySource(updater) {
     if (applied) {
-      commitAppliedSelection(updater(applied));
+      const next = typeof updater === "function" ? updater(applied) : updater;
+      setDrillReturnSelection(null);
+      commitAppliedSelection(next);
+      syncCompareConfig(next);
       return;
     }
-    setDraft(updater);
+    setDraft((prev) => (typeof updater === "function" ? updater(prev) : updater));
   }
 
   function sortEntities(list, getLabel, getPriority = () => 0) {
@@ -2660,7 +2995,7 @@ export default function ComparePage({
   function applyRankedIits(direction = "top") {
     const nextIits = rankedIitsForDraft(draft, 10, direction);
     if (!nextIits.length) {
-      setNotice("No ranked IITs available for the selected KPI and focus year.");
+      setNotice("No ranked IITs available for the selected KPI and ranking year.");
       return;
     }
     setDraft((prev) => ({ ...prev, iits: nextIits }));
@@ -2900,7 +3235,7 @@ export default function ComparePage({
   const selectionIitSummary = selectionSource?.iits?.length === IITs.length
     ? 'ALL'
     : selectionSource?.iits?.length === LEGACY_IITS.length && LEGACY_IITS.every((iid) => selectionSource.iits.includes(iid))
-      ? "OLD IIT's"
+      ? "OLD IITs"
       : selectionSource?.iits?.length
         ? `${selectionSource.iits.length} selected`
         : 'None';
@@ -3065,8 +3400,8 @@ export default function ComparePage({
   function renderCompareCarouselSelector() {
     return (
       <CombinedKpiSelector
-        title="Compare"
-        helper="Select the category, sub-module, sheet, and KPI to compare."
+        title="Select filters"
+        helper="Choose category, sub-module, sheet, and KPI for the comparison."
         accent={uiAccent}
         soft={`${uiAccent}12`}
         rows={[
@@ -3075,7 +3410,8 @@ export default function ComparePage({
             label: "Category(s)",
             items: compareCarouselModuleItems,
             activeIds: selectionSource.modules ?? [],
-            activeId: selectionSource.modules?.[0] ?? null,
+            activeId: firstActiveIdInList(compareCarouselModuleItems, selectionSource.modules ?? []),
+            autoScrollTargetId: firstActiveIdInList(compareCarouselModuleItems, selectionSource.modules ?? []),
             onPick: toggleCompareModule,
             onRightAction: () => openBuilder(1),
           },
@@ -3084,7 +3420,8 @@ export default function ComparePage({
             label: "Sub-module(s)",
             items: compareCarouselSubmoduleItems,
             activeIds: selectionSource.submodules ?? [],
-            activeId: selectionSource.submodules?.[0] ?? null,
+            activeId: firstActiveIdInList(compareCarouselSubmoduleItems, selectionSource.submodules ?? []),
+            autoScrollTargetId: firstActiveIdInList(compareCarouselSubmoduleItems, selectionSource.submodules ?? []),
             onPick: toggleCompareSubmodule,
             onRightAction: () => openBuilder(1),
           },
@@ -3093,7 +3430,8 @@ export default function ComparePage({
             label: "Sheet(s)",
             items: compareCarouselSheetItems,
             activeIds: selectionSource.sheets ?? [],
-            activeId: selectionSource.sheets?.[0] ?? null,
+            activeId: firstActiveIdInList(compareCarouselSheetItems, selectionSource.sheets ?? []),
+            autoScrollTargetId: firstActiveIdInList(compareCarouselSheetItems, selectionSource.sheets ?? []),
             onPick: toggleCompareSheet,
             onRightAction: () => openBuilder(1),
           },
@@ -3102,7 +3440,8 @@ export default function ComparePage({
             label: "KPI(s)",
             items: compareCarouselKpiItems,
             activeIds: selectionSource.items ?? [],
-            activeId: selectionSource.items?.[0] ?? null,
+            activeId: firstActiveIdInList(compareCarouselKpiItems, selectionSource.items ?? []),
+            autoScrollTargetId: firstActiveIdInList(compareCarouselKpiItems, selectionSource.items ?? []),
             onPick: toggleCompareKpi,
             onRightAction: () => openBuilder(1),
           },
@@ -3133,7 +3472,7 @@ export default function ComparePage({
           <span className="text-sm text-slate-500">No module selected.</span>
         )}
         <SelectionActionButton
-          label={hiddenCount > 0 ? `More (+${hiddenCount})` : 'More'}
+          label={hiddenCount > 0 ? `More filters (+${hiddenCount})` : 'More filters'}
           onClick={() => openBuilder(1)}
           title="Open module filters"
         />
@@ -3160,7 +3499,7 @@ export default function ComparePage({
       return (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className="text-sm text-slate-500">No sub-module selected.</span>
-          <SelectionActionButton label="More" onClick={() => openBuilder(1)} title="Open sub-module filters" />
+          <SelectionActionButton label="More filters" onClick={() => openBuilder(1)} title="Open sub-module filters" />
         </div>
       );
     }
@@ -3179,7 +3518,7 @@ export default function ComparePage({
           </button>
         ))}
         <SelectionActionButton
-          label={hiddenCount > 0 ? `More (+${hiddenCount})` : 'More'}
+          label={hiddenCount > 0 ? `More filters (+${hiddenCount})` : 'More filters'}
           onClick={() => openBuilder(1)}
           title="Open sub-module filters"
         />
@@ -3388,7 +3727,7 @@ export default function ComparePage({
             <button
               type="button"
               onClick={() => setOpenPopover(null)}
-              className="grid h-8 w-8 place-items-center rounded-full bg-slate-950 text-white shadow-sm"
+              className="grid h-8 w-8 place-items-center rounded-full bg-sky-700 text-white shadow-sm"
               aria-label="Close advanced filters"
             >
               {compareIcon('close', true, '#ffffff')}
@@ -3584,10 +3923,10 @@ export default function ComparePage({
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <SelectionActionButton label="OLD IIT's" onClick={() => setDraft((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))} title="Select old IITs" />
+                      <SelectionActionButton label="OLD IITs" onClick={() => setDraft((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))} title="Select old IITs" />
                       <SelectionActionButton label="ALL" onClick={() => setDraft((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))} title="Select all IITs" />
-                      <SelectionActionButton label="Top 10" onClick={() => applyRankedIits("top")} title="Select top 10 IITs for the selected KPI and focus year" />
-                      <SelectionActionButton label="Bottom 10" onClick={() => applyRankedIits("bottom")} title="Select bottom 10 IITs for the selected KPI and focus year" />
+                      <SelectionActionButton label="Top 10" onClick={() => applyRankedIits("top")} title="Select top 10 IITs for the selected KPI and ranking year" />
+                      <SelectionActionButton label="Bottom 10" onClick={() => applyRankedIits("bottom")} title="Select bottom 10 IITs for the selected KPI and ranking year" />
                     </div>
                     {draft.iits.length > 10 ? (
                       <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
@@ -3656,7 +3995,7 @@ export default function ComparePage({
       <div data-compare-popover className="absolute left-0 top-full z-40 mt-2 w-full max-w-[360px] rounded-[28px] border border-slate-200 bg-white p-4 shadow-2xl">
         <div>
           <div className="text-sm font-semibold text-slate-900">Compare mode</div>
-          <div className="mt-0.5 text-xs text-slate-500">Set the view, scale, and focus year without opening a bulky builder.</div>
+          <div className="mt-0.5 text-xs text-slate-500">Set the view and ranking year without opening the full filter panel.</div>
         </div>
 
         <div className="mt-4 rounded-[24px] border border-slate-200 p-3">
@@ -3697,7 +4036,7 @@ export default function ComparePage({
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Scale</div>
             <ToolbarSelect
-              label="Focus"
+              label="Ranking year"
               value={String(draft.focusYear)}
               onChange={(value) => setDraft((prev) => ({ ...prev, focusYear: Number(value) }))}
               minWidth={100}
@@ -3738,28 +4077,43 @@ export default function ComparePage({
 
   function renderChartCard(targetRef, fullscreen = false) {
     if (!applied) return null;
-    const appliedCompareLabel = summarizeList(
-      appliedItems.map((item) => compareItemLabel(item)),
-      4,
-    );
-    const appliedYearsLabel = `${applied.yearFrom}-${applied.yearTo}`;
-    const appliedIitsLabel = summarizeList(appliedIITs.map((iid) => instituteShortLabel(iid)), 5);
-    const visualToolbarItems = VIEW_OPTIONS
-      .filter((option) => appliedModeValidity[option.id]?.valid)
-      .map((option) => ({
-        id: option.id,
-        label: option.label,
-        icon: compareIcon(option.id, option.id === applied.view, option.id === applied.view ? "#ffffff" : uiAccent),
-      }));
+    const appliedCompareLabels = appliedItems.map((item) => compareItemLabel(item));
+    const appliedCompareLabel = appliedCompareLabels.length > 1
+      ? `${appliedCompareLabels[0]} +${appliedCompareLabels.length - 1} more`
+      : appliedCompareLabels[0] ?? "Compare";
+    const appliedYearsLabel = Number(applied.yearFrom) === Number(applied.yearTo) ? String(applied.yearTo) : `${applied.yearFrom}–${applied.yearTo}`;
+    const appliedIitsLabel = compareIitScopeLabel(appliedIITs);
+    const compareAccent = "#2563eb";
+    const compactToolbarOptions = [
+      { id: "grouped", label: "Bar graph" },
+      { id: "smallBars", label: "Small multiple bars" },
+      { id: "smallLines", label: "Small multiple lines" },
+      { id: "table", label: "Table" },
+    ];
+    const visualToolbarItems = [
+      ...compactToolbarOptions
+        .filter((option) => appliedModeValidity[option.id]?.valid)
+        .map((option) => ({
+          id: option.id,
+          label: option.label,
+          icon: compareToolbarIcon(option.id, option.id === applied.view, option.id === applied.view ? "#ffffff" : compareAccent),
+        })),
+      {
+        id: "ai-interpretation",
+        label: "AI interpretation",
+        icon: compareToolbarIcon("ai", false, compareAccent),
+        action: openAiDrawer,
+      },
+    ];
     const comparisonSeriesLookup = Object.fromEntries(groupedStackSeries.map((series) => [series.id, series]));
-    const compareLegendTitle = chartableAppliedItems.length > 1 ? "Compare by" : "Compare by";
+    const compareLegendTitle = "";
     const viewInstruction = {
-      grouped: ["Hover/click a colored segment for details."],
-      smallBars: ["Hover/click a colored segment for details."],
-      smallLines: ["Hover a line point for details."],
+      grouped: ["Click a bar, axis label, or legend label to drill down."],
+      smallBars: ["Click a bar, axis label, or legend label to drill down."],
+      smallLines: ["Click a line point, axis label, or legend label to drill down."],
     }[applied.view] ?? [];
     const smallBarDetailTargetId = activeBarSegment?.cardId?.startsWith?.("year-bars-")
-      ? (smallMultipleBarSeries.find((card) => card.id !== activeBarSegment.cardId)?.id ?? activeBarSegment.cardId)
+      ? activeBarSegment.cardId
       : null;
 
     return (
@@ -3780,12 +4134,12 @@ export default function ComparePage({
                       key={option.id}
                       type="button"
                       disabled={disabled}
-                      onClick={() => commitAppliedSelection({ ...applied, scale: option.id })}
+                      onClick={() => { const next = { ...applied, scale: option.id }; commitAppliedSelection(next); syncCompareConfig(next); }}
                       className={cn("rounded-full px-4 py-2 text-[0.78rem] font-bold transition", disabled ? "cursor-not-allowed opacity-50" : "")}
                       style={{
                         background: "rgba(255,255,255,0.98)",
-                        border: `1px solid ${active ? uiAccent : "rgba(203,213,225,0.9)"}`,
-                        color: active ? uiAccent : "#475569",
+                        border: `1px solid ${active ? compareAccent : "rgba(203,213,225,0.9)"}`,
+                        color: active ? compareAccent : "#475569",
                         boxShadow: active ? "0 8px 24px rgba(59,130,246,0.14)" : "0 2px 10px rgba(15,23,42,0.04)",
                       }}
                     >
@@ -3795,7 +4149,7 @@ export default function ComparePage({
                 })}
               </div>
               {viewInstruction.length ? (
-                <div className="mt-2 max-w-[560px] text-[11px] font-semibold leading-5 text-slate-500">
+                <div className="mt-2 max-w-[560px] text-[11px] font-extrabold leading-5 text-[#2563eb]">
                   {viewInstruction.map((line) => (
                     <div key={line}>{line}</div>
                   ))}
@@ -3804,13 +4158,25 @@ export default function ComparePage({
             </div>
 
             <div className="min-w-0 text-center lg:px-4">
-              <div className="text-[1.08rem] font-extrabold leading-tight text-slate-900">Compare</div>
-              <div className="mt-2 text-sm font-semibold text-[#1252a0]">{appliedCompareLabel}</div>
-              <div className="mt-3 text-sm text-slate-600">{appliedIitsLabel}</div>
-              <div className="mt-1 text-sm font-semibold text-slate-700">{appliedYearsLabel}</div>
+              <div className="text-[1.08rem] font-extrabold leading-tight text-slate-900">{appliedCompareLabel}</div>
+              <div className="mt-2 text-sm font-semibold text-[#1252a0]">{appliedIitsLabel} · {appliedYearsLabel}</div>
+              {drillReturnSelection && appliedIITs.length === 1 ? (
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 text-xs font-bold text-slate-500" data-export-hide="true">
+                  <button
+                    type="button"
+                    onClick={returnFromIitDrill}
+                    className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-extrabold text-sky-700 transition hover:bg-sky-100"
+                    title={`Return to ${compareIitScopeLabel(drillReturnSelection.iits)}`}
+                  >
+                    ‹ {compareIitScopeLabel(drillReturnSelection.iits)}
+                  </button>
+                  <span className="text-slate-400">›</span>
+                  <span className="rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-extrabold text-slate-700">{instituteShortLabel(appliedIITs[0])}</span>
+                </div>
+              ) : null}
             </div>
 
-            <div className="flex flex-wrap items-center justify-start gap-3 lg:justify-end">
+            <div className={cn("flex flex-wrap items-center justify-start gap-3 lg:justify-end", fullscreen ? "pt-12 lg:pt-12" : "")}>
               {visualToolbarItems.length > 1 ? (
                 <VisualToolbar
                   items={visualToolbarItems}
@@ -3820,7 +4186,7 @@ export default function ComparePage({
                     if (!nextState?.valid) return;
                     commitAppliedSelection({ ...applied, view: nextView, scale: nextView === "table" ? "raw" : applied.scale });
                   }}
-                  accent={uiAccent}
+                  accent={compareAccent}
                   orientation="horizontal"
                   exportHidden
                   style={{ position: "static", transform: "none" }}
@@ -3834,7 +4200,7 @@ export default function ComparePage({
                   style={{ borderColor: "rgba(191,219,254,0.95)" }}
                   title={isFullscreen ? "Exit fullscreen" : "Open fullscreen"}
                 >
-                  {compareIcon("fullscreen", false, "#2563eb")}
+                  {compareIcon("fullscreen", false, compareAccent)}
                 </button>
               ) : null}
             </div>
@@ -3852,6 +4218,12 @@ export default function ComparePage({
             </div>
           ) : null}
 
+          {compareRenderSeriesLimitHit && applied.view !== "table" ? (
+            <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800">
+              Showing the first {renderedGroupedStackSeries.length} active series in the visual to keep Compare responsive. Use More filters or Table view to inspect the full selection.
+            </div>
+          ) : null}
+
           <div className="mt-4 bg-white pt-2">
             {applied.view !== "table" && !appliedModeValidity[applied.view]?.valid ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -3866,13 +4238,13 @@ export default function ComparePage({
                     items={comparisonLegendItems}
                     activeIds={activeComparisonLegendIds}
                     title={compareLegendTitle}
-                    helper="Click pills to show/hide series."
+                    helper=""
                     maxVisible={fullscreen ? 16 : 10}
                     onToggle={toggleComparisonLegendItem}
                     onMore={openCompareByFilters}
                   />
                 </div>
-                <div className="relative" style={{ height: fullscreen ? 620 : 520 }}>
+                <div className="relative" style={{ height: fullscreen ? Math.max(620, groupedChartHeight) : groupedChartHeight }}>
                   {activeBarSegment?.pinned ? (
                     <div className="absolute right-4 top-3 z-20">
                       <BarSegmentDetailCard
@@ -3885,28 +4257,28 @@ export default function ComparePage({
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart
                       data={groupedChartRows}
-                      margin={{ top: 42, right: 18, left: 8, bottom: 112 }}
-                      barCategoryGap="24%"
-                      barGap={8}
+                      margin={{ top: 42, right: 18, left: 18, bottom: 100 }}
+                      barCategoryGap={groupedChartRows.length > 60 ? "4%" : groupedChartRows.length > 35 ? "6%" : "8%"}
+                      barGap={groupedChartRows.length > 60 ? 1 : groupedChartRows.length > 35 ? 2 : 3}
                       onMouseLeave={handleBarChartMouseLeave}
                     >
                       <CartesianGrid strokeDasharray="3 3" vertical stroke="#e5e7eb" />
                       <XAxis
-                        dataKey="label"
-                        tick={(props) => <WrappedWorksheetTick {...props} />}
-                        axisLine={false}
+                        dataKey="xKey"
+                        tick={(props) => <GroupedYearIitTick {...props} onClick={drillToIitFromAxisLabel} yearLabelKeyByYear={groupedYearLabelKeyByYear} fontSize={groupedTickFontSize} />}
+                        axisLine={{ stroke: "#cbd5e1" }}
                         tickLine={false}
                         interval={0}
-                        height={96}
+                        height={90}
                       />
-                      <YAxis tick={{ fontSize: 16, fill: "#475569" }} axisLine={false} tickLine={false} width={78} />
+                      <YAxis tick={{ fontSize: 13, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} width={78} />
                       <Tooltip
                         content={<CompareTooltip metricLookup={comparisonSeriesLookup} scaleMode={applied.scale} mode="grouped" activeSegment={activeBarSegment} />}
                       />
-                      {groupedChartRows.slice(1).map((row) => (
-                        <ReferenceLine key={`separator-${row.instituteId}`} x={row.label} stroke="#cbd5e1" strokeWidth={1.4} ifOverflow="visible" />
+                      {groupedYearSeparatorRows.map((row) => (
+                        <ReferenceLine key={`separator-${row.xKey}`} x={row.xKey} stroke="#93c5fd" strokeWidth={1.2} ifOverflow="visible" />
                       ))}
-                      {activeGroupedStackSeries.map((series) => {
+                      {renderedGroupedStackSeries.map((series) => {
                         const topSeries = groupedTopStackSeriesByItem[series.itemId];
                         const isTopVisibleSeries = topSeries?.id === series.id;
                         return (
@@ -3916,12 +4288,12 @@ export default function ComparePage({
                             name={series.fullLabel ?? series.label}
                             stackId={series.stackId}
                             fill={series.color}
-                            radius={isTopVisibleSeries ? [10, 10, 0, 0] : [0, 0, 0, 0]}
-                            maxBarSize={Math.max(16, chartableAppliedItems.length === 1 ? 44 : 30)}
+                            radius={isTopVisibleSeries ? [8, 8, 0, 0] : [0, 0, 0, 0]}
+                            maxBarSize={groupedBarMaxSize}
                             onMouseEnter={(entry) => handleBarSegmentHover(series, entry?.payload ?? entry)}
                             onClick={(entry, index, event) => handleBarSegmentClick(series, entry?.payload ?? entry, event)}
                           >
-                            {isTopVisibleSeries ? (
+                            {isTopVisibleSeries && !compareRenderSeriesLimitHit && groupedChartRows.length <= 45 ? (
                               <LabelList content={(props) => <StackTotalLabel {...props} item={series.item} scaleMode={applied.scale} />} />
                             ) : null}
                           </Bar>
@@ -3929,28 +4301,7 @@ export default function ComparePage({
                       })}
                     </ComposedChart>
                   </ResponsiveContainer>
-                  <div className="pointer-events-none absolute bottom-12 left-0 right-0 text-center text-[11px] font-semibold text-slate-500">IIT(s)</div>
-                  {appliedYears.length > 1 ? (
-                    <div className="absolute bottom-1 left-0 right-0 flex flex-wrap items-center justify-center gap-1.5 px-3" data-export-hide="true">
-                      {appliedYears.map((year) => {
-                        const activeYear = Number(year) === Number(applied.focusYear);
-                        return (
-                          <button
-                            key={`compare-focus-year-${year}`}
-                            type="button"
-                            onClick={() => selectCompareFocusYear(year)}
-                            className={cn(
-                              "rounded-lg px-2.5 py-1.5 text-[11px] font-extrabold transition",
-                              activeYear ? "bg-slate-200 text-slate-700 shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800",
-                            )}
-                            title={`Show bars for ${year}`}
-                          >
-                            {year}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
+                  <div className="pointer-events-none absolute bottom-8 left-0 right-0 text-center text-[11px] font-semibold text-slate-500">Year-wise IIT comparison</div>
                 </div>
               </>
             ) : null}
@@ -3968,8 +4319,10 @@ export default function ComparePage({
                     onMore={openCompareByFilters}
                   />
                 </div>
-                {smallMultipleBarSeries.length ? (
-                  <div className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Year-wise bar small multiples</div>
+                {activeGroupedStackSeries.length > smallMultipleBarSeries.length ? (
+                  <div className="mb-3 rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800">
+                    Showing {smallMultipleBarSeries.length} small-multiple cards for responsiveness. Use legend filters to narrow the series shown.
+                  </div>
                 ) : null}
                 <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
                   {smallMultipleBarSeries.map((series) => (
@@ -4003,8 +4356,10 @@ export default function ComparePage({
                     onMore={openCompareByFilters}
                   />
                 </div>
-                {smallMultipleLineSeries.length ? (
-                  <div className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Year-wise line small multiples</div>
+                {activeGroupedStackSeries.length > smallMultipleLineSeries.length ? (
+                  <div className="mb-3 rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800">
+                    Showing {smallMultipleLineSeries.length} small-multiple cards for responsiveness. Use legend filters to narrow the series shown.
+                  </div>
                 ) : null}
                 <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
                   {smallMultipleLineSeries.map((series) => (
@@ -4113,7 +4468,7 @@ export default function ComparePage({
                 color: selectionSource.iits.length === LEGACY_IITS.length && LEGACY_IITS.every((iid) => selectionSource.iits.includes(iid)) ? '#1d4ed8' : '#475569',
               }}
             >
-              OLD IIT's
+              OLD IITs
             </button>
             <button
               type="button"
@@ -4127,10 +4482,10 @@ export default function ComparePage({
             >
               ALL
             </button>
-            <SelectionActionButton label="Top 10" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "top") }))} title="Select top 10 IITs for the selected KPI and focus year" />
-            <SelectionActionButton label="Bottom 10" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "bottom") }))} title="Select bottom 10 IITs for the selected KPI and focus year" />
+            <SelectionActionButton label="Top 10" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "top") }))} title="Select top 10 IITs for the selected KPI and ranking year" />
+            <SelectionActionButton label="Bottom 10" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "bottom") }))} title="Select bottom 10 IITs for the selected KPI and ranking year" />
             <SelectionActionButton
-              label="More"
+              label="More filters"
               onClick={() => openBuilder(1)}
               title="Open IIT filters"
             />
@@ -4145,7 +4500,7 @@ export default function ComparePage({
 
       {!applied && canApply ? (
         <div className="rounded-[24px] border border-sky-100 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700">
-          Selections are ready. Open More to refine them or keep the current defaults.
+          Selections are ready. Open More filters to refine them or keep the current defaults.
         </div>
       ) : null}
 
@@ -4158,7 +4513,7 @@ export default function ComparePage({
               type="button"
               onClick={() => setIsFullscreen(false)}
               className="absolute right-4 top-4 z-10 grid h-11 w-11 place-items-center rounded-xl text-white"
-              style={{ background: uiAccent }}
+              style={{ background: "#2563eb" }}
             >
               {compareIcon('close', true, '#ffffff')}
             </button>
@@ -4247,10 +4602,7 @@ export default function ComparePage({
         <div className="mt-2 text-xs text-slate-500">
           Last updated: {lastUpdatedLabel} - Last downloaded: {lastDownloadedLabel}
         </div>
-        <div className="mt-4 whitespace-pre-line rounded-[24px] border p-4 text-sm text-slate-700" style={{ borderColor: "rgba(59,130,246,0.12)", background: "rgba(248,250,252,0.85)" }}>
-          {compareInterpretation}
-        </div>
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className="mt-4 flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={() => {
@@ -4260,11 +4612,26 @@ export default function ComparePage({
               );
               markDownloaded("AI interpretation downloaded.");
             }}
-            className="rounded-2xl px-4 py-2 text-sm font-semibold"
-            style={{ color: "#1252a0", border: "1px solid rgba(59,130,246,0.18)", background: "white" }}
+            className="grid h-10 w-10 place-items-center rounded-2xl border bg-white text-sky-700 shadow-sm transition hover:bg-sky-50"
+            style={{ borderColor: "rgba(59,130,246,0.18)" }}
+            title="Download AI interpretation"
+            aria-label="Download AI interpretation"
           >
-            Download AI interpretation
+            {compareIcon("download", false, "#2563eb")}
           </button>
+          <button
+            type="button"
+            onClick={handleCopyAiInterpretation}
+            className="grid h-10 w-10 place-items-center rounded-2xl border bg-white text-sky-700 shadow-sm transition hover:bg-sky-50"
+            style={{ borderColor: "rgba(59,130,246,0.18)" }}
+            title="Copy AI interpretation"
+            aria-label="Copy AI interpretation"
+          >
+            {compareIcon("copy", false, "#2563eb")}
+          </button>
+        </div>
+        <div className="mt-3 whitespace-pre-line rounded-[24px] border p-4 text-sm text-slate-700" style={{ borderColor: "rgba(59,130,246,0.12)", background: "rgba(248,250,252,0.85)" }}>
+          {compareInterpretation}
         </div>
       </Drawer>
     </div>

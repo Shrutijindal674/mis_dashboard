@@ -23,7 +23,7 @@ export const THEME_COLORS = {
   "Research & Innovation":    { accent: "#16a34a", soft: "#dcfce7" },
   "Collaborations & Outreach":{ accent: "#db2777", soft: "#fce7f3" },
   "Infrastructure & Finance": { accent: "#7c3aed", soft: "#ede9fe" },
-  Compare:                     { accent: "#0f172a", soft: "#e2e8f0" },
+  Compare:                     { accent: "#1d4ed8", soft: "#dbeafe" },
   Reports:                     { accent: "#0ea5e9", soft: "#e0f2fe" },
   "Data & Admin":            { accent: "#ef4444", soft: "#fee2e2" },
 };
