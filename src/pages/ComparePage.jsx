@@ -318,7 +318,7 @@ function WrappedWorksheetTick({ x = 0, y = 0, payload, onClick, title }) {
   );
 }
 
-function GroupedYearIitTick({ x = 0, y = 0, payload, onClick, yearLabelKeyByYear = {}, fontSize = 11 }) {
+function GroupedYearIitTick({ x = 0, y = 0, payload, onClick, yearLabelKeyByYear = {}, fontSize = 11, rotate = false }) {
   const rawValue = String(payload?.value ?? "");
   if (!rawValue || rawValue.startsWith("__gap__")) return null;
 
@@ -338,8 +338,8 @@ function GroupedYearIitTick({ x = 0, y = 0, payload, onClick, yearLabelKeyByYear
     >
       <title>{clickable ? `Click to drill down to ${fullLabel}` : fullLabel}</title>
       <text textAnchor="middle" fill="#475569" fontSize={fontSize} fontWeight="800">
-        <tspan x="0" dy="14">{label}</tspan>
-        <tspan x="0" dy={Math.max(12, fontSize + 4)} fill={showYear ? "#2563eb" : "transparent"} fontSize={Math.max(9, fontSize - 1)} fontWeight="900">
+        <tspan x="0" dy="14" transform={rotate ? "rotate(-55 0 14)" : undefined}>{label}</tspan>
+        <tspan x="0" dy={rotate ? 42 : Math.max(12, fontSize + 4)} fill={showYear ? "#2563eb" : "transparent"} fontSize={Math.max(9, fontSize - 1)} fontWeight="900">
           {showYear ? year : "·"}
         </tspan>
       </text>
@@ -1617,7 +1617,7 @@ function createDraftFromConfig(config, moduleMap, submoduleMap, sheetMap, worksh
     return scopedMatch?.id ?? allWorksheets.find((worksheet) => worksheet.kpiId === rawId || worksheet.id === rawId || worksheet.sheetId === rawId)?.id ?? null;
   };
 
-  let items = dedupeList([...(config?.CompareMetricIds ?? []), config?.MetricId]).map(resolveCompareItemId).filter(Boolean);
+  let items = dedupeList([...(config?.CompareMetricIds ?? []), config?.MetricId]).map(resolveCompareItemId).filter(Boolean).slice(0, 1);
   let sheets = dedupeList(config?.CompareSheetIds ?? []).filter((id) => sheetMap[id]);
 
   if (!sheets.length && items.length) sheets = dedupeList(items.map((id) => worksheetMap[id]?.sheetId).filter(Boolean));
@@ -1633,7 +1633,15 @@ function createDraftFromConfig(config, moduleMap, submoduleMap, sheetMap, worksh
     sheets = (submoduleMap[submoduleId]?.sheets ?? []).map((sheet) => sheet.id).filter(Boolean).slice(0, 1);
   }
   if (!items.length) {
-    items = sheets.flatMap((sheetId) => sheetMap[sheetId]?.kpis?.map((item) => item.id) ?? []).filter(Boolean).slice(0, 3);
+    items = sheets.flatMap((sheetId) => sheetMap[sheetId]?.kpis?.map((item) => item.id) ?? []).filter(Boolean).slice(0, 1);
+  }
+
+  if (items[0] && worksheetMap[items[0]]) {
+    const selectedItem = worksheetMap[items[0]];
+    moduleId = selectedItem.moduleId ?? moduleId;
+    submoduleId = selectedItem.submoduleId ?? submoduleId;
+    sheets = [selectedItem.sheetId].filter(Boolean);
+    items = [selectedItem.id];
   }
 
   const rangeFrom = Number(config?.YearRange?.from ?? YEARS[0]);
@@ -2197,6 +2205,12 @@ export default function ComparePage({
     return Math.max(460, Math.min(640, base));
   }, [appliedYears.length, groupedIITs.length]);
 
+  const groupedChartMinWidth = useMemo(() => {
+    const visibleSlots = groupedChartRows.filter((row) => !row?.isGap).length;
+    if (visibleSlots <= 24) return "100%";
+    return Math.max(1100, visibleSlots * 44);
+  }, [groupedChartRows]);
+
   const yearTrendRows = useMemo(() => {
     if (!applied || !appliedYears.length || !renderedGroupedStackSeries.length) return [];
 
@@ -2509,7 +2523,7 @@ export default function ComparePage({
       modules: [...draft.modules],
       submodules: [...draft.submodules],
       sheets: [...(draft.sheets ?? [])],
-      items: [...draft.items],
+      items: [...draft.items].slice(0, 1),
       breakdowns: [...(draft.breakdowns ?? [])],
       iits: [...draft.iits],
     };
@@ -2520,7 +2534,7 @@ export default function ComparePage({
       CompareModule: payload.modules[0] ?? prev.CompareModule,
       CompareSubmoduleId: payload.submodules[0] ?? prev.CompareSubmoduleId,
       CompareSheetIds: payload.sheets,
-      CompareMetricIds: payload.items,
+      CompareMetricIds: payload.items.slice(0, 1),
       CompareBreakdowns: payload.breakdowns,
       MetricId: worksheetMap[payload.items[0]]?.kpiId ?? payload.items[0] ?? prev.MetricId,
       CompareView: payload.view,
@@ -2586,7 +2600,7 @@ export default function ComparePage({
     const summary = [
       "IIT MIS Compare",
       `Categories: ${(applied.modules ?? []).map((id) => humanizeCompareLabel(moduleMap[id]?.label ?? id)).join(", ")}`,
-      `Sub-modules: ${(applied.submodules ?? []).map((id) => humanizeCompareLabel(submoduleMap[id]?.label ?? id)).join(", ")}`,
+      `Modules: ${(applied.submodules ?? []).map((id) => humanizeCompareLabel(submoduleMap[id]?.label ?? id)).join(", ")}`,
       `Sheets: ${(applied.sheets ?? []).map((id) => humanizeCompareLabel(sheetMap[id]?.label ?? id)).join(", ")}`,
       `KPIs: ${(applied.items ?? []).map((id) => compareItemLabel(worksheetMap[id] ?? { id })).join(", ")}`,
       `Compare by: ${(applied.breakdowns ?? []).length ? applied.breakdowns.map(compareBreakdownLabel).join(", ") : "Default breakdown / total"}`,
@@ -2752,7 +2766,7 @@ export default function ComparePage({
       modules: [...draft.modules],
       submodules: [...draft.submodules],
       sheets: [...(draft.sheets ?? [])],
-      items: [...draft.items],
+      items: [...draft.items].slice(0, 1),
       breakdowns: [...(draft.breakdowns ?? [])],
       iits: [...draft.iits],
     };
@@ -2767,7 +2781,7 @@ export default function ComparePage({
       CompareModule: payload.modules[0] ?? prev.CompareModule,
       CompareSubmoduleId: payload.submodules[0] ?? prev.CompareSubmoduleId,
       CompareSheetIds: payload.sheets,
-      CompareMetricIds: payload.items,
+      CompareMetricIds: payload.items.slice(0, 1),
       CompareBreakdowns: payload.breakdowns,
       MetricId: worksheetMap[payload.items[0]]?.kpiId ?? payload.items[0] ?? prev.MetricId,
       CompareView: payload.view,
@@ -2787,7 +2801,7 @@ export default function ComparePage({
       modules: [...(next.modules ?? [])],
       submodules: [...(next.submodules ?? [])],
       sheets: [...(next.sheets ?? [])],
-      items: [...(next.items ?? [])],
+      items: [...(next.items ?? [])].slice(0, 1),
       breakdowns: [...(next.breakdowns ?? [])],
       iits: [...(next.iits ?? [])],
     };
@@ -2807,7 +2821,7 @@ export default function ComparePage({
       CompareModule: next.modules?.[0] ?? prev.CompareModule,
       CompareSubmoduleId: next.submodules?.[0] ?? prev.CompareSubmoduleId,
       CompareSheetIds: next.sheets ?? [],
-      CompareMetricIds: next.items ?? [],
+      CompareMetricIds: (next.items ?? []).slice(0, 1),
       CompareBreakdowns: next.breakdowns ?? [],
       MetricId: worksheetMap[next.items?.[0]]?.kpiId ?? next.items?.[0] ?? prev.MetricId,
       CompareView: next.view,
@@ -2934,6 +2948,33 @@ export default function ComparePage({
     setActiveBarSegment((prev) => (prev?.pinned ? prev : null));
   }
 
+  function firstItemIdFromSheetEntity(sheet) {
+    return (sheet?.kpis ?? [])[0]?.id ?? null;
+  }
+
+  function firstItemIdFromSubmoduleEntity(submodule) {
+    return (submodule?.sheets ?? []).flatMap((sheet) => sheet.kpis ?? [])[0]?.id
+      ?? (submodule?.worksheets ?? [])[0]?.id
+      ?? null;
+  }
+
+  function firstItemIdFromModuleEntity(module) {
+    return (module?.submodules ?? []).map(firstItemIdFromSubmoduleEntity).find(Boolean) ?? null;
+  }
+
+  function singleKpiSelection(prev, itemId) {
+    const item = worksheetMap[itemId];
+    if (!item) return prev;
+    return {
+      ...prev,
+      modules: [item.moduleId].filter(Boolean),
+      submodules: [item.submoduleId].filter(Boolean),
+      sheets: [item.sheetId].filter(Boolean),
+      items: [item.id],
+      breakdowns: [],
+    };
+  }
+
   function updateSelectionSummarySource(updater) {
     if (applied) {
       const next = typeof updater === "function" ? updater(applied) : updater;
@@ -2946,15 +2987,20 @@ export default function ComparePage({
   }
 
   function sortEntities(list, getLabel, getPriority = () => 0) {
-    return [...list].sort((a, b) => {
-      if (sortBy === "selected") {
-        const priorityDelta = getPriority(b) - getPriority(a);
-        if (priorityDelta) return priorityDelta;
-      }
-      const labelA = getLabel(a);
-      const labelB = getLabel(b);
-      return sortBy === "zToA" ? labelB.localeCompare(labelA) : labelA.localeCompare(labelB);
-    });
+    return list
+      .map((item, index) => ({ item, index }))
+      .sort((left, right) => {
+        if (sortBy === "selected") {
+          const priorityDelta = getPriority(right.item) - getPriority(left.item);
+          if (priorityDelta) return priorityDelta;
+          return left.index - right.index;
+        }
+        const labelA = getLabel(left.item);
+        const labelB = getLabel(right.item);
+        const labelDelta = sortBy === "zToA" ? labelB.localeCompare(labelA) : labelA.localeCompare(labelB);
+        return labelDelta || left.index - right.index;
+      })
+      .map(({ item }) => item);
   }
 
   function handleRangeChange(kind, value) {
@@ -3011,120 +3057,28 @@ export default function ComparePage({
 
   function toggleModuleSelection(moduleId) {
     const module = moduleMap[moduleId];
-    if (!module) return;
-    const subIds = module.submodules.map((submodule) => submodule.id);
-    const sheetIds = module.submodules.flatMap((submodule) => (submodule.sheets ?? []).map((sheet) => sheet.id));
-    const itemIds = module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.id));
-    setDraft((prev) => {
-      const selected = prev.modules.includes(moduleId);
-      if (selected) {
-        return {
-          ...prev,
-          modules: prev.modules.filter((id) => id !== moduleId),
-          submodules: prev.submodules.filter((id) => !subIds.includes(id)),
-          sheets: (prev.sheets ?? []).filter((id) => !sheetIds.includes(id)),
-          items: prev.items.filter((id) => !itemIds.includes(id)),
-        };
-      }
-      return {
-        ...prev,
-        modules: [...new Set([...prev.modules, moduleId])],
-        submodules: [...new Set([...prev.submodules, ...subIds])],
-        sheets: [...new Set([...(prev.sheets ?? []), ...sheetIds])],
-        items: [...new Set([...prev.items, ...itemIds])],
-      };
-    });
+    const itemId = firstItemIdFromModuleEntity(module);
+    if (!itemId) return;
+    setDraft((prev) => singleKpiSelection(prev, itemId));
   }
 
   function toggleSubmoduleSelection(submoduleId) {
     const submodule = submoduleMap[submoduleId];
-    if (!submodule) return;
-    const sheetIds = (submodule.sheets ?? []).map((sheet) => sheet.id);
-    const itemIds = submodule.worksheets.map((worksheet) => worksheet.id);
-    setDraft((prev) => {
-      const selected = prev.submodules.includes(submoduleId);
-      if (selected) {
-        const nextSubmodules = prev.submodules.filter((id) => id !== submoduleId);
-        const nextModules = nextSubmodules.some((id) => submoduleMap[id]?.moduleId === submodule.moduleId)
-          ? prev.modules
-          : prev.modules.filter((id) => id !== submodule.moduleId);
-        return {
-          ...prev,
-          modules: nextModules,
-          submodules: nextSubmodules,
-          sheets: (prev.sheets ?? []).filter((id) => !sheetIds.includes(id)),
-          items: prev.items.filter((id) => !itemIds.includes(id)),
-        };
-      }
-      return {
-        ...prev,
-        modules: [...new Set([...prev.modules, submodule.moduleId])],
-        submodules: [...new Set([...prev.submodules, submoduleId])],
-        sheets: [...new Set([...(prev.sheets ?? []), ...sheetIds])],
-        items: [...new Set([...prev.items, ...itemIds])],
-      };
-    });
+    const itemId = firstItemIdFromSubmoduleEntity(submodule);
+    if (!itemId) return;
+    setDraft((prev) => singleKpiSelection(prev, itemId));
   }
 
   function toggleSheetSelection(sheetId) {
     const sheet = sheetMap[sheetId];
-    if (!sheet) return;
-    const itemIds = (sheet.kpis ?? []).map((item) => item.id);
-    setDraft((prev) => {
-      const selected = (prev.sheets ?? []).includes(sheetId);
-      if (selected) {
-        const nextSheets = (prev.sheets ?? []).filter((id) => id !== sheetId);
-        const nextItems = prev.items.filter((id) => !itemIds.includes(id));
-        const keepSubmodule = nextSheets.some((id) => sheetMap[id]?.submoduleId === sheet.submoduleId);
-        const nextSubmodules = keepSubmodule ? prev.submodules : prev.submodules.filter((id) => id !== sheet.submoduleId);
-        const keepModule = nextSubmodules.some((id) => submoduleMap[id]?.moduleId === sheet.moduleId);
-        return {
-          ...prev,
-          modules: keepModule ? prev.modules : prev.modules.filter((id) => id !== sheet.moduleId),
-          submodules: nextSubmodules,
-          sheets: nextSheets,
-          items: nextItems,
-        };
-      }
-      return {
-        ...prev,
-        modules: [...new Set([...prev.modules, sheet.moduleId])],
-        submodules: [...new Set([...prev.submodules, sheet.submoduleId])],
-        sheets: [...new Set([...(prev.sheets ?? []), sheetId])],
-        items: [...new Set([...prev.items, ...itemIds])],
-      };
-    });
+    const itemId = firstItemIdFromSheetEntity(sheet);
+    if (!itemId) return;
+    setDraft((prev) => singleKpiSelection(prev, itemId));
   }
 
   function toggleItemSelection(itemId) {
-    const item = worksheetMap[itemId];
-    if (!item) return;
-    setDraft((prev) => {
-      const selected = prev.items.includes(itemId);
-      if (selected) {
-        const nextItems = prev.items.filter((id) => id !== itemId);
-        const keepSheet = nextItems.some((id) => worksheetMap[id]?.sheetId === item.sheetId);
-        const nextSheets = keepSheet ? (prev.sheets ?? []) : (prev.sheets ?? []).filter((id) => id !== item.sheetId);
-        const keepSubmodule = nextSheets.some((id) => sheetMap[id]?.submoduleId === item.submoduleId);
-        const nextSubmodules = keepSubmodule ? prev.submodules : prev.submodules.filter((id) => id !== item.submoduleId);
-        const keepModule = nextSubmodules.some((id) => submoduleMap[id]?.moduleId === item.moduleId);
-        const nextModules = keepModule ? prev.modules : prev.modules.filter((id) => id !== item.moduleId);
-        return {
-          ...prev,
-          modules: nextModules,
-          submodules: nextSubmodules,
-          sheets: nextSheets,
-          items: nextItems,
-        };
-      }
-      return {
-        ...prev,
-        modules: [...new Set([...prev.modules, item.moduleId])],
-        submodules: [...new Set([...prev.submodules, item.submoduleId])],
-        sheets: [...new Set([...(prev.sheets ?? []), item.sheetId])],
-        items: [...new Set([...prev.items, itemId])],
-      };
-    });
+    if (!worksheetMap[itemId]) return;
+    setDraft((prev) => singleKpiSelection(prev, itemId));
   }
 
   function toggleBreakdownSelection(key) {
@@ -3283,131 +3237,42 @@ export default function ComparePage({
   }, [selectionSource.sheets, sheetMap, submoduleMap, moduleMap]);
 
   function toggleCompareModule(moduleId) {
-    const targetModule = moduleMap[moduleId];
-    if (!targetModule) return;
-    const subIds = targetModule.submodules.map((submodule) => submodule.id);
-    const sheetIds = targetModule.submodules.flatMap((submodule) => (submodule.sheets ?? []).map((sheet) => sheet.id));
-    const itemIds = targetModule.submodules.flatMap((submodule) => submodule.worksheets.map((item) => item.id));
-    updateSelectionSummarySource((prev) => {
-      const selected = prev.modules.includes(moduleId);
-      if (selected) {
-        return {
-          ...prev,
-          modules: prev.modules.filter((id) => id !== moduleId),
-          submodules: prev.submodules.filter((id) => !subIds.includes(id)),
-          sheets: (prev.sheets ?? []).filter((id) => !sheetIds.includes(id)),
-          items: prev.items.filter((id) => !itemIds.includes(id)),
-        };
-      }
-      return {
-        ...prev,
-        modules: [...new Set([...prev.modules, moduleId])],
-        submodules: [...new Set([...prev.submodules, ...subIds])],
-        sheets: [...new Set([...(prev.sheets ?? []), ...sheetIds])],
-        items: [...new Set([...prev.items, ...itemIds])],
-      };
-    });
+    const module = moduleMap[moduleId];
+    const itemId = firstItemIdFromModuleEntity(module);
+    if (!itemId) return;
+    updateSelectionSummarySource((prev) => singleKpiSelection(prev, itemId));
   }
 
   function toggleCompareSubmodule(submoduleId) {
     const submodule = submoduleMap[submoduleId];
-    if (!submodule) return;
-    const sheetIds = (submodule.sheets ?? []).map((sheet) => sheet.id);
-    const itemIds = submodule.worksheets.map((item) => item.id);
-    updateSelectionSummarySource((prev) => {
-      const selected = prev.submodules.includes(submoduleId);
-      if (selected) {
-        const nextSubmodules = prev.submodules.filter((id) => id !== submoduleId);
-        const keepModule = nextSubmodules.some((id) => submoduleMap[id]?.moduleId === submodule.moduleId);
-        return {
-          ...prev,
-          modules: keepModule ? prev.modules : prev.modules.filter((id) => id !== submodule.moduleId),
-          submodules: nextSubmodules,
-          sheets: (prev.sheets ?? []).filter((id) => !sheetIds.includes(id)),
-          items: prev.items.filter((id) => !itemIds.includes(id)),
-        };
-      }
-      return {
-        ...prev,
-        modules: [...new Set([...prev.modules, submodule.moduleId])],
-        submodules: [...new Set([...prev.submodules, submoduleId])],
-        sheets: [...new Set([...(prev.sheets ?? []), ...sheetIds])],
-        items: [...new Set([...prev.items, ...itemIds])],
-      };
-    });
+    const itemId = firstItemIdFromSubmoduleEntity(submodule);
+    if (!itemId) return;
+    updateSelectionSummarySource((prev) => singleKpiSelection(prev, itemId));
   }
 
   function toggleCompareSheet(sheetId) {
     const sheet = sheetMap[sheetId];
-    if (!sheet) return;
-    const itemIds = (sheet.kpis ?? []).map((item) => item.id);
-    updateSelectionSummarySource((prev) => {
-      const selected = (prev.sheets ?? []).includes(sheetId);
-      if (selected) {
-        const nextSheets = (prev.sheets ?? []).filter((id) => id !== sheetId);
-        const nextItems = prev.items.filter((id) => !itemIds.includes(id));
-        const keepSubmodule = nextSheets.some((id) => sheetMap[id]?.submoduleId === sheet.submoduleId);
-        const nextSubmodules = keepSubmodule ? prev.submodules : prev.submodules.filter((id) => id !== sheet.submoduleId);
-        const keepModule = nextSubmodules.some((id) => submoduleMap[id]?.moduleId === sheet.moduleId);
-        return {
-          ...prev,
-          modules: keepModule ? prev.modules : prev.modules.filter((id) => id !== sheet.moduleId),
-          submodules: nextSubmodules,
-          sheets: nextSheets,
-          items: nextItems,
-        };
-      }
-      return {
-        ...prev,
-        modules: [...new Set([...prev.modules, sheet.moduleId])],
-        submodules: [...new Set([...prev.submodules, sheet.submoduleId])],
-        sheets: [...new Set([...(prev.sheets ?? []), sheetId])],
-        items: [...new Set([...prev.items, ...itemIds])],
-      };
-    });
+    const itemId = firstItemIdFromSheetEntity(sheet);
+    if (!itemId) return;
+    updateSelectionSummarySource((prev) => singleKpiSelection(prev, itemId));
   }
 
   function toggleCompareKpi(itemId) {
-    const item = worksheetMap[itemId];
-    if (!item) return;
-    updateSelectionSummarySource((prev) => {
-      const selected = prev.items.includes(itemId);
-      if (selected) {
-        const nextItems = prev.items.filter((id) => id !== itemId);
-        const keepSheet = nextItems.some((id) => worksheetMap[id]?.sheetId === item.sheetId);
-        const nextSheets = keepSheet ? (prev.sheets ?? []) : (prev.sheets ?? []).filter((id) => id !== item.sheetId);
-        const keepSubmodule = nextSheets.some((id) => sheetMap[id]?.submoduleId === item.submoduleId);
-        const nextSubmodules = keepSubmodule ? prev.submodules : prev.submodules.filter((id) => id !== item.submoduleId);
-        const keepModule = nextSubmodules.some((id) => submoduleMap[id]?.moduleId === item.moduleId);
-        return {
-          ...prev,
-          modules: keepModule ? prev.modules : prev.modules.filter((id) => id !== item.moduleId),
-          submodules: nextSubmodules,
-          sheets: nextSheets,
-          items: nextItems,
-        };
-      }
-      return {
-        ...prev,
-        modules: [...new Set([...prev.modules, item.moduleId])],
-        submodules: [...new Set([...prev.submodules, item.submoduleId])],
-        sheets: [...new Set([...(prev.sheets ?? []), item.sheetId])],
-        items: [...new Set([...prev.items, itemId])],
-      };
-    });
+    if (!worksheetMap[itemId]) return;
+    updateSelectionSummarySource((prev) => singleKpiSelection(prev, itemId));
   }
 
   function renderCompareCarouselSelector() {
     return (
       <CombinedKpiSelector
         title="Select filters"
-        helper="Choose category, sub-module, sheet, and KPI for the comparison."
+        helper="Choose one category, module, sheet, and KPI for the comparison."
         accent={uiAccent}
         soft={`${uiAccent}12`}
         rows={[
           {
             id: "compare-module",
-            label: "Category(s)",
+            label: "Category",
             items: compareCarouselModuleItems,
             activeIds: selectionSource.modules ?? [],
             activeId: firstActiveIdInList(compareCarouselModuleItems, selectionSource.modules ?? []),
@@ -3417,7 +3282,7 @@ export default function ComparePage({
           },
           {
             id: "compare-submodule",
-            label: "Sub-module(s)",
+            label: "Module",
             items: compareCarouselSubmoduleItems,
             activeIds: selectionSource.submodules ?? [],
             activeId: firstActiveIdInList(compareCarouselSubmoduleItems, selectionSource.submodules ?? []),
@@ -3427,7 +3292,7 @@ export default function ComparePage({
           },
           {
             id: "compare-sheet",
-            label: "Sheet(s)",
+            label: "Sheet",
             items: compareCarouselSheetItems,
             activeIds: selectionSource.sheets ?? [],
             activeId: firstActiveIdInList(compareCarouselSheetItems, selectionSource.sheets ?? []),
@@ -3437,7 +3302,7 @@ export default function ComparePage({
           },
           {
             id: "compare-kpi",
-            label: "KPI(s)",
+            label: "KPI",
             items: compareCarouselKpiItems,
             activeIds: selectionSource.items ?? [],
             activeId: firstActiveIdInList(compareCarouselKpiItems, selectionSource.items ?? []),
@@ -3498,8 +3363,8 @@ export default function ComparePage({
     if (!sourceSubmodules.length) {
       return (
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="text-sm text-slate-500">No sub-module selected.</span>
-          <SelectionActionButton label="More filters" onClick={() => openBuilder(1)} title="Open sub-module filters" />
+          <span className="text-sm text-slate-500">No module selected.</span>
+          <SelectionActionButton label="More filters" onClick={() => openBuilder(1)} title="Open module filters" />
         </div>
       );
     }
@@ -3520,7 +3385,7 @@ export default function ComparePage({
         <SelectionActionButton
           label={hiddenCount > 0 ? `More filters (+${hiddenCount})` : 'More filters'}
           onClick={() => openBuilder(1)}
-          title="Open sub-module filters"
+          title="Open module filters"
         />
       </div>
     );
@@ -3647,13 +3512,9 @@ export default function ComparePage({
     );
 
     const selectAllModules = () => {
-      setDraft((prev) => ({
-        ...prev,
-        modules: hierarchy.map((module) => module.id),
-        submodules: hierarchy.flatMap((module) => module.submodules.map((submodule) => submodule.id)),
-        sheets: hierarchy.flatMap((module) => module.submodules.flatMap((submodule) => (submodule.sheets ?? []).map((sheet) => sheet.id))),
-        items: hierarchy.flatMap((module) => module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.id))),
-      }));
+      const itemId = firstItemIdFromModuleEntity(visibleModules[0] ?? hierarchy[0]);
+      if (!itemId) return;
+      setDraft((prev) => singleKpiSelection(prev, itemId));
     };
 
     const resetModules = () => {
@@ -3661,17 +3522,9 @@ export default function ComparePage({
     };
 
     const selectAllVisibleSubmodules = () => {
-      if (!selectedModuleEntities.length) return;
-      const nextSubmodules = selectedModuleEntities.flatMap((module) => module.submodules.map((submodule) => submodule.id));
-      const nextSheets = selectedModuleEntities.flatMap((module) => module.submodules.flatMap((submodule) => (submodule.sheets ?? []).map((sheet) => sheet.id)));
-      const nextItems = selectedModuleEntities.flatMap((module) => module.submodules.flatMap((submodule) => submodule.worksheets.map((worksheet) => worksheet.id)));
-      setDraft((prev) => ({
-        ...prev,
-        modules: [...new Set([...prev.modules, ...selectedModuleEntities.map((module) => module.id)])],
-        submodules: [...new Set([...prev.submodules, ...nextSubmodules])],
-        sheets: [...new Set([...(prev.sheets ?? []), ...nextSheets])],
-        items: [...new Set([...prev.items, ...nextItems])],
-      }));
+      const itemId = firstItemIdFromSubmoduleEntity(visibleSubmodules[0] ?? selectedModuleEntities.flatMap((module) => module.submodules)[0]);
+      if (!itemId) return;
+      setDraft((prev) => singleKpiSelection(prev, itemId));
     };
 
     const resetSubmodules = () => {
@@ -3686,13 +3539,9 @@ export default function ComparePage({
     };
 
     const selectAllVisibleSheets = () => {
-      const nextSheets = visibleSheets.map((sheet) => sheet.id);
-      const nextItems = visibleSheets.flatMap((sheet) => sheet.kpis?.map((item) => item.id) ?? []);
-      setDraft((prev) => ({
-        ...prev,
-        sheets: [...new Set([...(prev.sheets ?? []), ...nextSheets])],
-        items: [...new Set([...prev.items, ...nextItems])],
-      }));
+      const itemId = firstItemIdFromSheetEntity(visibleSheets[0]);
+      if (!itemId) return;
+      setDraft((prev) => singleKpiSelection(prev, itemId));
     };
 
     const resetSheets = () => {
@@ -3706,7 +3555,9 @@ export default function ComparePage({
     };
 
     const selectAllVisibleKpis = () => {
-      setDraft((prev) => ({ ...prev, items: [...new Set([...prev.items, ...visibleKpis.map((item) => item.id)])] }));
+      const itemId = visibleKpis[0]?.id;
+      if (!itemId) return;
+      setDraft((prev) => singleKpiSelection(prev, itemId));
     };
 
     const resetKpis = () => {
@@ -3722,7 +3573,7 @@ export default function ComparePage({
           <div className="flex items-start justify-between gap-4 px-6 py-5">
             <div>
               <div className="text-[1.25rem] font-extrabold text-slate-900">Compare filters</div>
-              <div className="mt-1 text-sm text-slate-500">Refine category, sub-module, sheet, KPI, date, and IIT filters, then apply them to refresh the compare view.</div>
+              <div className="mt-1 text-sm text-slate-500">Refine category, module, sheet, one KPI, date, and IIT filters, then apply them to refresh the compare view.</div>
             </div>
             <button
               type="button"
@@ -3738,7 +3589,7 @@ export default function ComparePage({
             <div className="space-y-4">
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Category(s)</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Category</div>
                   <div>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-[220px] flex-1 max-w-[320px]">
@@ -3746,7 +3597,7 @@ export default function ComparePage({
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <button type="button" onClick={resetModules} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
-                        <SelectionActionButton label="Select all" onClick={selectAllModules} title="Select all categories" />
+                        <SelectionActionButton label="Use first" onClick={selectAllModules} title="Use the first visible category" />
                       </div>
                     </div>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -3768,15 +3619,15 @@ export default function ComparePage({
 
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Sub-module(s)</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Module</div>
                   <div>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-[220px] flex-1 max-w-[320px]">
-                        <SearchField value={submoduleSearch} onChange={setSubmoduleSearch} placeholder="Search sub-module" />
+                        <SearchField value={submoduleSearch} onChange={setSubmoduleSearch} placeholder="Search module" />
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <button type="button" onClick={resetSubmodules} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
-                        <SelectionActionButton label="Select all" onClick={selectAllVisibleSubmodules} title="Select all sub-modules for the current categories" />
+                        <SelectionActionButton label="Use first" onClick={selectAllVisibleSubmodules} title="Select the first visible module for the current category" />
                       </div>
                     </div>
                     {selectedModuleEntities.length ? (
@@ -3790,11 +3641,11 @@ export default function ComparePage({
                             title={`${humanizeCompareLabel(submodule.moduleLabel)} > ${humanizeCompareLabel(submodule.label)}`}
                           />
                         )) : (
-                          <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching sub-modules found for the selected category.</div>
+                          <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching modules found for the selected category.</div>
                         )}
                       </div>
                     ) : (
-                      <div className="mt-4 rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one category to view its sub-modules here.</div>
+                      <div className="mt-4 rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one category to view its modules here.</div>
                     )}
                   </div>
                 </div>
@@ -3802,11 +3653,11 @@ export default function ComparePage({
 
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Sheet(s)</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Sheet</div>
                   <div>
                     <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
                       <button type="button" onClick={resetSheets} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
-                      <SelectionActionButton label="Select all" onClick={selectAllVisibleSheets} title="Select all sheets for the selected sub-modules" />
+                      <SelectionActionButton label="Use first" onClick={selectAllVisibleSheets} title="Select the first visible sheet for the selected module" />
                     </div>
                     {selectedSubmoduleEntities.length ? (
                       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -3819,11 +3670,11 @@ export default function ComparePage({
                             title={`${humanizeCompareLabel(sheet.submoduleLabel)} > ${humanizeCompareLabel(sheet.label)}`}
                           />
                         )) : (
-                          <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching sheets found for the selected sub-module.</div>
+                          <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching sheets found for the selected module.</div>
                         )}
                       </div>
                     ) : (
-                      <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one sub-module to view sheets here.</div>
+                      <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one module to view sheets here.</div>
                     )}
                   </div>
                 </div>
@@ -3831,11 +3682,11 @@ export default function ComparePage({
 
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">KPI(s)</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">KPI</div>
                   <div>
                     <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
                       <button type="button" onClick={resetKpis} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
-                      <SelectionActionButton label="Select all" onClick={selectAllVisibleKpis} title="Select all KPIs for the selected sheets" />
+                      <SelectionActionButton label="Use first" onClick={selectAllVisibleKpis} title="Select the first visible KPI for the selected sheet" />
                     </div>
                     {selectedSheetEntities.length ? (
                       <>
@@ -3854,7 +3705,7 @@ export default function ComparePage({
                         </div>
                         {draft.items.length > 10 ? (
                           <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                            More than 10 KPIs are selected. The comparison will still run, but charts may become visually dense; use the table or reduce the selection for clearer interpretation.
+                            Compare supports one KPI at a time. Pick a different KPI to replace the current selection.
                           </div>
                         ) : null}
                       </>
@@ -3891,7 +3742,7 @@ export default function ComparePage({
                         </div>
                       </>
                     ) : (
-                      <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">The selected KPI(s) do not expose an internal breakdown. The comparison will use the total value.</div>
+                      <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">The selected KPI do not expose an internal breakdown. The comparison will use the total value.</div>
                     )}
                   </div>
                 </div>
@@ -3930,7 +3781,7 @@ export default function ComparePage({
                     </div>
                     {draft.iits.length > 10 ? (
                       <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                        More than 10 IITs are selected. The comparison will still run, but the chart may be harder to interpret; consider Top 10, Bottom 10, or table view for clearer analysis.
+                        More than 10 IITs are selected. The chart uses compact labels and horizontal scrolling so the full institute comparison remains readable.
                       </div>
                     ) : null}
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -4161,17 +4012,17 @@ export default function ComparePage({
               <div className="text-[1.08rem] font-extrabold leading-tight text-slate-900">{appliedCompareLabel}</div>
               <div className="mt-2 text-sm font-semibold text-[#1252a0]">{appliedIitsLabel} · {appliedYearsLabel}</div>
               {drillReturnSelection && appliedIITs.length === 1 ? (
-                <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 text-xs font-bold text-slate-500" data-export-hide="true">
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-xs font-bold" data-export-hide="true">
                   <button
                     type="button"
                     onClick={returnFromIitDrill}
-                    className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-extrabold text-sky-700 transition hover:bg-sky-100"
+                    className="rounded-[7px] bg-slate-100 px-3 py-1.5 text-[12px] font-extrabold text-[#1252a0] transition hover:bg-sky-100"
                     title={`Return to ${compareIitScopeLabel(drillReturnSelection.iits)}`}
                   >
-                    ‹ {compareIitScopeLabel(drillReturnSelection.iits)}
+                    {compareIitScopeLabel(drillReturnSelection.iits)}
                   </button>
-                  <span className="text-slate-400">›</span>
-                  <span className="rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-extrabold text-slate-700">{instituteShortLabel(appliedIITs[0])}</span>
+                  <span className="px-0.5 text-[14px] font-extrabold text-slate-400">&gt;</span>
+                  <span className="rounded-[7px] bg-slate-100 px-3 py-1.5 text-[12px] font-extrabold text-[#1252a0]">{instituteShortLabel(appliedIITs[0])}</span>
                 </div>
               ) : null}
             </div>
@@ -4208,19 +4059,13 @@ export default function ComparePage({
 
           {compareChartCrowded && applied.view !== "table" ? (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-              More than 10 IITs are selected. The comparison will still run, but the chart may be harder to interpret; consider Top 10, Bottom 10, or table view for clearer analysis.
-            </div>
-          ) : null}
-
-          {compareKpiCrowded && applied.view !== "table" ? (
-            <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-              More than 10 KPIs are selected. The comparison will still run, but visual density may reduce readability; use small bar/line multiples or table view for detailed review.
+              More than 10 IITs are selected. The chart uses compact labels and horizontal scrolling so the full institute comparison remains readable.
             </div>
           ) : null}
 
           {compareRenderSeriesLimitHit && applied.view !== "table" ? (
             <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800">
-              Showing the first {renderedGroupedStackSeries.length} active series in the visual to keep Compare responsive. Use More filters or Table view to inspect the full selection.
+              Showing the first {renderedGroupedStackSeries.length} active breakdown series in the visual to keep Compare responsive. Use More filters or Table view to inspect all breakdowns.
             </div>
           ) : null}
 
@@ -4244,7 +4089,7 @@ export default function ComparePage({
                     onMore={openCompareByFilters}
                   />
                 </div>
-                <div className="relative" style={{ height: fullscreen ? Math.max(620, groupedChartHeight) : groupedChartHeight }}>
+                <div className="relative overflow-x-auto overflow-y-hidden pb-2" style={{ height: fullscreen ? Math.max(620, groupedChartHeight) : groupedChartHeight }}>
                   {activeBarSegment?.pinned ? (
                     <div className="absolute right-4 top-3 z-20">
                       <BarSegmentDetailCard
@@ -4254,10 +4099,11 @@ export default function ComparePage({
                       />
                     </div>
                   ) : null}
+                  <div style={{ minWidth: groupedChartMinWidth, height: "100%" }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart
                       data={groupedChartRows}
-                      margin={{ top: 42, right: 18, left: 18, bottom: 100 }}
+                      margin={{ top: 42, right: 18, left: 18, bottom: 112 }}
                       barCategoryGap={groupedChartRows.length > 60 ? "4%" : groupedChartRows.length > 35 ? "6%" : "8%"}
                       barGap={groupedChartRows.length > 60 ? 1 : groupedChartRows.length > 35 ? 2 : 3}
                       onMouseLeave={handleBarChartMouseLeave}
@@ -4265,7 +4111,7 @@ export default function ComparePage({
                       <CartesianGrid strokeDasharray="3 3" vertical stroke="#e5e7eb" />
                       <XAxis
                         dataKey="xKey"
-                        tick={(props) => <GroupedYearIitTick {...props} onClick={drillToIitFromAxisLabel} yearLabelKeyByYear={groupedYearLabelKeyByYear} fontSize={groupedTickFontSize} />}
+                        tick={(props) => <GroupedYearIitTick {...props} onClick={drillToIitFromAxisLabel} yearLabelKeyByYear={groupedYearLabelKeyByYear} fontSize={groupedTickFontSize} rotate={groupedIITs.length > 10} />}
                         axisLine={{ stroke: "#cbd5e1" }}
                         tickLine={false}
                         interval={0}
@@ -4301,7 +4147,8 @@ export default function ComparePage({
                       })}
                     </ComposedChart>
                   </ResponsiveContainer>
-                  <div className="pointer-events-none absolute bottom-8 left-0 right-0 text-center text-[11px] font-semibold text-slate-500">Year-wise IIT comparison</div>
+                  </div>
+                  <div className="pointer-events-none sticky bottom-6 left-0 right-0 text-center text-[11px] font-semibold text-slate-500">Year-wise IIT comparison</div>
                 </div>
               </>
             ) : null}
