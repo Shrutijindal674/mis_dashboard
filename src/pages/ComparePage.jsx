@@ -35,7 +35,8 @@ import CombinedKpiSelector from "../components/ui/CombinedKpiSelector";
 import VisualToolbar from "../components/ui/VisualToolbar";
 
 const LEGACY_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
-const PALETTE = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2", "#db2777", "#475569"];
+const PALETTE = ["#0f3d91", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#1e40af", "#38bdf8"];
+const IIT_BLUE_PALETTE = ["#0f3d91", "#1e40af", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe", "#0e7490", "#0284c7"];
 const COMPARE_SERIES_TONE_STEPS = [-0.26, -0.08, 0.12, 0.28, 0.42, -0.42, 0.56, -0.56];
 const COMPARE_BREAKDOWN_SCAN_ITEM_LIMIT = 6;
 const COMPARE_BREAKDOWN_KPI_LIMIT = 3;
@@ -318,7 +319,7 @@ function WrappedWorksheetTick({ x = 0, y = 0, payload, onClick, title }) {
   );
 }
 
-function GroupedYearIitTick({ x = 0, y = 0, payload, onClick, yearLabelKeyByYear = {}, fontSize = 11, rotate = false }) {
+function GroupedYearIitTick({ x = 0, y = 0, payload, index = 0, onClick, onYearClick, yearLabelKeyByYear = {}, fontSize = 11, rotate = false, alternateRows = false }) {
   const rawValue = String(payload?.value ?? "");
   if (!rawValue || rawValue.startsWith("__gap__")) return null;
 
@@ -327,6 +328,10 @@ function GroupedYearIitTick({ x = 0, y = 0, payload, onClick, yearLabelKeyByYear
   const fullLabel = instituteNameById(iid);
   const showYear = yearLabelKeyByYear?.[year] === rawValue;
   const clickable = typeof onClick === "function" && iid;
+  const yearClickable = showYear && typeof onYearClick === "function";
+  const lowerRow = alternateRows && index % 2 === 1;
+  const labelDy = alternateRows ? (lowerRow ? 31 : 12) : 14;
+  const yearDy = alternateRows ? (lowerRow ? 19 : 38) : (rotate ? 42 : Math.max(12, fontSize + 4));
 
   return (
     <g
@@ -336,14 +341,221 @@ function GroupedYearIitTick({ x = 0, y = 0, payload, onClick, yearLabelKeyByYear
       role={clickable ? "button" : undefined}
       aria-label={clickable ? `Drill down to ${fullLabel}` : undefined}
     >
-      <title>{clickable ? `Click to drill down to ${fullLabel}` : fullLabel}</title>
+      <title>{clickable ? `Click IIT to drill down to ${fullLabel}; click year to compare IITs in that year` : fullLabel}</title>
       <text textAnchor="middle" fill="#475569" fontSize={fontSize} fontWeight="800">
-        <tspan x="0" dy="14" transform={rotate ? "rotate(-55 0 14)" : undefined}>{label}</tspan>
-        <tspan x="0" dy={rotate ? 42 : Math.max(12, fontSize + 4)} fill={showYear ? "#2563eb" : "transparent"} fontSize={Math.max(9, fontSize - 1)} fontWeight="900">
+        <tspan x="0" dy={labelDy} transform={!alternateRows && rotate ? "rotate(-55 0 14)" : undefined}>{label}</tspan>
+        <tspan
+          x="0"
+          dy={yearDy}
+          fill={showYear ? "#2563eb" : "transparent"}
+          fontSize={Math.max(9, fontSize - 1)}
+          fontWeight="900"
+          style={{ cursor: yearClickable ? "pointer" : "default" }}
+          onClick={yearClickable ? (event) => {
+            event.stopPropagation();
+            onYearClick(year);
+          } : undefined}
+        >
           {showYear ? year : "·"}
         </tspan>
       </text>
     </g>
+  );
+}
+
+
+function YearPanelCompareChart({
+  panels,
+  seriesList,
+  scaleMode,
+  activeSegment,
+  onIitClick,
+  onYearClick,
+  onSegmentHover,
+  onSegmentClick,
+  onChartLeave,
+  onDetailClose,
+}) {
+  const visibleSeries = seriesList ?? [];
+  const validPanels = (panels ?? []).map((panel) => ({
+    ...panel,
+    rows: (panel.rows ?? []).filter((row) => !row?.isGap),
+  })).filter((panel) => panel.rows.length);
+
+  const positiveRawValue = (row, series) => {
+    const value = Number(row?.[`raw_${series.id}`] ?? 0);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  };
+
+  const rowRawTotal = (row) => visibleSeries.reduce((sum, series) => sum + positiveRawValue(row, series), 0);
+  const rowTotals = validPanels.flatMap((panel) => panel.rows.map(rowRawTotal)).filter((value) => value > 0);
+  const maxRawTotal = rowTotals.length ? Math.max(...rowTotals) : 0;
+  const rawAxisMax = maxRawTotal || 1;
+  const axisMax = scaleMode === "indexed" ? 100 : rawAxisMax;
+  const axisTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => axisMax * ratio);
+
+  const axisLabel = (value) => {
+    if (scaleMode === "indexed") return String(Math.round(value));
+    const rounded = Math.abs(value) >= 1000 ? formatCompact(value) : new Intl.NumberFormat("en-IN", { maximumFractionDigits: value % 1 ? 1 : 0 }).format(value);
+    return rounded;
+  };
+
+  const preparedSegmentRow = (row, series, rawValue, rawTotal) => {
+    const shareDisplay = rawTotal > 0 ? (rawValue / rawTotal) * 100 : 0;
+    const displayValue = scaleMode === "indexed"
+      ? shareDisplay
+      : (series.kpi?.format === "pct" ? rawValue * 100 : rawValue);
+    const stackTotal = scaleMode === "indexed" ? 100 : rawTotal;
+    return {
+      ...row,
+      [`display_${series.id}`]: displayValue,
+      [`raw_${series.id}`]: rawValue,
+      [`displayTotal_${series.itemId}`]: stackTotal,
+      displayTotal_all: stackTotal,
+    };
+  };
+
+  if (!validPanels.length || !visibleSeries.length) {
+    return (
+      <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-6 text-center text-sm font-semibold text-slate-500">
+        No chartable comparison values are available for the selected IITs and years.
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative" onMouseLeave={onChartLeave}>
+      {activeSegment?.pinned ? (
+        <div className="absolute right-3 top-3 z-20">
+          <BarSegmentDetailCard segment={activeSegment} scaleMode={scaleMode} onClose={onDetailClose} />
+        </div>
+      ) : null}
+
+      <div className="rounded-[28px] border border-sky-100 bg-white px-4 py-4 shadow-[0_14px_32px_rgba(37,99,235,0.08)]">
+        <div className="mb-3 grid grid-cols-[3.6rem_4.8rem_minmax(0,1fr)] items-end gap-3 px-1 text-[11px] font-black text-slate-500">
+          <div />
+          <div className="text-right uppercase tracking-[0.14em]">IIT</div>
+          <div className="relative h-7 border-b border-slate-200">
+            {axisTicks.map((tick, index) => {
+              const left = axisMax ? (Number(tick) / axisMax) * 100 : 0;
+              return (
+                <div key={`axis-${index}`} className="absolute bottom-0 flex -translate-x-1/2 flex-col items-center" style={{ left: `${left}%` }}>
+                  <span className="mb-1 text-[10px] font-extrabold text-slate-500">{axisLabel(tick)}</span>
+                  <span className="h-2 border-l border-slate-300" />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="divide-y divide-slate-100">
+          {validPanels.map((panel) => (
+            <div key={panel.year} className="grid grid-cols-[3.6rem_4.8rem_minmax(0,1fr)] gap-3 py-3">
+              <button
+                type="button"
+                className="flex min-h-full items-center justify-center rounded-2xl text-xs font-black text-blue-700 transition hover:bg-sky-50"
+                style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+                onClick={() => onYearClick?.(panel.year)}
+                title={`Compare selected IITs in ${panel.year}`}
+              >
+                {panel.year}
+              </button>
+
+              <div className="space-y-2">
+                {panel.rows.map((row) => (
+                  <button
+                    key={`label-${row.xKey}`}
+                    type="button"
+                    className="flex h-7 w-full items-center justify-end truncate rounded-lg px-1.5 text-right text-[11px] font-black text-slate-700 transition hover:bg-sky-50 hover:text-blue-700"
+                    title={`Drill down to ${row.instituteName}`}
+                    onClick={() => onIitClick?.(row.instituteId)}
+                  >
+                    {row.shortName}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative space-y-2">
+                <div className="pointer-events-none absolute inset-y-0 left-0 right-0">
+                  {axisTicks.map((tick, index) => {
+                    const left = axisMax ? (Number(tick) / axisMax) * 100 : 0;
+                    return (
+                      <span
+                        key={`grid-${panel.year}-${index}`}
+                        className={cn(
+                          "absolute inset-y-0 border-l",
+                          index === 0 ? "border-slate-300" : "border-sky-200 border-dashed",
+                        )}
+                        style={{ left: `${left}%` }}
+                      />
+                    );
+                  })}
+                </div>
+
+                {panel.rows.map((row) => {
+                  const rawTotal = rowRawTotal(row);
+                  const trackWidth = scaleMode === "indexed"
+                    ? (rawTotal > 0 ? 100 : 0)
+                    : Math.max(0, Math.min(100, (rawTotal / rawAxisMax) * 100));
+
+                  return (
+                    <div key={`bar-${row.xKey}`} className="relative h-7">
+                      <div className="absolute inset-y-0 left-0 flex items-center" style={{ width: `${trackWidth}%` }}>
+                        <div className="flex h-5 w-full overflow-hidden rounded-sm bg-slate-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.45)]">
+                          {visibleSeries.map((series) => {
+                            const rawValue = positiveRawValue(row, series);
+                            if (rawValue <= 0 || rawTotal <= 0) return null;
+                            const segmentWidth = scaleMode === "indexed"
+                              ? (rawValue / rawTotal) * 100
+                              : (rawValue / rawTotal) * 100;
+                            const shareLabel = rawTotal > 0 ? (rawValue / rawTotal) * 100 : 0;
+                            const label = scaleMode === "indexed"
+                              ? shareLabel.toFixed(1)
+                              : fmtDisplay(series.kpi, series.kpi?.format === "pct" ? rawValue * 100 : rawValue, "raw");
+                            const segmentRow = preparedSegmentRow(row, series, rawValue, rawTotal);
+                            return (
+                              <button
+                                key={`${row.xKey}-${series.id}`}
+                                type="button"
+                                className="group relative flex h-full items-center justify-center border-r border-white/70 text-[9px] font-black text-white/90 transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                                style={{ width: `${segmentWidth}%`, background: series.color }}
+                                title={`${row.instituteName} · ${panel.year} · ${series.fullLabel ?? series.label}: ${scaleMode === "indexed" ? `${shareLabel.toFixed(1)}%` : fmtRaw(series.kpi, rawValue)}`}
+                                onMouseEnter={() => onSegmentHover?.(series, segmentRow)}
+                                onClick={(event) => onSegmentClick?.(series, segmentRow, event)}
+                              >
+                                {segmentWidth >= 10 ? <span className="truncate px-1">{label}</span> : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[11px] font-bold text-slate-600">
+          {visibleSeries.slice(0, 10).map((series) => (
+            <button
+              key={`legend-${series.id}`}
+              type="button"
+              className="inline-flex items-center gap-2 rounded-full px-2 py-1 transition hover:bg-sky-50"
+              title={series.fullLabel ?? series.label}
+            >
+              <span className="h-3 w-7 rounded-sm" style={{ background: series.color }} />
+              <span className="max-w-[180px] truncate">{series.legendLabel ?? series.shortLabel ?? series.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 text-center text-[11px] font-semibold text-slate-500">
+        Year-wise horizontal stacked comparison for selected IITs
+      </div>
+    </div>
   );
 }
 
@@ -379,6 +591,42 @@ function compareIitScopeLabel(iids = []) {
   return `Comparing ${iids.length} IIT${iids.length === 1 ? "" : "s"}`;
 }
 
+function cloneCompareSelection(selection = {}) {
+  return {
+    ...selection,
+    modules: [...(selection.modules ?? [])],
+    submodules: [...(selection.submodules ?? [])],
+    sheets: [...(selection.sheets ?? [])],
+    items: [...(selection.items ?? [])],
+    breakdowns: [...(selection.breakdowns ?? [])],
+    iits: [...(selection.iits ?? [])],
+  };
+}
+
+function sameCompareSelection(left, right) {
+  if (!left || !right) return false;
+  return sameMembers(left.iits ?? [], right.iits ?? [])
+    && sameMembers(left.items ?? [], right.items ?? [])
+    && Number(left.yearFrom) === Number(right.yearFrom)
+    && Number(left.yearTo) === Number(right.yearTo);
+}
+
+function compareDrillCrumbLabel(selection, previousSelection = null) {
+  if (!selection) return "";
+  const nextIits = selection.iits ?? [];
+  const previousIits = previousSelection?.iits ?? [];
+  const singleYear = Number(selection.yearFrom) === Number(selection.yearTo);
+  const yearChanged = !previousSelection
+    || Number(selection.yearFrom) !== Number(previousSelection.yearFrom)
+    || Number(selection.yearTo) !== Number(previousSelection.yearTo);
+  const iitChanged = !sameMembers(nextIits, previousIits);
+
+  if (iitChanged && nextIits.length === 1) return instituteShortLabel(nextIits[0]);
+  if (yearChanged && singleYear) return String(selection.yearTo);
+  if (nextIits.length === 1) return instituteShortLabel(nextIits[0]);
+  return compareIitScopeLabel(nextIits);
+}
+
 function firstActiveIdInList(items = [], activeIds = []) {
   const activeSet = new Set(activeIds ?? []);
   return items.find((item) => activeSet.has(item.id))?.id ?? items[0]?.id ?? null;
@@ -386,7 +634,7 @@ function firstActiveIdInList(items = [], activeIds = []) {
 
 function compareIitColor(iid, fallbackIndex = 0) {
   const index = IITs.findIndex((item) => item.id === iid);
-  return PALETTE[(index >= 0 ? index : fallbackIndex) % PALETTE.length];
+  return IIT_BLUE_PALETTE[(index >= 0 ? index : fallbackIndex) % IIT_BLUE_PALETTE.length];
 }
 
 function compareYearKey(year) {
@@ -1451,7 +1699,7 @@ function SmallMultipleLineCard({ series, scaleMode, sharedYMax = null }) {
             <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} />
             <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} width={70} domain={sharedYMax ? [0, sharedYMax] : [0, "auto"]} />
             <Tooltip content={<CompareTooltip seriesLookup={seriesLookup} scaleMode={scaleMode} mode="smallMultiples" />} />
-            {(lines ?? []).map((line) => (
+            {(lines ?? []).map((line, lineIndex) => (
               <Line
                 key={line.id}
                 type="monotone"
@@ -1459,7 +1707,8 @@ function SmallMultipleLineCard({ series, scaleMode, sharedYMax = null }) {
                 name={line.label}
                 stroke={line.color}
                 strokeWidth={2.4}
-                dot={{ r: 3, fill: line.color }}
+                strokeDasharray={lineIndex % 3 === 1 ? "6 4" : lineIndex % 3 === 2 ? "2 4" : undefined}
+                dot={{ r: 3, fill: line.color, stroke: lineIndex % 2 ? "#ffffff" : line.color, strokeWidth: lineIndex % 2 ? 1.5 : 0 }}
                 activeDot={{ r: 5 }}
                 connectNulls
                 isAnimationActive={false}
@@ -1604,6 +1853,10 @@ function createDraftFromConfig(config, moduleMap, submoduleMap, sheetMap, worksh
   const moduleIds = Object.keys(moduleMap);
   const submoduleIds = Object.keys(submoduleMap);
   const allWorksheets = Object.values(worksheetMap);
+  const firstChartableId = (items = []) => items.find((item) => item?.comparable)?.id ?? items.find((item) => item?.kpi)?.id ?? items[0]?.id ?? null;
+  const firstChartableFromSheet = (sheet) => firstChartableId(sheet?.kpis ?? []);
+  const firstChartableFromSubmodule = (submodule) => firstChartableId((submodule?.sheets ?? []).flatMap((sheet) => sheet.kpis ?? [])) ?? firstChartableId(submodule?.worksheets ?? []);
+  const firstChartableFromModule = (module) => (module?.submodules ?? []).map(firstChartableFromSubmodule).find(Boolean) ?? null;
 
   let moduleId = config?.CompareModule && moduleMap[config.CompareModule] ? config.CompareModule : null;
   let submoduleId = config?.CompareSubmoduleId && submoduleMap[config.CompareSubmoduleId] ? config.CompareSubmoduleId : null;
@@ -1619,6 +1872,14 @@ function createDraftFromConfig(config, moduleMap, submoduleMap, sheetMap, worksh
 
   let items = dedupeList([...(config?.CompareMetricIds ?? []), config?.MetricId]).map(resolveCompareItemId).filter(Boolean).slice(0, 1);
   let sheets = dedupeList(config?.CompareSheetIds ?? []).filter((id) => sheetMap[id]);
+  if (items[0] && !worksheetMap[items[0]]?.comparable) {
+    const item = worksheetMap[items[0]];
+    const fallback = firstChartableFromSheet(sheetMap[item?.sheetId])
+      ?? firstChartableFromSubmodule(submoduleMap[item?.submoduleId])
+      ?? firstChartableFromModule(moduleMap[item?.moduleId])
+      ?? firstChartableId(allWorksheets);
+    items = fallback ? [fallback] : items;
+  }
 
   if (!sheets.length && items.length) sheets = dedupeList(items.map((id) => worksheetMap[id]?.sheetId).filter(Boolean));
   if (!submoduleId && sheets[0]) submoduleId = sheetMap[sheets[0]]?.submoduleId ?? null;
@@ -1633,7 +1894,12 @@ function createDraftFromConfig(config, moduleMap, submoduleMap, sheetMap, worksh
     sheets = (submoduleMap[submoduleId]?.sheets ?? []).map((sheet) => sheet.id).filter(Boolean).slice(0, 1);
   }
   if (!items.length) {
-    items = sheets.flatMap((sheetId) => sheetMap[sheetId]?.kpis?.map((item) => item.id) ?? []).filter(Boolean).slice(0, 1);
+    const sheetItems = sheets.flatMap((sheetId) => sheetMap[sheetId]?.kpis ?? []);
+    const fallbackItem = firstChartableId(sheetItems)
+      ?? firstChartableFromSubmodule(submoduleMap[submoduleId])
+      ?? firstChartableFromModule(moduleMap[moduleId])
+      ?? firstChartableId(allWorksheets);
+    items = fallbackItem ? [fallbackItem] : [];
   }
 
   if (items[0] && worksheetMap[items[0]]) {
@@ -1787,6 +2053,7 @@ export default function ComparePage({
   const [visibleCompareLegendIds, setVisibleCompareLegendIds] = useState([]);
   const [activeBarSegment, setActiveBarSegment] = useState(null);
   const [drillReturnSelection, setDrillReturnSelection] = useState(null);
+  const [drillBreadcrumbTrail, setDrillBreadcrumbTrail] = useState([]);
   const [moduleSearch, setModuleSearch] = useState("");
   const [submoduleSearch, setSubmoduleSearch] = useState("");
   const [iitSearch, setIitSearch] = useState("");
@@ -2007,6 +2274,7 @@ export default function ComparePage({
     [renderedGroupedStackSeries],
   );
   const compareRenderSeriesLimitHit = activeGroupedStackSeries.length > renderedGroupedStackSeries.length;
+  const singleSlotBreakdownView = appliedYears.length === 1 && groupedIITs.length === 1 && renderedGroupedStackSeries.length > 1;
   const groupedTopStackSeriesByItem = useMemo(() => {
     const lookup = {};
     renderedGroupedStackSeries.forEach((series) => {
@@ -2150,16 +2418,7 @@ export default function ComparePage({
         return row;
       });
 
-      if (yearIndex === appliedYears.length - 1) return rowsForYear;
-      return [
-        ...rowsForYear,
-        {
-          xKey: `__gap__${year}`,
-          year,
-          label: "",
-          isGap: true,
-        },
-      ];
+      return rowsForYear;
     });
   }, [renderedGroupedStackSeries, renderedGroupedStackSeriesIdSet, applied, appliedYears, chartableAppliedItems, facts, groupedIITs]);
 
@@ -2205,11 +2464,31 @@ export default function ComparePage({
     return Math.max(460, Math.min(640, base));
   }, [appliedYears.length, groupedIITs.length]);
 
-  const groupedChartMinWidth = useMemo(() => {
-    const visibleSlots = groupedChartRows.filter((row) => !row?.isGap).length;
-    if (visibleSlots <= 24) return "100%";
-    return Math.max(1100, visibleSlots * 44);
-  }, [groupedChartRows]);
+  const groupedChartMinWidth = useMemo(() => "100%", []);
+  const useYearPanelLayout = applied?.view === "grouped" && groupedIITs.length > 10;
+
+  const yearPanelData = useMemo(() => {
+    if (!useYearPanelLayout || !groupedChartRows.length) return [];
+    return appliedYears.map((year) => ({
+      year,
+      rows: groupedChartRows.filter((row) => Number(row.year) === Number(year)),
+    }));
+  }, [useYearPanelLayout, groupedChartRows, appliedYears]);
+
+  const yearPanelMaxValue = useMemo(() => {
+    if (!useYearPanelLayout) return 0;
+    const totals = [];
+    yearPanelData.forEach((panel) => {
+      panel.rows.forEach((row) => {
+        const total = renderedGroupedStackSeries.reduce((sum, series) => {
+          const value = Number(row[`display_${series.id}`] ?? 0);
+          return Number.isFinite(value) && value > 0 ? sum + value : sum;
+        }, 0);
+        if (total > 0) totals.push(total);
+      });
+    });
+    return totals.length ? Math.max(...totals) : 0;
+  }, [useYearPanelLayout, yearPanelData, renderedGroupedStackSeries]);
 
   const yearTrendRows = useMemo(() => {
     if (!applied || !appliedYears.length || !renderedGroupedStackSeries.length) return [];
@@ -2772,6 +3051,7 @@ export default function ComparePage({
     };
     setApplied(payload);
     setDrillReturnSelection(null);
+    setDrillBreadcrumbTrail([]);
     setActiveBarSegment(null);
     setBuilderOpen(false);
     setActiveStep(1);
@@ -2852,41 +3132,75 @@ export default function ComparePage({
     setDraft((prev) => ({ ...prev, focusYear: nextYear }));
   }
 
+  function nextDrillTrailFrom(selection = applied) {
+    const baseTrail = drillBreadcrumbTrail.length
+      ? drillBreadcrumbTrail.map(cloneCompareSelection)
+      : drillReturnSelection
+        ? [cloneCompareSelection(drillReturnSelection)]
+        : [];
+    if (!selection) return baseTrail;
+    const clonedSelection = cloneCompareSelection(selection);
+    const lastCrumb = baseTrail[baseTrail.length - 1];
+    if (lastCrumb && sameCompareSelection(lastCrumb, clonedSelection)) return baseTrail;
+    return [...baseTrail, clonedSelection];
+  }
+
+  function setDrillTrail(nextTrail = []) {
+    const normalizedTrail = nextTrail.map(cloneCompareSelection);
+    setDrillBreadcrumbTrail(normalizedTrail);
+    setDrillReturnSelection(normalizedTrail[0] ?? null);
+  }
+
+  function goToDrillBreadcrumbLevel(index) {
+    if (!applied) return;
+    const trail = drillBreadcrumbTrail.length
+      ? drillBreadcrumbTrail.map(cloneCompareSelection)
+      : drillReturnSelection
+        ? [cloneCompareSelection(drillReturnSelection)]
+        : [];
+    const selections = [...trail, cloneCompareSelection(applied)];
+    const target = selections[index];
+    if (!target || index === selections.length - 1) return;
+    setDrillTrail(trail.slice(0, index));
+    commitAppliedSelection(target);
+    syncCompareConfig(target);
+  }
+
   function drillToIitFromAxisLabel(axisValue) {
     if (!applied) return;
     const parsedIid = String(axisValue ?? "").includes("__") ? String(axisValue).split("__")[1] : axisValue;
     const match = groupedIITs.find((iid) => iid === parsedIid || instituteShortLabel(iid) === axisValue || instituteNameById(iid) === axisValue);
-    if (!match) return;
-    if (applied.iits?.length > 1) {
-      setDrillReturnSelection({
-        ...applied,
-        iits: [...applied.iits],
-        items: [...(applied.items ?? [])],
-        breakdowns: [...(applied.breakdowns ?? [])],
-        modules: [...(applied.modules ?? [])],
-        submodules: [...(applied.submodules ?? [])],
-        sheets: [...(applied.sheets ?? [])],
-      });
-    }
+    if (!match || sameMembers(applied.iits ?? [], [match])) return;
+    setDrillTrail(nextDrillTrailFrom(applied));
     const nextApplied = { ...applied, iits: [match] };
     commitAppliedSelection(nextApplied);
     syncCompareConfig(nextApplied);
   }
 
-  function returnFromIitDrill() {
-    if (!drillReturnSelection) return;
+  function drillToYearFromAxisLabel(yearValue) {
+    if (!applied) return;
+    const year = Number(yearValue);
+    if (!Number.isFinite(year)) return;
+    if (Number(applied.yearFrom) === year && Number(applied.yearTo) === year) return;
+    setDrillTrail(nextDrillTrailFrom(applied));
     const nextApplied = {
-      ...drillReturnSelection,
-      iits: [...(drillReturnSelection.iits ?? [])],
-      items: [...(drillReturnSelection.items ?? [])],
-      breakdowns: [...(drillReturnSelection.breakdowns ?? [])],
-      modules: [...(drillReturnSelection.modules ?? [])],
-      submodules: [...(drillReturnSelection.submodules ?? [])],
-      sheets: [...(drillReturnSelection.sheets ?? [])],
+      ...applied,
+      iits: [...(applied.iits ?? [])],
+      items: [...(applied.items ?? [])].slice(0, 1),
+      breakdowns: [...(applied.breakdowns ?? [])],
+      modules: [...(applied.modules ?? [])],
+      submodules: [...(applied.submodules ?? [])],
+      sheets: [...(applied.sheets ?? [])],
+      yearFrom: year,
+      yearTo: year,
+      focusYear: year,
     };
-    setDrillReturnSelection(null);
     commitAppliedSelection(nextApplied);
     syncCompareConfig(nextApplied);
+  }
+
+  function returnFromIitDrill() {
+    goToDrillBreadcrumbLevel(0);
   }
 
   function buildBarSegment(series, row, pinned = false) {
@@ -2948,13 +3262,18 @@ export default function ComparePage({
     setActiveBarSegment((prev) => (prev?.pinned ? prev : null));
   }
 
+  function firstChartableItemId(items = []) {
+    return items.find((item) => item?.comparable)?.id ?? items.find((item) => item?.kpi)?.id ?? items[0]?.id ?? null;
+  }
+
   function firstItemIdFromSheetEntity(sheet) {
-    return (sheet?.kpis ?? [])[0]?.id ?? null;
+    return firstChartableItemId(sheet?.kpis ?? []);
   }
 
   function firstItemIdFromSubmoduleEntity(submodule) {
-    return (submodule?.sheets ?? []).flatMap((sheet) => sheet.kpis ?? [])[0]?.id
-      ?? (submodule?.worksheets ?? [])[0]?.id
+    const sheetItems = (submodule?.sheets ?? []).flatMap((sheet) => sheet.kpis ?? []);
+    return firstChartableItemId(sheetItems)
+      ?? firstChartableItemId(submodule?.worksheets ?? [])
       ?? null;
   }
 
@@ -2979,6 +3298,7 @@ export default function ComparePage({
     if (applied) {
       const next = typeof updater === "function" ? updater(applied) : updater;
       setDrillReturnSelection(null);
+      setDrillBreadcrumbTrail([]);
       commitAppliedSelection(next);
       syncCompareConfig(next);
       return;
@@ -3264,12 +3584,17 @@ export default function ComparePage({
 
   function renderCompareCarouselSelector() {
     return (
-      <CombinedKpiSelector
-        title="Select filters"
-        helper="Choose one category, module, sheet, and KPI for the comparison."
-        accent={uiAccent}
-        soft={`${uiAccent}12`}
-        rows={[
+        <CombinedKpiSelector
+          title={(
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>Select filters</span>
+              <SelectionActionButton label="Advanced filters" onClick={() => openBuilder(1)} title="Open advanced compare filters" />
+            </div>
+          )}
+          helper="Choose one category, module, sheet, and KPI for the comparison. Use the carousel arrows only to scroll through choices."
+          accent={uiAccent}
+          soft={`${uiAccent}12`}
+          rows={[
           {
             id: "compare-module",
             label: "Category",
@@ -3278,7 +3603,6 @@ export default function ComparePage({
             activeId: firstActiveIdInList(compareCarouselModuleItems, selectionSource.modules ?? []),
             autoScrollTargetId: firstActiveIdInList(compareCarouselModuleItems, selectionSource.modules ?? []),
             onPick: toggleCompareModule,
-            onRightAction: () => openBuilder(1),
           },
           {
             id: "compare-submodule",
@@ -3288,7 +3612,6 @@ export default function ComparePage({
             activeId: firstActiveIdInList(compareCarouselSubmoduleItems, selectionSource.submodules ?? []),
             autoScrollTargetId: firstActiveIdInList(compareCarouselSubmoduleItems, selectionSource.submodules ?? []),
             onPick: toggleCompareSubmodule,
-            onRightAction: () => openBuilder(1),
           },
           {
             id: "compare-sheet",
@@ -3298,7 +3621,6 @@ export default function ComparePage({
             activeId: firstActiveIdInList(compareCarouselSheetItems, selectionSource.sheets ?? []),
             autoScrollTargetId: firstActiveIdInList(compareCarouselSheetItems, selectionSource.sheets ?? []),
             onPick: toggleCompareSheet,
-            onRightAction: () => openBuilder(1),
           },
           {
             id: "compare-kpi",
@@ -3308,10 +3630,9 @@ export default function ComparePage({
             activeId: firstActiveIdInList(compareCarouselKpiItems, selectionSource.items ?? []),
             autoScrollTargetId: firstActiveIdInList(compareCarouselKpiItems, selectionSource.items ?? []),
             onPick: toggleCompareKpi,
-            onRightAction: () => openBuilder(1),
           },
-        ]}
-      />
+          ]}
+        />
     );
   }
 
@@ -3781,7 +4102,7 @@ export default function ComparePage({
                     </div>
                     {draft.iits.length > 10 ? (
                       <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                        More than 10 IITs are selected. The chart uses compact labels and horizontal scrolling so the full institute comparison remains readable.
+                        More than 10 IITs are selected. The chart packs IIT bars within each year, separates year groups, and alternates IIT labels to keep the full comparison readable.
                       </div>
                     ) : null}
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -3934,6 +4255,13 @@ export default function ComparePage({
       : appliedCompareLabels[0] ?? "Compare";
     const appliedYearsLabel = Number(applied.yearFrom) === Number(applied.yearTo) ? String(applied.yearTo) : `${applied.yearFrom}–${applied.yearTo}`;
     const appliedIitsLabel = compareIitScopeLabel(appliedIITs);
+    const drillBreadcrumbSelections = drillBreadcrumbTrail.length ? [...drillBreadcrumbTrail, cloneCompareSelection(applied)] : [];
+    const drillBreadcrumbItems = drillBreadcrumbSelections.length > 1
+      ? drillBreadcrumbSelections.map((selection, index) => ({
+        selection,
+        label: index === 0 ? compareIitScopeLabel(selection.iits ?? []) : compareDrillCrumbLabel(selection, drillBreadcrumbSelections[index - 1]),
+      }))
+      : [];
     const compareAccent = "#2563eb";
     const compactToolbarOptions = [
       { id: "grouped", label: "Bar graph" },
@@ -4011,18 +4339,28 @@ export default function ComparePage({
             <div className="min-w-0 text-center lg:px-4">
               <div className="text-[1.08rem] font-extrabold leading-tight text-slate-900">{appliedCompareLabel}</div>
               <div className="mt-2 text-sm font-semibold text-[#1252a0]">{appliedIitsLabel} · {appliedYearsLabel}</div>
-              {drillReturnSelection && appliedIITs.length === 1 ? (
+              {drillBreadcrumbItems.length > 1 ? (
                 <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-xs font-bold" data-export-hide="true">
-                  <button
-                    type="button"
-                    onClick={returnFromIitDrill}
-                    className="rounded-[7px] bg-slate-100 px-3 py-1.5 text-[12px] font-extrabold text-[#1252a0] transition hover:bg-sky-100"
-                    title={`Return to ${compareIitScopeLabel(drillReturnSelection.iits)}`}
-                  >
-                    {compareIitScopeLabel(drillReturnSelection.iits)}
-                  </button>
-                  <span className="px-0.5 text-[14px] font-extrabold text-slate-400">&gt;</span>
-                  <span className="rounded-[7px] bg-slate-100 px-3 py-1.5 text-[12px] font-extrabold text-[#1252a0]">{instituteShortLabel(appliedIITs[0])}</span>
+                  {drillBreadcrumbItems.map((crumb, index) => {
+                    const current = index === drillBreadcrumbItems.length - 1;
+                    return (
+                      <div key={`${crumb.label}-${index}`} className="flex items-center gap-2">
+                        {index > 0 ? <span className="px-0.5 text-[14px] font-extrabold text-slate-400">&gt;</span> : null}
+                        {current ? (
+                          <span className="rounded-[7px] bg-slate-100 px-3 py-1.5 text-[12px] font-extrabold text-[#1252a0]">{crumb.label}</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => goToDrillBreadcrumbLevel(index)}
+                            className="rounded-[7px] bg-slate-100 px-3 py-1.5 text-[12px] font-extrabold text-[#1252a0] transition hover:bg-sky-100"
+                            title={`Return to ${crumb.label}`}
+                          >
+                            {crumb.label}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>
@@ -4057,9 +4395,9 @@ export default function ComparePage({
             </div>
           </div>
 
-          {compareChartCrowded && applied.view !== "table" ? (
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-              More than 10 IITs are selected. The chart uses compact labels and horizontal scrolling so the full institute comparison remains readable.
+          {compareChartCrowded && applied.view !== "table" && !useYearPanelLayout ? (
+            <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800">
+              Compact labels are active for this IIT comparison.
             </div>
           ) : null}
 
@@ -4089,67 +4427,83 @@ export default function ComparePage({
                     onMore={openCompareByFilters}
                   />
                 </div>
-                <div className="relative overflow-x-auto overflow-y-hidden pb-2" style={{ height: fullscreen ? Math.max(620, groupedChartHeight) : groupedChartHeight }}>
-                  {activeBarSegment?.pinned ? (
-                    <div className="absolute right-4 top-3 z-20">
-                      <BarSegmentDetailCard
-                        segment={activeBarSegment}
-                        scaleMode={applied.scale}
-                        onClose={() => setActiveBarSegment(null)}
-                      />
+                {useYearPanelLayout ? (
+                  <YearPanelCompareChart
+                    panels={yearPanelData}
+                    seriesList={renderedGroupedStackSeries}
+                    scaleMode={applied.scale}
+                    maxValue={yearPanelMaxValue}
+                    activeSegment={activeBarSegment}
+                    onIitClick={drillToIitFromAxisLabel}
+                    onYearClick={drillToYearFromAxisLabel}
+                    onSegmentHover={handleBarSegmentHover}
+                    onSegmentClick={handleBarSegmentClick}
+                    onChartLeave={handleBarChartMouseLeave}
+                    onDetailClose={() => setActiveBarSegment(null)}
+                  />
+                ) : (
+                  <div className="relative overflow-x-hidden overflow-y-hidden pb-2" style={{ height: fullscreen ? Math.max(620, groupedChartHeight) : groupedChartHeight }}>
+                    {activeBarSegment?.pinned ? (
+                      <div className="absolute right-4 top-3 z-20">
+                        <BarSegmentDetailCard
+                          segment={activeBarSegment}
+                          scaleMode={applied.scale}
+                          onClose={() => setActiveBarSegment(null)}
+                        />
+                      </div>
+                    ) : null}
+                    <div style={{ minWidth: groupedChartMinWidth, height: "100%" }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart
+                        data={groupedChartRows}
+                        margin={{ top: 42, right: 18, left: 18, bottom: groupedIITs.length > 10 ? 128 : 112 }}
+                        barCategoryGap="0%"
+                        barGap={0}
+                        onMouseLeave={handleBarChartMouseLeave}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" vertical stroke="#e5e7eb" />
+                        <XAxis
+                          dataKey="xKey"
+                          tick={(props) => <GroupedYearIitTick {...props} onClick={drillToIitFromAxisLabel} onYearClick={drillToYearFromAxisLabel} yearLabelKeyByYear={groupedYearLabelKeyByYear} fontSize={groupedTickFontSize} rotate={false} alternateRows={groupedIITs.length > 10} />}
+                          axisLine={{ stroke: "#cbd5e1" }}
+                          tickLine={false}
+                          interval={0}
+                          height={groupedIITs.length > 10 ? 108 : 90}
+                        />
+                        <YAxis tick={{ fontSize: 13, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} width={78} />
+                        <Tooltip
+                          content={<CompareTooltip metricLookup={comparisonSeriesLookup} scaleMode={applied.scale} mode="grouped" activeSegment={activeBarSegment} />}
+                        />
+                        {groupedYearSeparatorRows.map((row) => (
+                          <ReferenceLine key={`separator-${row.xKey}`} x={row.xKey} stroke="#93c5fd" strokeWidth={1.2} ifOverflow="visible" />
+                        ))}
+                        {renderedGroupedStackSeries.map((series) => {
+                          const topSeries = groupedTopStackSeriesByItem[series.itemId];
+                          const isTopVisibleSeries = topSeries?.id === series.id;
+                          return (
+                            <Bar
+                              key={series.id}
+                              dataKey={`display_${series.id}`}
+                              name={series.fullLabel ?? series.label}
+                              stackId={singleSlotBreakdownView ? series.id : series.stackId}
+                              fill={series.color}
+                              radius={singleSlotBreakdownView || isTopVisibleSeries ? [8, 8, 0, 0] : [0, 0, 0, 0]}
+                              maxBarSize={groupedBarMaxSize}
+                              onMouseEnter={(entry) => handleBarSegmentHover(series, entry?.payload ?? entry)}
+                              onClick={(entry, index, event) => handleBarSegmentClick(series, entry?.payload ?? entry, event)}
+                            >
+                              {isTopVisibleSeries && !compareRenderSeriesLimitHit && groupedChartRows.length <= 45 ? (
+                                <LabelList content={(props) => <StackTotalLabel {...props} item={series.item} scaleMode={applied.scale} />} />
+                              ) : null}
+                            </Bar>
+                          );
+                        })}
+                      </ComposedChart>
+                    </ResponsiveContainer>
                     </div>
-                  ) : null}
-                  <div style={{ minWidth: groupedChartMinWidth, height: "100%" }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart
-                      data={groupedChartRows}
-                      margin={{ top: 42, right: 18, left: 18, bottom: 112 }}
-                      barCategoryGap={groupedChartRows.length > 60 ? "4%" : groupedChartRows.length > 35 ? "6%" : "8%"}
-                      barGap={groupedChartRows.length > 60 ? 1 : groupedChartRows.length > 35 ? 2 : 3}
-                      onMouseLeave={handleBarChartMouseLeave}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical stroke="#e5e7eb" />
-                      <XAxis
-                        dataKey="xKey"
-                        tick={(props) => <GroupedYearIitTick {...props} onClick={drillToIitFromAxisLabel} yearLabelKeyByYear={groupedYearLabelKeyByYear} fontSize={groupedTickFontSize} rotate={groupedIITs.length > 10} />}
-                        axisLine={{ stroke: "#cbd5e1" }}
-                        tickLine={false}
-                        interval={0}
-                        height={90}
-                      />
-                      <YAxis tick={{ fontSize: 13, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} width={78} />
-                      <Tooltip
-                        content={<CompareTooltip metricLookup={comparisonSeriesLookup} scaleMode={applied.scale} mode="grouped" activeSegment={activeBarSegment} />}
-                      />
-                      {groupedYearSeparatorRows.map((row) => (
-                        <ReferenceLine key={`separator-${row.xKey}`} x={row.xKey} stroke="#93c5fd" strokeWidth={1.2} ifOverflow="visible" />
-                      ))}
-                      {renderedGroupedStackSeries.map((series) => {
-                        const topSeries = groupedTopStackSeriesByItem[series.itemId];
-                        const isTopVisibleSeries = topSeries?.id === series.id;
-                        return (
-                          <Bar
-                            key={series.id}
-                            dataKey={`display_${series.id}`}
-                            name={series.fullLabel ?? series.label}
-                            stackId={series.stackId}
-                            fill={series.color}
-                            radius={isTopVisibleSeries ? [8, 8, 0, 0] : [0, 0, 0, 0]}
-                            maxBarSize={groupedBarMaxSize}
-                            onMouseEnter={(entry) => handleBarSegmentHover(series, entry?.payload ?? entry)}
-                            onClick={(entry, index, event) => handleBarSegmentClick(series, entry?.payload ?? entry, event)}
-                          >
-                            {isTopVisibleSeries && !compareRenderSeriesLimitHit && groupedChartRows.length <= 45 ? (
-                              <LabelList content={(props) => <StackTotalLabel {...props} item={series.item} scaleMode={applied.scale} />} />
-                            ) : null}
-                          </Bar>
-                        );
-                      })}
-                    </ComposedChart>
-                  </ResponsiveContainer>
+                    <div className="pointer-events-none sticky bottom-6 left-0 right-0 text-center text-[11px] font-semibold text-slate-500">Year-wise IIT comparison</div>
                   </div>
-                  <div className="pointer-events-none sticky bottom-6 left-0 right-0 text-center text-[11px] font-semibold text-slate-500">Year-wise IIT comparison</div>
-                </div>
+                )}
               </>
             ) : null}
 
