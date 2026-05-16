@@ -35,9 +35,11 @@ import CombinedKpiSelector from "../components/ui/CombinedKpiSelector";
 import VisualToolbar from "../components/ui/VisualToolbar";
 
 const LEGACY_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
-const PALETTE = ["#0f3d91", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#1e40af", "#38bdf8"];
-const IIT_BLUE_PALETTE = ["#0f3d91", "#1e40af", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe", "#0e7490", "#0284c7"];
-const COMPARE_SERIES_TONE_STEPS = [-0.26, -0.08, 0.12, 0.28, 0.42, -0.42, 0.56, -0.56];
+const PALETTE = ["#061a40", "#0d47a1", "#1565c0", "#0284c7", "#0ea5e9", "#38bdf8", "#7dd3fc", "#c7edff", "#082f49", "#1e3a8a", "#2563eb", "#60a5fa", "#bae6fd", "#eff6ff", "#0f172a", "#1d4ed8", "#67e8f9", "#dbeafe"];
+const IIT_BLUE_PALETTE = ["#061a40", "#0d47a1", "#1565c0", "#0284c7", "#0ea5e9", "#38bdf8", "#7dd3fc", "#c7edff", "#082f49", "#1e3a8a", "#2563eb", "#60a5fa", "#bae6fd", "#eff6ff", "#0f172a", "#1d4ed8", "#67e8f9", "#dbeafe", "#075985", "#1e40af", "#0891b2", "#93c5fd", "#e0f2fe"];
+const COMPARE_PATTERN_TYPES = ["diagonal", "dots", "cross", "horizontal", "vertical", "grid", "reverseDiagonal", "wideDiagonal"];
+const COMPARE_MARKER_SHAPES = ["circle", "square", "triangle", "diamond", "cross"];
+const COMPARE_SERIES_TONE_STEPS = [0, 0.36, -0.22, 0.58, -0.36, 0.72, -0.5, 0.86];
 const COMPARE_BREAKDOWN_SCAN_ITEM_LIMIT = 6;
 const COMPARE_BREAKDOWN_KPI_LIMIT = 3;
 const COMPARE_MAX_CHART_SERIES = 18;
@@ -61,6 +63,19 @@ function rgbToHex({ r, g, b }) {
   return `#${[r, g, b].map((channel) => clampColorChannel(channel).toString(16).padStart(2, "0")).join("")}`;
 }
 
+function colorLuminance(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+function comparePatternStroke(color = "#2563eb") {
+  return colorLuminance(color) > 0.58 ? "rgba(3,7,18,0.72)" : "rgba(255,255,255,0.86)";
+}
+
+function comparePatternOverlay(color = "#2563eb") {
+  return colorLuminance(color) > 0.58 ? "rgba(3,7,18,0.48)" : "rgba(255,255,255,0.68)";
+}
+
 function mixHexColor(source, target, weight = 0) {
   const left = hexToRgb(source);
   const right = hexToRgb(target);
@@ -73,10 +88,57 @@ function mixHexColor(source, target, weight = 0) {
 }
 
 function compareSeriesColor(itemIndex = 0, breakdownIndex = 0, breakdownCount = 1) {
-  const baseColor = PALETTE[itemIndex % PALETTE.length];
+  const paletteIndex = breakdownCount > 1 ? breakdownIndex : itemIndex;
+  const baseColor = PALETTE[paletteIndex % PALETTE.length];
   if (breakdownCount <= 1) return baseColor;
-  const tone = COMPARE_SERIES_TONE_STEPS[breakdownIndex % COMPARE_SERIES_TONE_STEPS.length];
-  return tone < 0 ? mixHexColor(baseColor, "#0f172a", tone) : mixHexColor(baseColor, "#ffffff", tone);
+  const tone = COMPARE_SERIES_TONE_STEPS[Math.floor(breakdownIndex / PALETTE.length) % COMPARE_SERIES_TONE_STEPS.length];
+  return tone < 0 ? mixHexColor(baseColor, "#1e40af", tone) : mixHexColor(baseColor, "#ffffff", tone);
+}
+
+function comparePatternType(index = 0) {
+  return COMPARE_PATTERN_TYPES[Math.abs(Number(index) || 0) % COMPARE_PATTERN_TYPES.length];
+}
+
+function compareMarkerShape(index = 0) {
+  return COMPARE_MARKER_SHAPES[Math.abs(Number(index) || 0) % COMPARE_MARKER_SHAPES.length];
+}
+
+function comparePatternId(value) {
+  return `compare_pattern_${normalizeSeriesKey(value)}`;
+}
+
+function compareTextureBackground(color = "#2563eb", patternType = "diagonal") {
+  const overlay = comparePatternOverlay(color);
+  switch (patternType) {
+    case "diagonal":
+      return `repeating-linear-gradient(45deg, ${overlay} 0 3px, transparent 3px 8px), ${color}`;
+    case "reverseDiagonal":
+      return `repeating-linear-gradient(-45deg, ${overlay} 0 3px, transparent 3px 8px), ${color}`;
+    case "dots":
+      return `radial-gradient(circle at 4px 4px, ${overlay} 0 2px, transparent 2.3px), ${color}`;
+    case "wideDiagonal":
+      return `repeating-linear-gradient(45deg, ${overlay} 0 4px, transparent 4px 12px), ${color}`;
+    case "cross":
+      return `repeating-linear-gradient(45deg, ${overlay} 0 2px, transparent 2px 7px), repeating-linear-gradient(-45deg, ${overlay} 0 2px, transparent 2px 7px), ${color}`;
+    case "horizontal":
+      return `repeating-linear-gradient(0deg, ${overlay} 0 2.4px, transparent 2.4px 7px), ${color}`;
+    case "vertical":
+      return `repeating-linear-gradient(90deg, ${overlay} 0 2.4px, transparent 2.4px 7px), ${color}`;
+    case "grid":
+      return `repeating-linear-gradient(0deg, ${overlay} 0 1.8px, transparent 1.8px 7px), repeating-linear-gradient(90deg, ${overlay} 0 1.8px, transparent 1.8px 7px), ${color}`;
+    default:
+      return color;
+  }
+}
+
+function compareSwatchStyle(item = {}) {
+  const color = item.color || "#2563eb";
+  return {
+    background: compareTextureBackground(color, item.patternType),
+    backgroundSize: "10px 10px",
+    border: `1.5px solid ${color}`,
+    boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.55)",
+  };
 }
 const TOP_TABS = ["Compare View", "Filters", "Compare Mode", "Saved Sets"];
 const VIEW_OPTIONS = [
@@ -138,6 +200,54 @@ function humanizeCompareLabel(value) {
 function compareBreakdownLabel(key) {
   if (!key || key === TOTAL_COMPARISON_KEY) return TOTAL_COMPARISON_LABEL;
   return humanizeCompareLabel(key);
+}
+
+const COMPARE_ITEM_BREAKDOWN_FILTERS = [
+  {
+    match: ["on campus", "online"],
+    keys: ["On-campus", "Online"],
+  },
+  {
+    match: ["degrees by discipline"],
+    keys: [
+      "Engineering & Technology",
+      "Science",
+      "Humanities & Social Sciences",
+      "Management & Finance",
+      "Interdisciplinary",
+    ],
+  },
+];
+
+function compareItemAllowedBreakdownKeys(item) {
+  const label = `${item?.kpiLabel ?? ""} ${item?.label ?? ""}`.toLowerCase();
+  const rule = COMPARE_ITEM_BREAKDOWN_FILTERS.find((entry) => entry.match.every((token) => label.includes(token)));
+  return rule?.keys ?? null;
+}
+
+function filterBreakdownKeysForCompareItem(item, keys = []) {
+  const allowed = compareItemAllowedBreakdownKeys(item);
+  if (!allowed?.length) return keys;
+  const keySet = new Set((keys ?? []).map((key) => String(key)));
+  const filtered = allowed.filter((key) => keySet.has(key));
+  return filtered.length ? filtered : allowed;
+}
+
+function cleanCompareAxisTicks(maxValue, scaleMode = "raw") {
+  if (scaleMode === "indexed") return [0, 25, 50, 75, 100];
+  const value = Number(maxValue);
+  if (!Number.isFinite(value) || value <= 0) return [0, 1];
+  const roughStep = value / 5;
+  const magnitude = 10 ** Math.floor(Math.log10(roughStep || 1));
+  const normalized = roughStep / magnitude;
+  const multiplier = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10;
+  const step = Math.max(1, multiplier * magnitude);
+  const top = Math.max(step, Math.ceil(value / step) * step);
+  const ticks = [];
+  for (let tick = 0; tick <= top + step * 0.5; tick += step) {
+    ticks.push(Number(tick.toFixed(6)));
+  }
+  return ticks;
 }
 
 function compareItemLabel(item) {
@@ -215,6 +325,14 @@ function breakdownOptionsForItems(items, facts, iits, years, limit = 80) {
 
 function normalizeSeriesKey(value) {
   return String(value ?? "series").replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "series";
+}
+
+function normalizeCompareMatchValue(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
 }
 
 function compareSeriesLabel({ item, breakdownKey, iid }) {
@@ -319,6 +437,166 @@ function WrappedWorksheetTick({ x = 0, y = 0, payload, onClick, title }) {
   );
 }
 
+
+function ComparePatternDefs({ seriesList = [] }) {
+  const uniqueSeries = Array.from(new Map((seriesList ?? []).filter(Boolean).map((series) => [series.patternId ?? comparePatternId(series.id), series])).values());
+  if (!uniqueSeries.length) return null;
+  return (
+    <defs>
+      {uniqueSeries.map((series) => {
+        const id = series.patternId ?? comparePatternId(series.id);
+        const color = series.color || "#2563eb";
+        const patternType = series.patternType || "diagonal";
+        const stroke = comparePatternStroke(color);
+        return (
+          <pattern key={id} id={id} width="10" height="10" patternUnits="userSpaceOnUse">
+            <rect width="10" height="10" fill={color} />
+            {patternType === "diagonal" ? <path d="M-3 10 L10 -3 M2 12 L12 2" stroke={stroke} strokeWidth="2" /> : null}
+            {patternType === "reverseDiagonal" ? <path d="M-3 0 L10 13 M2 -3 L13 8" stroke={stroke} strokeWidth="2" /> : null}
+            {patternType === "dots" ? <circle cx="5" cy="5" r="2.2" fill={stroke} /> : null}
+            {patternType === "cross" ? <><path d="M-3 10 L10 -3 M2 12 L12 2" stroke={stroke} strokeWidth="1.7" /><path d="M-3 0 L10 13 M2 -3 L13 8" stroke={stroke} strokeWidth="1.7" /></> : null}
+            {patternType === "horizontal" ? <path d="M0 2.5 H10 M0 7.5 H10" stroke={stroke} strokeWidth="2" /> : null}
+            {patternType === "vertical" ? <path d="M2.5 0 V10 M7.5 0 V10" stroke={stroke} strokeWidth="2" /> : null}
+            {patternType === "grid" ? <><path d="M0 2.5 H10 M0 7.5 H10" stroke={stroke} strokeWidth="1.4" /><path d="M2.5 0 V10 M7.5 0 V10" stroke={stroke} strokeWidth="1.4" /></> : null}
+            {patternType === "wideDiagonal" ? <path d="M-4 10 L10 -4 M2 14 L14 2" stroke={stroke} strokeWidth="3" /> : null}
+          </pattern>
+        );
+      })}
+    </defs>
+  );
+}
+
+
+function compareBarStroke(color = "#2563eb") {
+  return colorLuminance(color) > 0.58 ? "rgba(2,6,23,0.82)" : "rgba(255,255,255,0.9)";
+}
+
+function compareTextureLines({ left, top, width, height, patternType, stroke }) {
+  const items = [];
+  const step = patternType === "wideDiagonal" ? 11 : 8;
+  const lineProps = { stroke, strokeWidth: patternType === "wideDiagonal" ? 3 : 2.2, strokeLinecap: "round" };
+
+  const addDiagonal = (reverse = false, prefix = "diag") => {
+    for (let offset = -height; offset <= width + height; offset += step) {
+      if (reverse) {
+        items.push(<line key={`${prefix}-${offset}`} x1={left + offset} y1={top} x2={left + offset + height} y2={top + height} {...lineProps} />);
+      } else {
+        items.push(<line key={`${prefix}-${offset}`} x1={left + offset} y1={top + height} x2={left + offset + height} y2={top} {...lineProps} />);
+      }
+    }
+  };
+
+  if (patternType === "dots") {
+    for (let cx = left + 4; cx <= left + width + 1; cx += 8) {
+      for (let cy = top + 4; cy <= top + height + 1; cy += 8) {
+        items.push(<circle key={`dot-${cx}-${cy}`} cx={cx} cy={cy} r="2.1" fill={stroke} />);
+      }
+    }
+    return items;
+  }
+
+  if (patternType === "horizontal" || patternType === "grid") {
+    for (let y = top + 4; y <= top + height; y += 7) {
+      items.push(<line key={`h-${y}`} x1={left} y1={y} x2={left + width} y2={y} {...lineProps} />);
+    }
+  }
+
+  if (patternType === "vertical" || patternType === "grid") {
+    for (let x = left + 4; x <= left + width; x += 7) {
+      items.push(<line key={`v-${x}`} x1={x} y1={top} x2={x} y2={top + height} {...lineProps} />);
+    }
+  }
+
+  if (patternType === "reverseDiagonal") addDiagonal(true, "rev");
+  if (patternType === "cross") {
+    addDiagonal(false, "cross-a");
+    addDiagonal(true, "cross-b");
+  }
+  if (!["horizontal", "vertical", "grid", "reverseDiagonal", "cross", "dots"].includes(patternType)) addDiagonal(false, "diag");
+
+  return items;
+}
+
+function CompareTexturedBarShape({ x = 0, y = 0, width = 0, height = 0, fill, color, stroke, patternType = "diagonal", radius = 0 }) {
+  const numericWidth = Number(width ?? 0);
+  const numericHeight = Number(height ?? 0);
+  if (!Number.isFinite(numericWidth) || !Number.isFinite(numericHeight) || numericWidth === 0 || numericHeight === 0) return null;
+
+  const left = numericWidth < 0 ? Number(x) + numericWidth : Number(x);
+  const top = numericHeight < 0 ? Number(y) + numericHeight : Number(y);
+  const safeWidth = Math.abs(numericWidth);
+  const safeHeight = Math.abs(numericHeight);
+  if (safeWidth < 1 || safeHeight < 1) return null;
+
+  const barColor = color || fill || "#2563eb";
+  const textureStroke = comparePatternStroke(barColor);
+  const borderStroke = stroke || compareBarStroke(barColor);
+  const rx = 0;
+  const clipId = comparePatternId(`bar_clip_${patternType}_${Math.round(left)}_${Math.round(top)}_${Math.round(safeWidth)}_${Math.round(safeHeight)}_${barColor}`);
+
+  return (
+    <g>
+      <defs>
+        <clipPath id={clipId}>
+          <rect x={left} y={top} width={safeWidth} height={safeHeight} rx={rx} ry={rx} />
+        </clipPath>
+      </defs>
+      <rect
+        x={left}
+        y={top}
+        width={safeWidth}
+        height={safeHeight}
+        rx={rx}
+        ry={rx}
+        fill={barColor}
+        stroke={borderStroke}
+        strokeWidth={1.25}
+      />
+      <g clipPath={`url(#${clipId})`} opacity="0.92">
+        {compareTextureLines({ left, top, width: safeWidth, height: safeHeight, patternType, stroke: textureStroke })}
+      </g>
+    </g>
+  );
+}
+
+function CompareLineMarker({ cx, cy, color = "#2563eb", shape = "circle", size = 4 }) {
+  if (cx == null || cy == null) return null;
+  const r = size;
+  if (shape === "square") {
+    return <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} rx="1" fill="#ffffff" stroke={color} strokeWidth="2" />;
+  }
+  if (shape === "triangle") {
+    return <path d={`M ${cx} ${cy - r - 1} L ${cx + r + 1} ${cy + r} L ${cx - r - 1} ${cy + r} Z`} fill="#ffffff" stroke={color} strokeWidth="2" />;
+  }
+  if (shape === "diamond") {
+    return <path d={`M ${cx} ${cy - r - 1} L ${cx + r + 1} ${cy} L ${cx} ${cy + r + 1} L ${cx - r - 1} ${cy} Z`} fill="#ffffff" stroke={color} strokeWidth="2" />;
+  }
+  if (shape === "cross") {
+    return <g stroke={color} strokeWidth="2.2" strokeLinecap="round"><line x1={cx - r} y1={cy - r} x2={cx + r} y2={cy + r} /><line x1={cx - r} y1={cy + r} x2={cx + r} y2={cy - r} /></g>;
+  }
+  return <circle cx={cx} cy={cy} r={r} fill="#ffffff" stroke={color} strokeWidth="2" />;
+}
+
+function CompareLineLegendIcon({ color = "#2563eb", shape = "circle", active = true }) {
+  return (
+    <svg className="h-4 w-6 shrink-0" viewBox="0 0 24 16" aria-hidden="true">
+      <line
+        x1="2"
+        y1="8"
+        x2="22"
+        y2="8"
+        stroke={color}
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        opacity={active ? 1 : 0.48}
+      />
+      <CompareLineMarker cx={12} cy={8} color={color} shape={shape} size={4} />
+    </svg>
+  );
+}
+
+
+
 function GroupedYearIitTick({ x = 0, y = 0, payload, index = 0, onClick, onYearClick, yearLabelKeyByYear = {}, fontSize = 11, rotate = false, alternateRows = false }) {
   const rawValue = String(payload?.value ?? "");
   if (!rawValue || rawValue.startsWith("__gap__")) return null;
@@ -377,10 +655,6 @@ function YearPanelCompareChart({
   onDetailClose,
 }) {
   const visibleSeries = seriesList ?? [];
-  const validPanels = (panels ?? []).map((panel) => ({
-    ...panel,
-    rows: (panel.rows ?? []).filter((row) => !row?.isGap),
-  })).filter((panel) => panel.rows.length);
 
   const positiveRawValue = (row, series) => {
     const value = Number(row?.[`raw_${series.id}`] ?? 0);
@@ -388,15 +662,21 @@ function YearPanelCompareChart({
   };
 
   const rowRawTotal = (row) => visibleSeries.reduce((sum, series) => sum + positiveRawValue(row, series), 0);
+  const originalPanelHasManyIits = (panels ?? []).some((panel) => (panel.rows ?? []).filter((row) => !row?.isGap).length > 10);
+  const validPanels = (panels ?? []).map((panel) => ({
+    ...panel,
+    rows: (panel.rows ?? []).filter((row) => !row?.isGap),
+  })).filter((panel) => panel.rows.length);
+
   const rowTotals = validPanels.flatMap((panel) => panel.rows.map(rowRawTotal)).filter((value) => value > 0);
   const maxRawTotal = rowTotals.length ? Math.max(...rowTotals) : 0;
-  const rawAxisMax = maxRawTotal || 1;
-  const axisMax = scaleMode === "indexed" ? 100 : rawAxisMax;
-  const axisTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => axisMax * ratio);
+  const axisTicks = cleanCompareAxisTicks(maxRawTotal, scaleMode);
+  const axisMax = axisTicks[axisTicks.length - 1] || 1;
+  const rawAxisMax = axisMax;
 
   const axisLabel = (value) => {
     if (scaleMode === "indexed") return String(Math.round(value));
-    const rounded = Math.abs(value) >= 1000 ? formatCompact(value) : new Intl.NumberFormat("en-IN", { maximumFractionDigits: value % 1 ? 1 : 0 }).format(value);
+    const rounded = Math.abs(value) >= 1000 ? formatCompact(value) : new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(value);
     return rounded;
   };
 
@@ -425,14 +705,14 @@ function YearPanelCompareChart({
 
   return (
     <div className="relative" onMouseLeave={onChartLeave}>
-      {activeSegment?.pinned ? (
+      {activeSegment ? (
         <div className="absolute right-3 top-3 z-20">
-          <BarSegmentDetailCard segment={activeSegment} scaleMode={scaleMode} onClose={onDetailClose} />
+          <BarSegmentDetailCard segment={activeSegment} scaleMode={scaleMode} onClose={activeSegment.pinned ? onDetailClose : undefined} />
         </div>
       ) : null}
 
       <div className="rounded-[28px] border border-sky-100 bg-white px-4 py-4 shadow-[0_14px_32px_rgba(37,99,235,0.08)]">
-        <div className="mb-3 grid grid-cols-[3.6rem_4.8rem_minmax(0,1fr)] items-end gap-3 px-1 text-[11px] font-black text-slate-500">
+        <div className="mb-3 grid grid-cols-[3.6rem_4.8rem_minmax(0,1fr)_4.8rem] items-end gap-3 px-1 text-[11px] font-black text-slate-500">
           <div />
           <div className="text-right uppercase tracking-[0.14em]">IIT</div>
           <div className="relative h-7 border-b border-slate-200">
@@ -446,11 +726,12 @@ function YearPanelCompareChart({
               );
             })}
           </div>
+          <div className="text-left uppercase tracking-[0.14em]">IIT</div>
         </div>
 
         <div className="divide-y divide-slate-100">
           {validPanels.map((panel) => (
-            <div key={panel.year} className="grid grid-cols-[3.6rem_4.8rem_minmax(0,1fr)] gap-3 py-3">
+            <div key={panel.year} className="grid grid-cols-[3.6rem_4.8rem_minmax(0,1fr)_4.8rem] gap-3 py-3">
               <button
                 type="button"
                 className="flex min-h-full items-center justify-center rounded-2xl text-xs font-black text-blue-700 transition hover:bg-sky-50"
@@ -510,20 +791,25 @@ function YearPanelCompareChart({
                               : (rawValue / rawTotal) * 100;
                             const shareLabel = rawTotal > 0 ? (rawValue / rawTotal) * 100 : 0;
                             const label = scaleMode === "indexed"
-                              ? shareLabel.toFixed(1)
+                              ? `${Math.round(shareLabel)}%`
                               : fmtDisplay(series.kpi, series.kpi?.format === "pct" ? rawValue * 100 : rawValue, "raw");
+                            const showSegmentLabel = !originalPanelHasManyIits && segmentWidth >= 12;
                             const segmentRow = preparedSegmentRow(row, series, rawValue, rawTotal);
                             return (
                               <button
                                 key={`${row.xKey}-${series.id}`}
                                 type="button"
                                 className="group relative flex h-full items-center justify-center border-r border-white/70 text-[9px] font-black text-white/90 transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                                style={{ width: `${segmentWidth}%`, background: series.color }}
+                                style={{
+                                  width: `${segmentWidth}%`,
+                                  background: compareTextureBackground(series.color, series.patternType),
+                                  backgroundSize: "10px 10px",
+                                }}
                                 title={`${row.instituteName} · ${panel.year} · ${series.fullLabel ?? series.label}: ${scaleMode === "indexed" ? `${shareLabel.toFixed(1)}%` : fmtRaw(series.kpi, rawValue)}`}
                                 onMouseEnter={() => onSegmentHover?.(series, segmentRow)}
                                 onClick={(event) => onSegmentClick?.(series, segmentRow, event)}
                               >
-                                {segmentWidth >= 10 ? <span className="truncate px-1">{label}</span> : null}
+                                {showSegmentLabel ? <span className="truncate px-1">{label}</span> : null}
                               </button>
                             );
                           })}
@@ -532,6 +818,20 @@ function YearPanelCompareChart({
                     </div>
                   );
                 })}
+              </div>
+
+              <div className="space-y-2">
+                {panel.rows.map((row) => (
+                  <button
+                    key={`right-label-${row.xKey}`}
+                    type="button"
+                    className="flex h-7 w-full items-center justify-start truncate rounded-lg px-1.5 text-left text-[11px] font-black text-slate-700 transition hover:bg-sky-50 hover:text-blue-700"
+                    title={`Drill down to ${row.instituteName}`}
+                    onClick={() => onIitClick?.(row.instituteId)}
+                  >
+                    {row.shortName}
+                  </button>
+                ))}
               </div>
             </div>
           ))}
@@ -545,7 +845,7 @@ function YearPanelCompareChart({
               className="inline-flex items-center gap-2 rounded-full px-2 py-1 transition hover:bg-sky-50"
               title={series.fullLabel ?? series.label}
             >
-              <span className="h-3 w-7 rounded-sm" style={{ background: series.color }} />
+              <span className="h-3 w-7 rounded-sm" style={compareSwatchStyle(series)} />
               <span className="max-w-[180px] truncate">{series.legendLabel ?? series.shortLabel ?? series.label}</span>
             </button>
           ))}
@@ -1223,7 +1523,7 @@ function SimpleChip({ children, tone = "#2563eb", removable = false, onRemove, o
   );
 }
 
-function SelectionActionButton({ label = "More filters", onClick, title }) {
+function SelectionActionButton({ label = "Advanced filters", onClick, title }) {
   return (
     <button
       type="button"
@@ -1246,7 +1546,7 @@ function FilterChoiceChip({ label, active = false, onClick, title }) {
       style={{
         borderColor: active ? 'rgba(37,99,235,0.32)' : 'rgba(226,232,240,0.95)',
         background: active ? 'rgba(239,246,255,0.96)' : 'rgba(248,250,252,0.95)',
-        color: '#0f172a',
+        color: '#1d4ed8',
       }}
     >
       <span
@@ -1273,8 +1573,8 @@ function EmptyStateCard({ onBuild }) {
       <div className="mx-auto grid h-16 w-16 place-items-center rounded-[22px] border border-sky-100 bg-sky-50 text-sky-600">
         {compareIcon("compare", false, "#2563eb")}
       </div>
-      <div className="mt-5 text-lg font-semibold text-slate-900">Select filters to start comparing</div>
-      <div className="mt-2 text-sm text-slate-500">Build a comparison only when you need it. The page stays calm until valid inputs are selected.</div>
+      <div className="mt-5 text-lg font-semibold text-slate-900">Select KPI to start comparing</div>
+      <div className="mt-2 text-sm text-slate-500">Choose one KPI, date range, and IIT set to start the comparison.</div>
       <button
         type="button"
         onClick={onBuild}
@@ -1282,7 +1582,7 @@ function EmptyStateCard({ onBuild }) {
         style={{ background: "#1d4ed8" }}
       >
         {compareIcon("build", true, "#ffffff")}
-        <span>Build Comparison</span>
+        <span>Build comparison</span>
       </button>
     </div>
   );
@@ -1535,7 +1835,7 @@ function StackTotalLabel({ x = 0, y = 0, width = 0, payload, item, scaleMode }) 
       x={Number(x) + Number(width) / 2}
       y={Number(y) - 7}
       textAnchor="middle"
-      fill="#0f172a"
+      fill="#1d4ed8"
       fontSize="12"
       fontWeight="800"
     >
@@ -1551,6 +1851,7 @@ function InteractiveCompareLegend({
   helper = "",
   compact = false,
   maxVisible = 10,
+  swatchVariant = "texture",
   onToggle,
   onMore,
 }) {
@@ -1573,9 +1874,10 @@ function InteractiveCompareLegend({
         <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{title}</div>
       ) : null}
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-        {visibleItems.map((item) => {
+        {visibleItems.map((item, itemIndex) => {
           const active = activeSet.has(item.id);
           const fullLabel = item.title ?? item.fullLabel ?? item.label;
+          const markerShape = item.markerShape ?? compareMarkerShape(itemIndex);
           return (
             <button
               key={item.id ?? item.label}
@@ -1589,7 +1891,11 @@ function InteractiveCompareLegend({
               aria-label={`${active ? "Deselect / hide" : "Select / show"} ${fullLabel}`}
               aria-pressed={active}
             >
-              <span className="h-3 w-3 shrink-0 rounded-[4px]" style={{ background: item.color }} />
+              {swatchVariant === "marker" ? (
+                <CompareLineLegendIcon color={item.color || "#2563eb"} shape={markerShape} active={active} />
+              ) : (
+                <span className="h-3 w-5 shrink-0 rounded-[4px]" style={compareSwatchStyle(item)} />
+              )}
               <span className="truncate">{item.label}</span>
             </button>
           );
@@ -1599,9 +1905,9 @@ function InteractiveCompareLegend({
             type="button"
             onClick={onMore}
             className="inline-flex cursor-pointer items-center rounded-full border border-sky-100 bg-sky-50 px-3 py-1.5 text-[11px] font-extrabold text-sky-700 transition hover:-translate-y-0.5 hover:bg-sky-100"
-            title="Open more filters"
+            title="Open advanced filters"
           >
-            {hiddenCount > 0 ? `More filters (+${hiddenCount})` : "More filters"}
+            {hiddenCount > 0 ? `Advanced filters (+${hiddenCount})` : "Advanced filters"}
           </button>
         ) : null}
       </div>
@@ -1645,6 +1951,7 @@ function SmallMultipleBarCard({
             barGap={visibleLines.length > 6 ? 2 : 4}
             onMouseLeave={onChartLeave}
           >
+            <ComparePatternDefs seriesList={visibleLines} />
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
             <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} interval={0} />
             <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} width={70} domain={sharedYMax ? [0, sharedYMax] : [0, "auto"]} />
@@ -1654,8 +1961,10 @@ function SmallMultipleBarCard({
                 key={line.id}
                 dataKey={`display_${line.id}`}
                 name={line.fullLabel ?? line.label}
-                fill={line.color}
-                radius={[7, 7, 0, 0]}
+                fill={line.color || "#2563eb"}
+                stroke={line.color || "#2563eb"}
+                shape={(props) => <CompareTexturedBarShape {...props} color={line.color || "#2563eb"} patternType={line.patternType} seriesId={line.id} />}
+                radius={[0, 0, 0, 0]}
                 maxBarSize={barMaxSize}
                 isAnimationActive={false}
                 onMouseEnter={(entry) => onSegmentHover?.(line, entry?.payload ?? entry)}
@@ -1669,7 +1978,7 @@ function SmallMultipleBarCard({
       <div className="mt-2 flex flex-wrap justify-center gap-1.5">
         {visibleLines.slice(0, 8).map((line) => (
           <span key={`legend-${line.id}`} className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: line.color }} />
+            <span className="h-2.5 w-5 rounded-[3px]" style={compareSwatchStyle(line)} />
             {line.label}
           </span>
         ))}
@@ -1705,11 +2014,11 @@ function SmallMultipleLineCard({ series, scaleMode, sharedYMax = null }) {
                 type="monotone"
                 dataKey={`display_${line.id}`}
                 name={line.label}
-                stroke={line.color}
+                stroke={line.color || "#2563eb"}
                 strokeWidth={2.4}
                 strokeDasharray={lineIndex % 3 === 1 ? "6 4" : lineIndex % 3 === 2 ? "2 4" : undefined}
-                dot={{ r: 3, fill: line.color, stroke: lineIndex % 2 ? "#ffffff" : line.color, strokeWidth: lineIndex % 2 ? 1.5 : 0 }}
-                activeDot={{ r: 5 }}
+                dot={(props) => <CompareLineMarker {...props} color={line.color} shape={line.markerShape ?? compareMarkerShape(lineIndex)} size={3.5} />}
+                activeDot={(props) => <CompareLineMarker {...props} color={line.color} shape={line.markerShape ?? compareMarkerShape(lineIndex)} size={5} />}
                 connectNulls
                 isAnimationActive={false}
               />
@@ -1719,9 +2028,9 @@ function SmallMultipleLineCard({ series, scaleMode, sharedYMax = null }) {
       </div>
       <div className="mt-1 text-center text-[11px] font-semibold text-slate-500">Year</div>
       <div className="mt-2 flex flex-wrap justify-center gap-1.5">
-        {(lines ?? []).slice(0, 8).map((line) => (
+        {(lines ?? []).slice(0, 8).map((line, lineIndex) => (
           <span key={`legend-${line.id}`} className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: line.color }} />
+            <CompareLineLegendIcon color={line.color || "#2563eb"} shape={line.markerShape ?? compareMarkerShape(lineIndex)} />
             {line.label}
           </span>
         ))}
@@ -1861,16 +2170,51 @@ function createDraftFromConfig(config, moduleMap, submoduleMap, sheetMap, worksh
   let moduleId = config?.CompareModule && moduleMap[config.CompareModule] ? config.CompareModule : null;
   let submoduleId = config?.CompareSubmoduleId && submoduleMap[config.CompareSubmoduleId] ? config.CompareSubmoduleId : null;
 
-  const resolveCompareItemId = (rawId) => {
-    if (!rawId) return null;
-    if (worksheetMap[rawId]) return rawId;
-    const scopedMatch = submoduleId
-      ? (submoduleMap[submoduleId]?.worksheets ?? []).find((worksheet) => worksheet.kpiId === rawId || worksheet.id === rawId || worksheet.sheetId === rawId)
-      : null;
-    return scopedMatch?.id ?? allWorksheets.find((worksheet) => worksheet.kpiId === rawId || worksheet.id === rawId || worksheet.sheetId === rawId)?.id ?? null;
+  const compareCandidateValues = (rawId) => dedupeList([
+    rawId,
+    config?.CompareSourceCategoryId,
+    config?.CompareSourceCategoryLabel,
+    config?.CompareCategoryId,
+    config?.CompareKpiLabel,
+    config?.CompareViewId,
+  ]);
+
+  const worksheetMatchesCandidate = (worksheet, candidate) => {
+    if (!worksheet || candidate == null || candidate === "") return false;
+    if (worksheetMap[candidate]) return worksheet.id === candidate;
+    const raw = String(candidate);
+    const normalizedRaw = normalizeCompareMatchValue(raw);
+    const directValues = [
+      worksheet.id,
+      worksheet.kpiId,
+      worksheet.sheetId,
+      worksheet.label,
+      worksheet.kpiLabel,
+      worksheet.sheetLabel,
+    ].filter(Boolean);
+    if (directValues.some((value) => String(value) === raw)) return true;
+    if (!normalizedRaw) return false;
+    return directValues.some((value) => {
+      const normalizedValue = normalizeCompareMatchValue(value);
+      return normalizedValue === normalizedRaw || normalizedValue.endsWith(normalizedRaw);
+    });
   };
 
-  let items = dedupeList([...(config?.CompareMetricIds ?? []), config?.MetricId]).map(resolveCompareItemId).filter(Boolean).slice(0, 1);
+  const findCompareItemMatch = (worksheets = [], candidate) => worksheets.find((worksheet) => worksheetMatchesCandidate(worksheet, candidate));
+
+  const resolveCompareItemId = (rawId) => {
+    const candidates = compareCandidateValues(rawId);
+    for (const candidate of candidates) {
+      if (worksheetMap[candidate]) return candidate;
+      const scopedMatch = submoduleId ? findCompareItemMatch(submoduleMap[submoduleId]?.worksheets ?? [], candidate) : null;
+      if (scopedMatch?.id) return scopedMatch.id;
+      const globalMatch = findCompareItemMatch(allWorksheets, candidate);
+      if (globalMatch?.id) return globalMatch.id;
+    }
+    return null;
+  };
+
+  let items = dedupeList([...(config?.CompareMetricIds ?? []), config?.MetricId, config?.CompareSourceCategoryId, config?.CompareSourceCategoryLabel]).map(resolveCompareItemId).filter(Boolean).slice(0, 1);
   let sheets = dedupeList(config?.CompareSheetIds ?? []).filter((id) => sheetMap[id]);
   if (items[0] && !worksheetMap[items[0]]?.comparable) {
     const item = worksheetMap[items[0]];
@@ -2179,7 +2523,7 @@ export default function ComparePage({
   const appliedYears = YEARS.filter((year) => year >= (applied?.yearFrom ?? YEARS[0]) && year <= (applied?.yearTo ?? YEARS[YEARS.length - 1]));
   const appliedIITs = applied?.iits ?? [];
   const appliedModeValidity = deriveModeValidity(appliedItems, appliedIITs, applied?.yearFrom ?? YEARS[0], applied?.yearTo ?? YEARS[YEARS.length - 1]);
-  const uiAccent = accent || "#1d4ed8";
+  const uiAccent = "#1d4ed8";
   const lastUpdatedLabel = formatCompareTimestamp(facts?.meta?.generatedAt);
   const lastDownloadedLabel = formatCompareTimestamp(lastDownloadedAt);
 
@@ -2219,9 +2563,10 @@ export default function ComparePage({
     const useBreakdownSeries = chartableAppliedItems.length <= COMPARE_BREAKDOWN_KPI_LIMIT;
     chartableAppliedItems.forEach((item, itemIndex) => {
       const itemBreakdowns = useBreakdownSeries && itemSupportsBreakdown(item) && appliedBreakdownKeys.length
-        ? appliedBreakdownKeys
+        ? filterBreakdownKeysForCompareItem(item, appliedBreakdownKeys)
         : [TOTAL_COMPARISON_KEY];
-      itemBreakdowns.forEach((breakdownKey, breakdownIndex) => {
+      const effectiveItemBreakdowns = itemBreakdowns.length ? itemBreakdowns : [TOTAL_COMPARISON_KEY];
+      effectiveItemBreakdowns.forEach((breakdownKey, breakdownIndex) => {
         const id = compareSeriesLegendId(item.id, breakdownKey);
         const breakdownLabel = compareBreakdownLabel(breakdownKey);
         const itemLabel = compareItemLabel(item);
@@ -2237,7 +2582,10 @@ export default function ComparePage({
           shortLabel: visibleLabel,
           fullLabel,
           legendLabel: visibleLabel,
-          color: compareSeriesColor(itemIndex, breakdownIndex, itemBreakdowns.length),
+          color: compareSeriesColor(itemIndex, breakdownIndex, effectiveItemBreakdowns.length),
+          patternId: comparePatternId(id),
+          patternType: comparePatternType(breakdownIndex),
+          markerShape: compareMarkerShape(breakdownIndex),
           stackId: `stack_${normalizeSeriesKey(item.id)}`,
         });
       });
@@ -2251,6 +2599,9 @@ export default function ComparePage({
       label: series.legendLabel ?? series.shortLabel,
       title: series.fullLabel ?? series.label,
       color: series.color,
+      patternId: series.patternId,
+      patternType: series.patternType,
+      markerShape: series.markerShape,
     })),
     [groupedStackSeries],
   );
@@ -2535,6 +2886,9 @@ export default function ComparePage({
         fullLabel: `${series.fullLabel ?? series.label} · ${instituteNameById(iid)}`,
         kpi: series.kpi,
         color: compareIitColor(iid, instituteIndex),
+        patternId: comparePatternId(`${series.id}_${iid}_bar`),
+        patternType: comparePatternType(instituteIndex),
+        markerShape: compareMarkerShape(instituteIndex),
       }));
 
       const rawValuesByIit = Object.fromEntries(
@@ -2597,6 +2951,9 @@ export default function ComparePage({
         fullLabel: `${series.fullLabel ?? series.label} · ${instituteNameById(iid)}`,
         kpi: series.kpi,
         color: compareIitColor(iid, instituteIndex),
+        patternId: comparePatternId(`${series.id}_${iid}_bar`),
+        patternType: comparePatternType(instituteIndex),
+        markerShape: compareMarkerShape(instituteIndex),
       }));
       const rawValuesByIit = Object.fromEntries(
         iitLines.map((line) => [
@@ -2882,7 +3239,7 @@ export default function ComparePage({
       `Modules: ${(applied.submodules ?? []).map((id) => humanizeCompareLabel(submoduleMap[id]?.label ?? id)).join(", ")}`,
       `Sheets: ${(applied.sheets ?? []).map((id) => humanizeCompareLabel(sheetMap[id]?.label ?? id)).join(", ")}`,
       `KPIs: ${(applied.items ?? []).map((id) => compareItemLabel(worksheetMap[id] ?? { id })).join(", ")}`,
-      `Compare by: ${(applied.breakdowns ?? []).length ? applied.breakdowns.map(compareBreakdownLabel).join(", ") : "Default breakdown / total"}`,
+      `View by: ${(applied.breakdowns ?? []).length ? applied.breakdowns.map(compareBreakdownLabel).join(", ") : "Default breakdown / total"}`,
       `IITs: ${(applied.iits ?? []).join(", ")}`,
       `Years: ${applied.yearFrom}-${applied.yearTo}`,
       `Ranking year: ${applied.focusYear}`,
@@ -3311,8 +3668,6 @@ export default function ComparePage({
       .map((item, index) => ({ item, index }))
       .sort((left, right) => {
         if (sortBy === "selected") {
-          const priorityDelta = getPriority(right.item) - getPriority(left.item);
-          if (priorityDelta) return priorityDelta;
           return left.index - right.index;
         }
         const labelA = getLabel(left.item);
@@ -3491,7 +3846,7 @@ export default function ComparePage({
     const list = query
       ? IITs.filter((item) => `${item.id} ${item.name} ${item.state || ""}`.toLowerCase().includes(query))
       : IITs;
-    return sortEntities(list, (item) => `${item.id} ${item.name}`, (item) => (draft.iits.includes(item.id) ? 2 : 0));
+    return [...list].sort((left, right) => `${left.id} ${left.name}`.localeCompare(`${right.id} ${right.name}`));
   }, [draft.iits, sortBy, toolbarSearch]);
 
   const activeFilterCount = [
@@ -3587,11 +3942,11 @@ export default function ComparePage({
         <CombinedKpiSelector
           title={(
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <span>Select filters</span>
-              <SelectionActionButton label="Advanced filters" onClick={() => openBuilder(1)} title="Open advanced compare filters" />
+              <span>Select KPI</span>
+              <SelectionActionButton label="Advanced filters" onClick={() => openBuilder(1)} title="Open advanced filters" />
             </div>
           )}
-          helper="Choose one category, module, sheet, and KPI for the comparison. Use the carousel arrows only to scroll through choices."
+          helper="Select the Category, Module, Sheet, and KPI to compare."
           accent={uiAccent}
           soft={`${uiAccent}12`}
           rows={[
@@ -3658,9 +4013,9 @@ export default function ComparePage({
           <span className="text-sm text-slate-500">No module selected.</span>
         )}
         <SelectionActionButton
-          label={hiddenCount > 0 ? `More filters (+${hiddenCount})` : 'More filters'}
+          label={hiddenCount > 0 ? `Advanced filters (+${hiddenCount})` : 'Advanced filters'}
           onClick={() => openBuilder(1)}
-          title="Open module filters"
+          title="Open advanced filters"
         />
       </div>
     );
@@ -3685,7 +4040,7 @@ export default function ComparePage({
       return (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className="text-sm text-slate-500">No module selected.</span>
-          <SelectionActionButton label="More filters" onClick={() => openBuilder(1)} title="Open module filters" />
+          <SelectionActionButton label="Advanced filters" onClick={() => openBuilder(1)} title="Open advanced filters" />
         </div>
       );
     }
@@ -3704,9 +4059,9 @@ export default function ComparePage({
           </button>
         ))}
         <SelectionActionButton
-          label={hiddenCount > 0 ? `More filters (+${hiddenCount})` : 'More filters'}
+          label={hiddenCount > 0 ? `Advanced filters (+${hiddenCount})` : 'Advanced filters'}
           onClick={() => openBuilder(1)}
-          title="Open module filters"
+          title="Open advanced filters"
         />
       </div>
     );
@@ -3772,130 +4127,83 @@ export default function ComparePage({
   function renderFilterPopover() {
     if (openPopover !== 'filters') return null;
 
-    const moduleQuery = moduleSearch.trim().toLowerCase();
-    const submoduleQuery = submoduleSearch.trim().toLowerCase();
-    const iitQuery = iitSearch.trim().toLowerCase();
+    const categoryOptions = hierarchy.map((module) => ({
+      value: module.id,
+      label: humanizeCompareLabel(module.label ?? module.id),
+    }));
+    const activeCategory = moduleMap[draft.modules?.[0]] ?? hierarchy[0] ?? null;
+    const moduleOptions = (activeCategory?.submodules ?? []).map((submodule) => ({
+      value: submodule.id,
+      label: humanizeCompareLabel(submodule.label ?? submodule.id),
+    }));
+    const activeModule = submoduleMap[draft.submodules?.[0]] ?? (activeCategory?.submodules ?? [])[0] ?? null;
+    const sheetOptions = (activeModule?.sheets ?? []).map((sheet) => ({
+      value: sheet.id,
+      label: humanizeCompareLabel(sheet.label ?? sheet.id),
+    }));
+    const activeSheet = sheetMap[draft.sheets?.[0]] ?? (activeModule?.sheets ?? [])[0] ?? null;
+    const kpiOptions = (activeSheet?.kpis ?? []).map((item) => ({
+      value: item.id,
+      label: compareItemLabel(item),
+    }));
 
-    const visibleModules = sortEntities(
-      hierarchy.filter((module) => {
-        if (!moduleQuery) return true;
-        return [module.id, module.label, module.description].some((value) => String(value || '').toLowerCase().includes(moduleQuery));
-      }),
-      (module) => module.label ?? module.id,
-      (module) => (draft.modules.includes(module.id) ? 2 : 0),
-    );
-
-    const selectedModuleEntities = draft.modules.map((id) => moduleMap[id]).filter(Boolean);
-    const selectedSubmoduleEntities = draft.submodules.map((id) => submoduleMap[id]).filter(Boolean);
-    const selectedSheetEntities = (draft.sheets ?? []).map((id) => sheetMap[id]).filter(Boolean);
-    const submodulePool = selectedModuleEntities.flatMap((module) =>
-      (module.submodules ?? []).map((submodule) => ({
-        ...submodule,
-        moduleLabel: module.label ?? module.id,
-      })),
-    );
-
-    const visibleSubmodules = sortEntities(
-      submodulePool.filter((submodule) => {
-        if (!submoduleQuery) return true;
-        return [submodule.label, submodule.helper, submodule.moduleLabel].some((value) => String(value || '').toLowerCase().includes(submoduleQuery));
-      }),
-      (submodule) => `${submodule.moduleLabel} ${submodule.label}`,
-      (submodule) => (draft.submodules.includes(submodule.id) ? 2 : 0),
-    );
-
-    const visibleSheets = sortEntities(
-      selectedSubmoduleEntities.flatMap((submodule) => (submodule.sheets ?? []).map((sheet) => ({
-        ...sheet,
-        moduleLabel: moduleMap[submodule.moduleId]?.label ?? submodule.moduleId,
-        submoduleLabel: submodule.label ?? submodule.id,
-      }))),
-      (sheet) => `${sheet.moduleLabel} ${sheet.submoduleLabel} ${sheet.label}`,
-      (sheet) => ((draft.sheets ?? []).includes(sheet.id) ? 2 : 0),
-    );
-
-    const visibleKpis = sortEntities(
-      selectedSheetEntities.flatMap((sheet) => (sheet.kpis ?? []).map((item) => ({
-        ...item,
-        sheetLabel: sheet.label ?? item.sheetLabel,
-      }))),
-      (item) => `${item.sheetLabel} ${item.kpiLabel ?? item.label}`,
-      (item) => (draft.items.includes(item.id) ? 2 : 0),
-    );
-
-    const visibleIITs = sortEntities(
-      IITs.filter((iit) => {
-        if (!iitQuery) return true;
-        return `${iit.id} ${iit.name} ${iit.state || ''}`.toLowerCase().includes(iitQuery);
-      }),
-      (iit) => `${iit.id} ${iit.name}`,
-      (iit) => (draft.iits.includes(iit.id) ? 2 : 0),
-    );
-
-    const selectAllModules = () => {
-      const itemId = firstItemIdFromModuleEntity(visibleModules[0] ?? hierarchy[0]);
+    const handleCategoryDropdown = (moduleId) => {
+      const itemId = firstItemIdFromModuleEntity(moduleMap[moduleId]);
       if (!itemId) return;
       setDraft((prev) => singleKpiSelection(prev, itemId));
     };
-
-    const resetModules = () => {
-      setDraft((prev) => ({ ...prev, modules: [], submodules: [], sheets: [], items: [], breakdowns: [] }));
-    };
-
-    const selectAllVisibleSubmodules = () => {
-      const itemId = firstItemIdFromSubmoduleEntity(visibleSubmodules[0] ?? selectedModuleEntities.flatMap((module) => module.submodules)[0]);
+    const handleModuleDropdown = (submoduleId) => {
+      const itemId = firstItemIdFromSubmoduleEntity(submoduleMap[submoduleId]);
       if (!itemId) return;
       setDraft((prev) => singleKpiSelection(prev, itemId));
     };
-
-    const resetSubmodules = () => {
-      const selectedModuleSet = new Set(draft.modules);
-      setDraft((prev) => ({
-        ...prev,
-        submodules: prev.submodules.filter((submoduleId) => !selectedModuleSet.has(submoduleMap[submoduleId]?.moduleId)),
-        sheets: (prev.sheets ?? []).filter((sheetId) => !selectedModuleSet.has(sheetMap[sheetId]?.moduleId)),
-        items: prev.items.filter((itemId) => !selectedModuleSet.has(worksheetMap[itemId]?.moduleId)),
-        breakdowns: [],
-      }));
-    };
-
-    const selectAllVisibleSheets = () => {
-      const itemId = firstItemIdFromSheetEntity(visibleSheets[0]);
+    const handleSheetDropdown = (sheetId) => {
+      const itemId = firstItemIdFromSheetEntity(sheetMap[sheetId]);
       if (!itemId) return;
       setDraft((prev) => singleKpiSelection(prev, itemId));
     };
-
-    const resetSheets = () => {
-      const selectedSubmoduleSet = new Set(draft.submodules);
-      setDraft((prev) => ({
-        ...prev,
-        sheets: (prev.sheets ?? []).filter((sheetId) => !selectedSubmoduleSet.has(sheetMap[sheetId]?.submoduleId)),
-        items: prev.items.filter((itemId) => !selectedSubmoduleSet.has(worksheetMap[itemId]?.submoduleId)),
-        breakdowns: [],
-      }));
-    };
-
-    const selectAllVisibleKpis = () => {
-      const itemId = visibleKpis[0]?.id;
-      if (!itemId) return;
+    const handleKpiDropdown = (itemId) => {
+      if (!worksheetMap[itemId]) return;
       setDraft((prev) => singleKpiSelection(prev, itemId));
     };
 
-    const resetKpis = () => {
-      setDraft((prev) => ({ ...prev, items: [], breakdowns: [] }));
-    };
+    const allIitIds = IITs.map((iit) => iit.id);
+    const iitSelectedCount = draft.iits.filter((iid) => allIitIds.includes(iid)).length;
+    const allIitsSelected = iitSelectedCount === allIitIds.length && allIitIds.length > 0;
+    const someIitsSelected = iitSelectedCount > 0 && !allIitsSelected;
+    const visibleIITs = [...IITs].sort((left, right) => `${left.id} ${left.name}`.localeCompare(`${right.id} ${right.name}`));
+
+    const SelectAllIitsButton = () => (
+      <button
+        type="button"
+        onClick={() => setDraft((prev) => ({ ...prev, iits: allIitsSelected ? [] : allIitIds }))}
+        className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-4 py-2 text-sm font-extrabold text-sky-700 transition hover:border-sky-200 hover:bg-sky-100"
+        aria-checked={someIitsSelected ? "mixed" : allIitsSelected}
+        role="checkbox"
+        title={allIitsSelected ? "Clear all IITs" : "Select all IITs"}
+      >
+        <span
+          className="grid h-4 w-4 place-items-center rounded border text-[11px] leading-none"
+          style={{
+            borderColor: allIitsSelected || someIitsSelected ? '#1d4ed8' : '#94a3b8',
+            background: allIitsSelected || someIitsSelected ? '#1d4ed8' : '#ffffff',
+            color: allIitsSelected || someIitsSelected ? '#ffffff' : 'transparent',
+          }}
+        >
+          {allIitsSelected ? '✓' : someIitsSelected ? '−' : '✓'}
+        </span>
+        Select all
+      </button>
+    );
 
     return (
       <div className="fixed inset-0 z-[260] bg-slate-950/18 px-4 py-5 backdrop-blur-[2px]">
         <div
           data-compare-popover
-          className="mx-auto flex h-full w-full max-w-[1180px] flex-col overflow-hidden rounded-[30px] border border-slate-200 bg-[#f3f4f6] shadow-[0_30px_90px_rgba(15,23,42,0.18)]"
+          className="mx-auto flex h-full w-full max-w-[1040px] flex-col overflow-hidden rounded-[30px] border border-slate-200 bg-[#f3f4f6] shadow-[0_30px_90px_rgba(15,23,42,0.18)]"
         >
           <div className="flex items-start justify-between gap-4 px-6 py-5">
-            <div>
-              <div className="text-[1.25rem] font-extrabold text-slate-900">Compare filters</div>
-              <div className="mt-1 text-sm text-slate-500">Refine category, module, sheet, one KPI, date, and IIT filters, then apply them to refresh the compare view.</div>
-            </div>
+            <div className="text-[1.25rem] font-extrabold text-slate-900">Select KPI</div>
             <button
               type="button"
               onClick={() => setOpenPopover(null)}
@@ -3909,146 +4217,57 @@ export default function ComparePage({
           <div className="min-h-0 flex-1 overflow-auto px-5 pb-5">
             <div className="space-y-4">
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
-                <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Category</div>
-                  <div>
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-[220px] flex-1 max-w-[320px]">
-                        <SearchField value={moduleSearch} onChange={setModuleSearch} placeholder="Search category" />
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button type="button" onClick={resetModules} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
-                        <SelectionActionButton label="Use first" onClick={selectAllModules} title="Use the first visible category" />
-                      </div>
-                    </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      {visibleModules.length ? visibleModules.map((module) => (
-                        <FilterChoiceChip
-                          key={module.id}
-                          label={humanizeCompareLabel(module.label ?? module.id)}
-                          active={draft.modules.includes(module.id)}
-                          onClick={() => toggleModuleSelection(module.id)}
-                          title={humanizeCompareLabel(module.description || module.label || module.id)}
-                        />
-                      )) : (
-                        <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching categories found.</div>
-                      )}
-                    </div>
-                  </div>
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div className="text-[1.02rem] font-extrabold text-slate-900">Select KPI</div>
+                  <button
+                    type="button"
+                    onClick={() => setDraft((prev) => ({ ...prev, modules: [], submodules: [], sheets: [], items: [], breakdowns: [] }))}
+                    className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50"
+                  >
+                    Clear all
+                  </button>
                 </div>
-              </div>
-
-              <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
-                <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Module</div>
-                  <div>
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-[220px] flex-1 max-w-[320px]">
-                        <SearchField value={submoduleSearch} onChange={setSubmoduleSearch} placeholder="Search module" />
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button type="button" onClick={resetSubmodules} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
-                        <SelectionActionButton label="Use first" onClick={selectAllVisibleSubmodules} title="Select the first visible module for the current category" />
-                      </div>
-                    </div>
-                    {selectedModuleEntities.length ? (
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                        {visibleSubmodules.length ? visibleSubmodules.map((submodule) => (
-                          <FilterChoiceChip
-                            key={submodule.id}
-                            label={humanizeCompareLabel(submodule.label)}
-                            active={draft.submodules.includes(submodule.id)}
-                            onClick={() => toggleSubmoduleSelection(submodule.id)}
-                            title={`${humanizeCompareLabel(submodule.moduleLabel)} > ${humanizeCompareLabel(submodule.label)}`}
-                          />
-                        )) : (
-                          <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching modules found for the selected category.</div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="mt-4 rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one category to view its modules here.</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
-                <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Sheet</div>
-                  <div>
-                    <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-                      <button type="button" onClick={resetSheets} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
-                      <SelectionActionButton label="Use first" onClick={selectAllVisibleSheets} title="Select the first visible sheet for the selected module" />
-                    </div>
-                    {selectedSubmoduleEntities.length ? (
-                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                        {visibleSheets.length ? visibleSheets.map((sheet) => (
-                          <FilterChoiceChip
-                            key={`sheet-${sheet.id}`}
-                            label={humanizeCompareLabel(sheet.label)}
-                            active={(draft.sheets ?? []).includes(sheet.id)}
-                            onClick={() => toggleSheetSelection(sheet.id)}
-                            title={`${humanizeCompareLabel(sheet.submoduleLabel)} > ${humanizeCompareLabel(sheet.label)}`}
-                          />
-                        )) : (
-                          <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching sheets found for the selected module.</div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one module to view sheets here.</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
-                <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">KPI</div>
-                  <div>
-                    <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-                      <button type="button" onClick={resetKpis} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
-                      <SelectionActionButton label="Use first" onClick={selectAllVisibleKpis} title="Select the first visible KPI for the selected sheet" />
-                    </div>
-                    {selectedSheetEntities.length ? (
-                      <>
-                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                          {visibleKpis.length ? visibleKpis.map((item) => (
-                            <FilterChoiceChip
-                              key={`kpi-${item.id}`}
-                              label={compareItemLabel(item)}
-                              active={draft.items.includes(item.id)}
-                              onClick={() => toggleItemSelection(item.id)}
-                              title={`${humanizeCompareLabel(item.sheetLabel ?? item.sheetId)} > ${compareItemLabel(item)}`}
-                            />
-                          )) : (
-                            <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No KPI found for the selected sheet.</div>
-                          )}
-                        </div>
-                        {draft.items.length > 10 ? (
-                          <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                            Compare supports one KPI at a time. Pick a different KPI to replace the current selection.
-                          </div>
-                        ) : null}
-                      </>
-                    ) : (
-                      <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">Select at least one sheet to view KPIs here.</div>
-                    )}
-                  </div>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <Select
+                    label="Category"
+                    value={draft.modules?.[0] ?? categoryOptions[0]?.value ?? ''}
+                    onChange={handleCategoryDropdown}
+                    options={categoryOptions.length ? categoryOptions : [{ value: '', label: 'No category available' }]}
+                    disabled={!categoryOptions.length}
+                  />
+                  <Select
+                    label="Module"
+                    value={draft.submodules?.[0] ?? moduleOptions[0]?.value ?? ''}
+                    onChange={handleModuleDropdown}
+                    options={moduleOptions.length ? moduleOptions : [{ value: '', label: 'Select category first' }]}
+                    disabled={!moduleOptions.length}
+                  />
+                  <Select
+                    label="Sheet"
+                    value={draft.sheets?.[0] ?? sheetOptions[0]?.value ?? ''}
+                    onChange={handleSheetDropdown}
+                    options={sheetOptions.length ? sheetOptions : [{ value: '', label: 'Select module first' }]}
+                    disabled={!sheetOptions.length}
+                  />
+                  <Select
+                    label="KPI"
+                    value={draft.items?.[0] ?? kpiOptions[0]?.value ?? ''}
+                    onChange={handleKpiDropdown}
+                    options={kpiOptions.length ? kpiOptions : [{ value: '', label: 'Select sheet first' }]}
+                    disabled={!kpiOptions.length}
+                  />
                 </div>
               </div>
 
               <div id="compare-by-filter-section" className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Compare by</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">View by</div>
                   <div>
                     {draftBreakdownOptions.length ? (
                       <>
-                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                          <div className="text-sm text-slate-500">Choose the internal breakdown values to compare inside selected KPIs.</div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button type="button" onClick={() => setDraft((prev) => ({ ...prev, breakdowns: [] }))} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Use defaults</button>
-                            <SelectionActionButton label="Select all" onClick={() => setDraft((prev) => ({ ...prev, breakdowns: [...draftBreakdownOptions] }))} title="Select all available breakdown values" />
-                          </div>
+                        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                          <button type="button" onClick={() => setDraft((prev) => ({ ...prev, breakdowns: [] }))} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Clear all</button>
+                          <SelectionActionButton label="Select all" onClick={() => setDraft((prev) => ({ ...prev, breakdowns: [...draftBreakdownOptions] }))} title="Select all available breakdown values" />
                         </div>
                         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                           {draftBreakdownOptions.map((key) => (
@@ -4057,13 +4276,13 @@ export default function ComparePage({
                               label={compareBreakdownLabel(key)}
                               active={(draft.breakdowns ?? []).includes(key)}
                               onClick={() => toggleBreakdownSelection(key)}
-                              title={`Compare by ${compareBreakdownLabel(key)}`}
+                              title={`View by ${compareBreakdownLabel(key)}`}
                             />
                           ))}
                         </div>
                       </>
                     ) : (
-                      <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">The selected KPI do not expose an internal breakdown. The comparison will use the total value.</div>
+                      <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">The selected KPI does not expose an internal breakdown. The comparison will use the total value.</div>
                     )}
                   </div>
                 </div>
@@ -4071,7 +4290,7 @@ export default function ComparePage({
 
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Date</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Select Date</div>
                   <CompareDateSelector
                     source={draft}
                     updateSource={setDraft}
@@ -4083,30 +4302,21 @@ export default function ComparePage({
 
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">IIT(s)</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Select IITs</div>
                   <div>
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-[220px] flex-1 max-w-[320px]">
-                        <SearchField value={iitSearch} onChange={setIitSearch} placeholder="Search IIT" />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <SelectAllIitsButton />
+                        <button type="button" onClick={() => setDraft((prev) => ({ ...prev, iits: [] }))} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Clear all</button>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <button type="button" onClick={() => setDraft((prev) => ({ ...prev, iits: [] }))} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50">Reset</button>
-                        <SelectionActionButton label="Select all" onClick={() => setDraft((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))} title="Select all IITs" />
+                        <SelectionActionButton label="OLD IITs" onClick={() => setDraft((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))} title="Select old IITs" />
+                        <SelectionActionButton label="Top 10 by KPI" onClick={() => applyRankedIits("top")} title="Select top 10 IITs for the selected KPI and ranking year" />
+                        <SelectionActionButton label="Bottom 10 by KPI" onClick={() => applyRankedIits("bottom")} title="Select bottom 10 IITs for the selected KPI and ranking year" />
                       </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <SelectionActionButton label="OLD IITs" onClick={() => setDraft((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))} title="Select old IITs" />
-                      <SelectionActionButton label="ALL" onClick={() => setDraft((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))} title="Select all IITs" />
-                      <SelectionActionButton label="Top 10" onClick={() => applyRankedIits("top")} title="Select top 10 IITs for the selected KPI and ranking year" />
-                      <SelectionActionButton label="Bottom 10" onClick={() => applyRankedIits("bottom")} title="Select bottom 10 IITs for the selected KPI and ranking year" />
-                    </div>
-                    {draft.iits.length > 10 ? (
-                      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                        More than 10 IITs are selected. The chart packs IIT bars within each year, separates year groups, and alternates IIT labels to keep the full comparison readable.
-                      </div>
-                    ) : null}
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      {visibleIITs.length ? visibleIITs.map((iit) => (
+                      {visibleIITs.map((iit) => (
                         <FilterChoiceChip
                           key={iit.id}
                           label={instituteShortLabel(iit.id)}
@@ -4115,13 +4325,11 @@ export default function ComparePage({
                             ...prev,
                             iits: prev.iits.includes(iit.id)
                               ? prev.iits.filter((item) => item !== iit.id)
-                              : [...prev.iits, iit.id],
+                              : sortIitsAlphabetically([...prev.iits, iit.id]),
                           }))}
                           title={iit.name}
                         />
-                      )) : (
-                        <div className="rounded-[16px] border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">No matching IITs found.</div>
-                      )}
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -4403,7 +4611,7 @@ export default function ComparePage({
 
           {compareRenderSeriesLimitHit && applied.view !== "table" ? (
             <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800">
-              Showing the first {renderedGroupedStackSeries.length} active breakdown series in the visual to keep Compare responsive. Use More filters or Table view to inspect all breakdowns.
+              Showing the first {renderedGroupedStackSeries.length} active breakdown series in the visual to keep Compare responsive. Use Advanced filters or Table view to inspect all breakdowns.
             </div>
           ) : null}
 
@@ -4461,6 +4669,7 @@ export default function ComparePage({
                         barGap={0}
                         onMouseLeave={handleBarChartMouseLeave}
                       >
+                        <ComparePatternDefs seriesList={renderedGroupedStackSeries} />
                         <CartesianGrid strokeDasharray="3 3" vertical stroke="#e5e7eb" />
                         <XAxis
                           dataKey="xKey"
@@ -4486,8 +4695,10 @@ export default function ComparePage({
                               dataKey={`display_${series.id}`}
                               name={series.fullLabel ?? series.label}
                               stackId={singleSlotBreakdownView ? series.id : series.stackId}
-                              fill={series.color}
-                              radius={singleSlotBreakdownView || isTopVisibleSeries ? [8, 8, 0, 0] : [0, 0, 0, 0]}
+                              fill={series.color || "#2563eb"}
+                              stroke={series.color || "#2563eb"}
+                              shape={(props) => <CompareTexturedBarShape {...props} color={series.color || "#2563eb"} patternType={series.patternType} seriesId={series.id} />}
+                              radius={[0, 0, 0, 0]}
                               maxBarSize={groupedBarMaxSize}
                               onMouseEnter={(entry) => handleBarSegmentHover(series, entry?.payload ?? entry)}
                               onClick={(entry, index, event) => handleBarSegmentClick(series, entry?.payload ?? entry, event)}
@@ -4553,6 +4764,7 @@ export default function ComparePage({
                     title={compareLegendTitle}
                     helper=""
                     maxVisible={fullscreen ? 16 : 10}
+                    swatchVariant="marker"
                     onToggle={toggleComparisonLegendItem}
                     onMore={openCompareByFilters}
                   />
@@ -4647,7 +4859,7 @@ export default function ComparePage({
             background: 'rgba(255,255,255,0.94)',
           }}
         >
-          <div className="text-sm font-bold" style={{ color: '#0f172a' }}>Date</div>
+          <div className="text-sm font-bold" style={{ color: '#1d4ed8' }}>Select Date</div>
           <div className="mt-3">
             <CompareDateSelector
               source={selectionSource}
@@ -4657,38 +4869,16 @@ export default function ComparePage({
             />
           </div>
 
-          <div className="mt-5 text-sm font-bold" style={{ color: '#0f172a' }}>IIT(s):</div>
+          <div className="mt-5 text-sm font-bold" style={{ color: '#1d4ed8' }}>Select IITs</div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))}
-              className="rounded-full border px-4 py-2 text-sm font-extrabold transition"
-              style={{
-                borderColor: selectionSource.iits.length === LEGACY_IITS.length && LEGACY_IITS.every((iid) => selectionSource.iits.includes(iid)) ? 'rgba(37,99,235,0.28)' : 'rgba(148,163,184,0.22)',
-                background: selectionSource.iits.length === LEGACY_IITS.length && LEGACY_IITS.every((iid) => selectionSource.iits.includes(iid)) ? 'rgba(37,99,235,0.08)' : 'white',
-                color: selectionSource.iits.length === LEGACY_IITS.length && LEGACY_IITS.every((iid) => selectionSource.iits.includes(iid)) ? '#1d4ed8' : '#475569',
-              }}
-            >
-              OLD IITs
-            </button>
-            <button
-              type="button"
-              onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))}
-              className="rounded-full border px-4 py-2 text-sm font-extrabold transition"
-              style={{
-                borderColor: selectionSource.iits.length === IITs.length ? 'rgba(37,99,235,0.28)' : 'rgba(148,163,184,0.22)',
-                background: selectionSource.iits.length === IITs.length ? 'rgba(37,99,235,0.08)' : 'white',
-                color: selectionSource.iits.length === IITs.length ? '#1d4ed8' : '#475569',
-              }}
-            >
-              ALL
-            </button>
-            <SelectionActionButton label="Top 10" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "top") }))} title="Select top 10 IITs for the selected KPI and ranking year" />
-            <SelectionActionButton label="Bottom 10" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "bottom") }))} title="Select bottom 10 IITs for the selected KPI and ranking year" />
+            <SelectionActionButton label="OLD IITs" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))} title="Select old IITs" />
+            <SelectionActionButton label="ALL" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))} title="Select all IITs" />
+            <SelectionActionButton label="Top 10 by KPI" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "top") }))} title="Select top 10 IITs for the selected KPI and ranking year" />
+            <SelectionActionButton label="Bottom 10 by KPI" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "bottom") }))} title="Select bottom 10 IITs for the selected KPI and ranking year" />
             <SelectionActionButton
-              label="More filters"
+              label="Advanced filters"
               onClick={() => openBuilder(1)}
-              title="Open IIT filters"
+              title="Open advanced filters"
             />
           </div>
           <div className="mt-3 text-xs font-semibold text-slate-500"></div>
@@ -4701,7 +4891,7 @@ export default function ComparePage({
 
       {!applied && canApply ? (
         <div className="rounded-[24px] border border-sky-100 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700">
-          Selections are ready. Open More filters to refine them or keep the current defaults.
+          Selections are ready. Open advanced filters to refine them or keep the current defaults.
         </div>
       ) : null}
 

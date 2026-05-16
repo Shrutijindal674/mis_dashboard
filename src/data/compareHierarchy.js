@@ -2885,9 +2885,30 @@ const MAPPING_ROWS = [
   }
 ];
 
+function normalizeCompareText(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactCompareText(value) {
+  return normalizeCompareText(value).replace(/\s+/g, "");
+}
+
 function includesAny(value, needles) {
-  const text = String(value ?? "").toLowerCase();
-  return needles.some((needle) => text.includes(needle));
+  const text = normalizeCompareText(value);
+  const compactText = compactCompareText(value);
+  return needles.some((needle) => {
+    const normalizedNeedle = normalizeCompareText(needle);
+    const compactNeedle = compactCompareText(needle);
+    return Boolean(
+      (normalizedNeedle && text.includes(normalizedNeedle)) ||
+      (compactNeedle && compactText.includes(compactNeedle))
+    );
+  });
 }
 
 function inferKpiId(row) {

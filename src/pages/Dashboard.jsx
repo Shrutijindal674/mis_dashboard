@@ -1392,10 +1392,17 @@ export default function Dashboard({
     ],
   );
 
+  const compareSourceCategoryId = isInstitutionGovernanceActive && currentInstitutionGovernanceCategoryId
+    ? currentInstitutionGovernanceCategoryId
+    : null;
+  const compareSourceCategoryLabel = isInstitutionGovernanceActive && currentInstitutionGovernanceCategory?.label
+    ? currentInstitutionGovernanceCategory.label
+    : null;
+
   const compareSeedMetricIds = useMemo(() => {
-    // Compare should open on the exact KPI the user is viewing; users can add more metrics in Compare filters.
-    return dedupeList([selectedKpiId]).slice(0, 1);
-  }, [selectedKpiId]);
+    // Compare should open on the exact KPI/card the user is viewing; users can still change it in Compare filters.
+    return dedupeList([compareSourceCategoryId, selectedKpiId]).slice(0, 1);
+  }, [compareSourceCategoryId, selectedKpiId]);
 
   const compareSeedInstituteIds = useMemo(() => {
     return dedupeList([
@@ -1409,6 +1416,9 @@ export default function Dashboard({
       MetricId: selectedKpiId,
       CompareModule: activeDomain,
       CompareSubmoduleId: selectedSubsectionId,
+      CompareSourceCategoryId: compareSourceCategoryId,
+      CompareSourceCategoryLabel: compareSourceCategoryLabel,
+      CompareViewId: currentIgViewId,
       CompareMetricIds: [...compareSeedMetricIds],
       CompareView: "smallMultiples",
       CompareScale: "raw",
@@ -3997,9 +4007,6 @@ export default function Dashboard({
                     key={item.id}
                     type="button"
                     onClick={() => {
-                      if (item.id === "Compare") {
-                        setCompareCfg(buildCompareDefaults({ autoApply: true }));
-                      }
                       setSection(item.id);
                     }}
                     className={`flex w-full items-center gap-3 rounded-[22px] px-3 py-2.5 text-left transition ${sidebarCollapsed ? "justify-center" : ""}`}
