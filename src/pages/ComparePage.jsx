@@ -1,5 +1,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import html2canvas from "html2canvas";
 import {
   Bar,
   BarChart,
@@ -16,9 +17,6 @@ import {
 } from "recharts";
 import {
   copyToClipboard,
-  downloadElementImage,
-  downloadElementPdf,
-  downloadElementSvg,
   downloadTableSvg,
   downloadText,
   formatCompact,
@@ -38,6 +36,213 @@ const LEGACY_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
 const PALETTE = ["#061a40", "#0d47a1", "#1565c0", "#0284c7", "#0ea5e9", "#38bdf8", "#7dd3fc", "#c7edff", "#082f49", "#1e3a8a", "#2563eb", "#60a5fa", "#bae6fd", "#eff6ff", "#0f172a", "#1d4ed8", "#67e8f9", "#dbeafe"];
 const IIT_BLUE_PALETTE = ["#061a40", "#0d47a1", "#1565c0", "#0284c7", "#0ea5e9", "#38bdf8", "#7dd3fc", "#c7edff", "#082f49", "#1e3a8a", "#2563eb", "#60a5fa", "#bae6fd", "#eff6ff", "#0f172a", "#1d4ed8", "#67e8f9", "#dbeafe", "#075985", "#1e40af", "#0891b2", "#93c5fd", "#e0f2fe"];
 const COMPARE_PATTERN_TYPES = ["diagonal", "dots", "cross", "horizontal", "vertical", "grid", "reverseDiagonal", "wideDiagonal"];
+
+
+const COMPARE_EXPORT_MAX_CANVAS_PIXELS = 110_000_000;
+
+function escapeCompareExportText(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function formatCompareExportDate(value) {
+  if (!value) return "";
+  try {
+    return new Intl.DateTimeFormat("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(value));
+  } catch {
+    return "";
+  }
+}
+
+function nodeHiddenFromCompareExport(node) {
+  return node?.closest?.('[data-export-hide="true"]');
+}
+
+function measureCompareExportElement(el) {
+  const rootRect = el.getBoundingClientRect();
+  let width = Math.max(1, Math.ceil(rootRect.width), el.scrollWidth || 0, el.offsetWidth || 0, el.clientWidth || 0);
+  let height = Math.max(1, Math.ceil(rootRect.height), el.scrollHeight || 0, el.offsetHeight || 0, el.clientHeight || 0);
+
+  const nodes = [el, ...Array.from(el.querySelectorAll("*"))];
+  nodes.forEach((node) => {
+    if (!(node instanceof HTMLElement) || nodeHiddenFromCompareExport(node)) return;
+    const rect = node.getBoundingClientRect();
+    const left = rect.left - rootRect.left;
+    const top = rect.top - rootRect.top;
+    const nodeWidth = Math.max(rect.width, node.scrollWidth || 0, node.offsetWidth || 0, node.clientWidth || 0);
+    const nodeHeight = Math.max(rect.height, node.scrollHeight || 0, node.offsetHeight || 0, node.clientHeight || 0);
+    if (Number.isFinite(left) && left >= -1) width = Math.max(width, Math.ceil(left + nodeWidth));
+    if (Number.isFinite(top) && top >= -1) height = Math.max(height, Math.ceil(top + nodeHeight));
+  });
+
+  return { width: Math.ceil(width), height: Math.ceil(height) };
+}
+
+function prepareCompareExportClone(doc, captureId, width, height) {
+  doc.querySelectorAll('[data-export-hide="true"]').forEach((node) => {
+    if (node instanceof HTMLElement) node.style.display = "none";
+  });
+
+  const view = doc.defaultView;
+  const cloneRoot = doc.querySelector(`[data-compare-export-id="${captureId}"]`);
+  if (!view || !(cloneRoot instanceof view.HTMLElement)) return;
+
+  doc.documentElement.style.width = `${width}px`;
+  doc.documentElement.style.minWidth = `${width}px`;
+  doc.documentElement.style.height = `${height}px`;
+  doc.documentElement.style.minHeight = `${height}px`;
+  doc.documentElement.style.overflow = "visible";
+  doc.body.style.width = `${width}px`;
+  doc.body.style.minWidth = `${width}px`;
+  doc.body.style.height = `${height}px`;
+  doc.body.style.minHeight = `${height}px`;
+  doc.body.style.margin = "0";
+  doc.body.style.overflow = "visible";
+
+  cloneRoot.style.width = `${width}px`;
+  cloneRoot.style.minWidth = `${width}px`;
+  cloneRoot.style.height = "auto";
+  cloneRoot.style.minHeight = `${height}px`;
+  cloneRoot.style.maxWidth = "none";
+  cloneRoot.style.maxHeight = "none";
+  cloneRoot.style.overflow = "visible";
+  cloneRoot.style.overflowX = "visible";
+  cloneRoot.style.overflowY = "visible";
+
+  [cloneRoot, ...Array.from(cloneRoot.querySelectorAll("*"))].forEach((node) => {
+    if (!(node instanceof view.HTMLElement)) return;
+    const style = view.getComputedStyle(node);
+    if ([style.overflow, style.overflowX, style.overflowY].some((value) => value && value !== "visible")) {
+      node.style.overflow = "visible";
+      node.style.overflowX = "visible";
+      node.style.overflowY = "visible";
+    }
+    if (style.maxWidth !== "none") node.style.maxWidth = "none";
+    if (style.maxHeight !== "none") node.style.maxHeight = "none";
+    if (style.position === "sticky") node.style.position = "static";
+  });
+}
+
+async function captureCompareExportCanvas(el) {
+  if (!el) return null;
+  const { width, height } = measureCompareExportElement(el);
+  const rawScale = Math.min(window.devicePixelRatio || 2, 2);
+  const scaledArea = width * height * rawScale * rawScale;
+  const scale = scaledArea > COMPARE_EXPORT_MAX_CANVAS_PIXELS
+    ? Math.max(1, Math.sqrt(COMPARE_EXPORT_MAX_CANVAS_PIXELS / Math.max(1, width * height)))
+    : rawScale;
+  const captureId = `compare-export-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  el.setAttribute("data-compare-export-id", captureId);
+  try {
+    const canvas = await html2canvas(el, {
+      backgroundColor: "#ffffff",
+      scale,
+      useCORS: true,
+      width,
+      height,
+      windowWidth: width,
+      windowHeight: height,
+      scrollX: 0,
+      scrollY: 0,
+      onclone: (doc) => prepareCompareExportClone(doc, captureId, width, height),
+    });
+    return { canvas, width, height };
+  } finally {
+    el.removeAttribute("data-compare-export-id");
+  }
+}
+
+function downloadCompareCanvasImage(canvas, filename, fmt = "png") {
+  const mime = fmt === "jpg" ? "image/jpeg" : "image/png";
+  const a = document.createElement("a");
+  a.href = canvas.toDataURL(mime, 0.98);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function buildCompareExportSvg({ imageHref, width, height, meta = {} }) {
+  const bodyX = 32;
+  const bodyY = 108;
+  const canvasWidth = Math.max(920, Math.ceil(width) + bodyX * 2);
+  const totalHeight = Math.ceil(height) + bodyY + 48;
+  const footerBits = [
+    meta.lastUpdatedAt ? `Last updated: ${formatCompareExportDate(meta.lastUpdatedAt)}` : "",
+    meta.lastDownloadedAt ? `Last downloaded: ${formatCompareExportDate(meta.lastDownloadedAt)}` : "",
+  ].filter(Boolean).join(" · ");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${totalHeight}" viewBox="0 0 ${canvasWidth} ${totalHeight}" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+  <rect width="100%" height="100%" fill="#ffffff" />
+  <text x="${canvasWidth / 2}" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#0f172a">${escapeCompareExportText(meta.title || "IIT MIS Compare")}</text>
+  <text x="${canvasWidth / 2}" y="58" text-anchor="middle" font-size="11.5" font-weight="700" fill="#1252a0">${escapeCompareExportText(meta.breadcrumb || "")}</text>
+  <text x="${canvasWidth / 2}" y="80" text-anchor="middle" font-size="11" font-weight="600" fill="#475569">${escapeCompareExportText(meta.subtitle || "")}</text>
+  <image href="${imageHref}" x="${bodyX}" y="${bodyY}" width="${width}" height="${height}" />
+  <text x="${canvasWidth - 18}" y="${totalHeight - 18}" text-anchor="end" font-size="10.5" font-weight="500" fill="#64748b">${escapeCompareExportText(footerBits)}</text>
+</svg>`;
+}
+
+async function downloadCompareElementPng(el, filename) {
+  const capture = await captureCompareExportCanvas(el);
+  if (!capture) return;
+  downloadCompareCanvasImage(capture.canvas, filename, "png");
+}
+
+async function downloadCompareElementSvgFull(el, filename, meta = {}) {
+  const capture = await captureCompareExportCanvas(el);
+  if (!capture) return;
+  const imageHref = capture.canvas.toDataURL("image/png", 0.98);
+  const svgStr = buildCompareExportSvg({
+    imageHref,
+    width: capture.width,
+    height: capture.height,
+    meta,
+  });
+  downloadText(filename, svgStr, "image/svg+xml;charset=utf-8");
+}
+
+async function downloadCompareElementPdfFull(el, title = "IIT MIS Compare", meta = {}) {
+  const capture = await captureCompareExportCanvas(el);
+  if (!capture) return;
+  const imageHref = capture.canvas.toDataURL("image/png", 0.98);
+  const safeTitle = escapeCompareExportText(title);
+  const subtitle = escapeCompareExportText([meta.breadcrumb, meta.subtitle].filter(Boolean).join(" - "));
+  const orientation = capture.width >= capture.height ? "landscape" : "portrait";
+  const win = window.open("", "_blank", "width=1100,height=780");
+  if (!win) return;
+  win.document.write(`<!doctype html><html><head>
+    <meta charset="utf-8" />
+    <title>${safeTitle}</title>
+    <style>
+      @page { size: A4 ${orientation}; margin: 10mm; }
+      body { margin: 0; font-family: Arial, sans-serif; background: #ffffff; color: #0f172a; }
+      .wrap { padding: 0; text-align: center; }
+      h1 { margin: 0 0 6px; font-size: 16px; }
+      .subtitle { margin: 0 0 12px; font-size: 11px; color: #475569; font-weight: 600; }
+      img { width: 100%; height: auto; page-break-inside: avoid; }
+    </style>
+  </head><body>
+    <div class="wrap">
+      <h1>${safeTitle}</h1>
+      <div class="subtitle">${subtitle}</div>
+      <img src="${imageHref}" alt="${safeTitle}" />
+    </div>
+    <script>window.onload = function(){ window.print(); window.onafterprint = function(){ window.close(); }; };<\/script>
+  </body></html>`);
+  win.document.close();
+}
 const COMPARE_MARKER_SHAPES = ["circle", "square", "triangle", "diamond", "cross"];
 const COMPARE_SERIES_TONE_STEPS = [0, 0.36, -0.22, 0.58, -0.36, 0.72, -0.5, 0.86];
 const COMPARE_BREAKDOWN_SCAN_ITEM_LIMIT = 6;
@@ -1878,22 +2083,32 @@ function InteractiveCompareLegend({
           const active = activeSet.has(item.id);
           const fullLabel = item.title ?? item.fullLabel ?? item.label;
           const markerShape = item.markerShape ?? compareMarkerShape(itemIndex);
+          const plainPill = swatchVariant === "plainPill";
+          const pillColor = item.color || "#2563eb";
           return (
             <button
               key={item.id ?? item.label}
               type="button"
               onClick={() => onToggle?.(item.id)}
               className={cn(
-                "inline-flex max-w-[250px] cursor-pointer items-center gap-2 rounded-full border px-2.5 py-1.5 text-[11px] font-bold transition hover:-translate-y-0.5 hover:border-sky-200 hover:bg-sky-50",
+                plainPill
+                  ? "inline-flex max-w-[250px] cursor-pointer items-center rounded-full border px-3 py-1.5 text-[11px] font-bold transition hover:-translate-y-0.5 hover:bg-sky-50"
+                  : "inline-flex max-w-[250px] cursor-pointer items-center gap-2 rounded-full border px-2.5 py-1.5 text-[11px] font-bold transition hover:-translate-y-0.5 hover:border-sky-200 hover:bg-sky-50",
                 active ? "border-slate-200 bg-white text-slate-800 shadow-[0_2px_10px_rgba(15,23,42,0.05)]" : "border-slate-100 bg-white text-slate-400 opacity-60",
               )}
+              style={plainPill ? {
+                background: active ? `${pillColor}12` : "#ffffff",
+                borderColor: active ? `${pillColor}55` : "rgba(226,232,240,0.95)",
+                color: active ? "#0f172a" : "#64748b",
+                boxShadow: active ? `0 2px 10px ${pillColor}14` : undefined,
+              } : undefined}
               title={`${active ? "Deselect / hide" : "Select / show"} ${fullLabel}`}
               aria-label={`${active ? "Deselect / hide" : "Select / show"} ${fullLabel}`}
               aria-pressed={active}
             >
               {swatchVariant === "marker" ? (
-                <CompareLineLegendIcon color={item.color || "#2563eb"} shape={markerShape} active={active} />
-              ) : (
+                <CompareLineLegendIcon color={pillColor} shape={markerShape} active={active} />
+              ) : swatchVariant === "plainPill" ? null : (
                 <span className="h-3 w-5 shrink-0 rounded-[4px]" style={compareSwatchStyle(item)} />
               )}
               <span className="truncate">{item.label}</span>
@@ -3259,22 +3474,43 @@ export default function ComparePage({
     setNotice(ok ? "Copied comparison summary." : "Copy failed.");
   }
 
+  function getCompareDownloadMeta(timestamp = new Date().toISOString()) {
+    if (!applied) return { title: "IIT MIS Compare", lastDownloadedAt: timestamp };
+    const compareLabels = appliedItems.map((item) => compareItemLabel(item));
+    const title = compareLabels.length > 1
+      ? `${compareLabels[0]} +${compareLabels.length - 1} more`
+      : compareLabels[0] ?? "IIT MIS Compare";
+    const yearsLabel = Number(applied.yearFrom) === Number(applied.yearTo) ? String(applied.yearTo) : `${applied.yearFrom}-${applied.yearTo}`;
+    const viewLabel = VIEW_OPTIONS.find((option) => option.id === applied.view)?.label ?? applied.view;
+    return {
+      title,
+      breadcrumb: `${compareIitScopeLabel(appliedIITs)} · ${yearsLabel}`,
+      subtitle: `${viewLabel} · ${applied.scale === "indexed" ? "Indexed" : "Raw"}`,
+      lastUpdatedAt: facts?.meta?.generatedAt,
+      lastDownloadedAt: timestamp,
+    };
+  }
+
   async function handleDownloadPng() {
     const target = isFullscreen ? fullscreenRef.current : chartRef.current;
-    await downloadElementImage(target, `iitmis_compare_${applied?.view ?? "compare"}.png`, "png");
-    markDownloaded("PNG downloaded.");
+    const downloadStamp = new Date().toISOString();
+    await downloadCompareElementPng(target, `iitmis_compare_${applied?.view ?? "compare"}.png`);
+    markDownloaded("PNG downloaded.", downloadStamp);
   }
 
   async function handleDownloadSvg() {
     const target = isFullscreen ? fullscreenRef.current : chartRef.current;
-    await downloadElementSvg(target, `iitmis_compare_${applied?.view ?? "compare"}.svg`, { preserveLayout: true });
-    markDownloaded("SVG downloaded.");
+    const downloadStamp = new Date().toISOString();
+    await downloadCompareElementSvgFull(target, `iitmis_compare_${applied?.view ?? "compare"}.svg`, getCompareDownloadMeta(downloadStamp));
+    markDownloaded("SVG downloaded.", downloadStamp);
   }
 
   async function handleDownloadPdf() {
     const target = isFullscreen ? fullscreenRef.current : chartRef.current;
-    await downloadElementPdf(target, `IIT MIS Compare ${applied?.focusYear ?? ""}`);
-    markDownloaded("PDF downloaded.");
+    const downloadStamp = new Date().toISOString();
+    const meta = getCompareDownloadMeta(downloadStamp);
+    await downloadCompareElementPdfFull(target, `IIT MIS Compare ${applied?.focusYear ?? ""}`, meta);
+    markDownloaded("PDF opened.", downloadStamp);
   }
 
   function handleDownloadCsv() {
@@ -4727,6 +4963,7 @@ export default function ComparePage({
                     title={compareLegendTitle}
                     helper=""
                     maxVisible={fullscreen ? 16 : 10}
+                    swatchVariant="plainPill"
                     onToggle={toggleComparisonLegendItem}
                     onMore={openCompareByFilters}
                   />
@@ -4764,7 +5001,7 @@ export default function ComparePage({
                     title={compareLegendTitle}
                     helper=""
                     maxVisible={fullscreen ? 16 : 10}
-                    swatchVariant="marker"
+                    swatchVariant="plainPill"
                     onToggle={toggleComparisonLegendItem}
                     onMore={openCompareByFilters}
                   />
