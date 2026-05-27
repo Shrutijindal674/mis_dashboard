@@ -21,6 +21,7 @@ import SectionTitle from "../components/ui/SectionTitle";
 import CombinedKpiSelector from "../components/ui/CombinedKpiSelector";
 import BreakdownBar from "../components/charts/BreakdownBar";
 import BreakdownLine from "../components/charts/BreakdownLine";
+import BreakdownDonut from "../components/charts/BreakdownDonut";
 import { COMPARE_HIERARCHY } from "../data/compareHierarchy";
 
 // ------------------------------------------------------------
@@ -167,70 +168,250 @@ function rowsForYear({ facts, report, year, scopedInstituteIds }) {
   return rows;
 }
 
+function rowsForKpiYear({ facts, kpi, year, scopedInstituteIds }) {
+  if (!kpi) return [];
+  let rows = facts?.[kpi.fact] ?? [];
+  rows = rows.filter((r) => Number(r.Year ?? 0) === Number(year));
+  if (scopedInstituteIds?.length) {
+    const set = new Set(scopedInstituteIds);
+    rows = rows.filter((r) => set.has(r.InstituteId));
+  }
+  return rows;
+}
+
 function metricRowsForMissingCheck(kpi, rows = []) {
   let out = applyKpiRowFilter(kpi, rows);
   if (kpi?.kind === "sum_where" && kpi?.where) out = out.filter(kpi.where);
   return out;
 }
 
-function stableReportBaseId(kpi) {
-  const idx = KPI_DEFS.findIndex((item) => item.id === kpi?.id);
-  return 1000 + ((idx >= 0 ? idx + 1 : 999) * 100);
-}
-
 function buildReportCatalog(kpis) {
+  let nextId = 1000;
   const out = [];
 
   for (const kpi of kpis) {
-    if (!kpi?.id) continue;
-    const baseId = stableReportBaseId(kpi);
-    let reportOrdinal = 0;
-    const pushReport = (item) => {
-      reportOrdinal += 1;
-      out.push({ reportId: baseId + reportOrdinal, ...item });
-    };
-
-    pushReport({
-      name: `Year-on-Year Trend for ${kpi.label}`,
+    const base = {
       domain: kpi.module,
       tag: kpi.module,
+      scopeType: "kpi",
+      modules: [kpi.module].filter(Boolean),
+      kpiIds: [kpi.id].filter(Boolean),
+    };
+
+    out.push({
+      ...base,
+      reportId: ++nextId,
+      name: `Year-on-Year Trend for ${kpi.label}`,
       kpiId: kpi.id,
       fact: kpi.fact,
       breakdownField: "Year",
       breakdownLabel: "Year",
       reportType: "trend",
-      defaultView: "chart",
+      chartTypes: ["line", "table"],
+      defaultView: "line",
     });
 
-    pushReport({
+    out.push({
+      ...base,
+      reportId: ++nextId,
       name: `${kpi.label} by Institute`,
-      domain: kpi.module,
-      tag: kpi.module,
       kpiId: kpi.id,
       fact: kpi.fact,
       breakdownField: "Institute",
       breakdownLabel: "Institute",
       reportType: "breakdown",
-      defaultView: "table",
+      chartTypes: ["bar", "table"],
+      defaultView: "bar",
     });
 
     for (const lvl of kpi.levels ?? []) {
-      pushReport({
+      const lower = `${lvl.label ?? ""} ${lvl.field ?? ""}`.toLowerCase();
+      const chartTypes = /degree|category|gender|mode|status|share|type/.test(lower)
+        ? ["bar", "pie", "table"]
+        : /year/.test(lower)
+          ? ["line", "bar", "table"]
+          : ["bar", "table"];
+
+      out.push({
+        ...base,
+        reportId: ++nextId,
         name: `${kpi.label} by ${lvl.label}`,
-        domain: kpi.module,
-        tag: kpi.module,
         kpiId: kpi.id,
         fact: kpi.fact,
         breakdownField: lvl.field,
         breakdownLabel: lvl.label,
         reportType: "breakdown",
-        defaultView: "table",
+        chartTypes,
+        defaultView: chartTypes[0] ?? "table",
       });
     }
   }
 
   return out;
 }
+
+const CUSTOM_REPORTS = [
+  {
+    reportId: 9001,
+    name: "Ministry Briefing Pack",
+    description: "Cross-module summary for ministry-level reporting across institutions, students, placements, research, and finance.",
+    domain: "Cross-module",
+    scopeType: "cross_module",
+    modules: [
+      "Institution & Governance",
+      "People & Student Life",
+      "Research & Innovation",
+      "Infrastructure & Finance",
+    ],
+    kpiIds: [
+      "kpi_inst_profile_mix",
+      "kpi_psl_placement_statistics",
+      "kpi_placement_rate",
+      "kpi_publications",
+      "kpi_budget_utilisation",
+    ],
+    chartTypes: ["table", "bar", "line"],
+    defaultView: "table",
+  },
+  {
+    reportId: 9002,
+    name: "Parliamentary Question Pack",
+    description: "Export-ready cross-module report for answering parliamentary questions with visuals, numbers, and notes.",
+    domain: "Cross-module",
+    scopeType: "cross_module",
+    modules: [
+      "Institution & Governance",
+      "People & Student Life",
+      "Research & Innovation",
+      "Infrastructure & Finance",
+    ],
+    kpiIds: [
+      "kpi_inst_profile_mix",
+      "kpi_placement_rate",
+      "kpi_budget_utilisation",
+    ],
+    chartTypes: ["table", "bar"],
+    defaultView: "table",
+  },
+  {
+    reportId: 9003,
+    name: "IIT Performance Summary",
+    description: "All-module performance overview combining academic, student, placement, research, and finance indicators.",
+    domain: "All modules",
+    scopeType: "all_modules",
+    modules: ["All modules"],
+    kpiIds: [
+      "kpi_inst_profile_mix",
+      "kpi_inst_program_portfolio",
+      "kpi_total_students",
+      "kpi_placement_rate",
+      "kpi_publications",
+      "kpi_budget_utilisation",
+    ],
+    chartTypes: ["table", "line", "bar", "pie"],
+    defaultView: "table",
+  },
+];
+
+function getReportKpis(report) {
+  const ids = uniqueReportIds(report?.kpiIds?.length ? report.kpiIds : [report?.kpiId]);
+  return ids.map((id) => KPI_DEFS.find((kpi) => kpi.id === id)).filter(Boolean);
+}
+
+function getPrimaryReportKpi(report) {
+  return getReportKpis(report)[0] ?? null;
+}
+
+function reportMatchesKpiFilter(report, activeKpiSet) {
+  if (!activeKpiSet) return true;
+  const ids = report?.kpiIds?.length ? report.kpiIds : [report?.kpiId].filter(Boolean);
+  return ids.some((id) => activeKpiSet.has(id));
+}
+
+function getReportCoverage(report, kpis = [], hierarchyItem = null) {
+  if (report?.scopeType === "all_modules") {
+    return {
+      label: "All modules",
+      subLabel: "Ministry-level summary",
+      modules: ["All modules"],
+      isCrossModule: true,
+    };
+  }
+
+  const modules = report?.modules?.length
+    ? uniqueReportIds(report.modules)
+    : uniqueReportIds(kpis.map((kpi) => kpi.module).filter(Boolean));
+
+  if (modules.length > 1 || report?.scopeType === "cross_module") {
+    return {
+      label: "Cross-module",
+      subLabel: modules.join(" + "),
+      modules,
+      isCrossModule: true,
+    };
+  }
+
+  const moduleLabel = modules[0] ?? report?.domain ?? "Reports";
+  const hierarchyCoverage = humanizeReportLabel(hierarchyItem?.submoduleLabel ?? hierarchyItem?.submodule ?? "");
+  return {
+    label: hierarchyCoverage || humanizeReportLabel(moduleLabel),
+    subLabel: hierarchyCoverage ? humanizeReportLabel(moduleLabel) : "",
+    modules: modules.length ? modules : [moduleLabel].filter(Boolean),
+    isCrossModule: false,
+  };
+}
+
+function getReportDataSource(report, kpis = [], hierarchyItem = null) {
+  if (report?.scopeType === "cross_module" || report?.scopeType === "all_modules" || kpis.length > 1) {
+    return {
+      primary: "Multiple KPIs",
+      secondary: kpis.length ? `${kpis.length} indicators` : "Curated report pack",
+      multi: true,
+    };
+  }
+  const kpi = kpis[0] ?? getPrimaryReportKpi(report);
+  const parts = reportHubSheetParts(report, hierarchyItem, kpi);
+  return parts;
+}
+
+function normalizeChartType(type) {
+  const value = String(type ?? "").toLowerCase();
+  if (["trend", "line", "line_chart"].includes(value)) return "line";
+  if (["donut", "pie", "distribution"].includes(value)) return "pie";
+  if (["table", "grid"].includes(value)) return "table";
+  return "bar";
+}
+
+function uniqueChartTypes(types = []) {
+  const seen = new Set();
+  const out = [];
+  for (const type of types) {
+    const normalized = normalizeChartType(type);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out.length ? out : ["table"];
+}
+
+function chartTypesForReport(report, kpi = null) {
+  if (report?.chartTypes?.length) return uniqueChartTypes(report.chartTypes);
+  const type = reportHubType(report);
+  const base = uniqueChartTypes([type.id, "table"]);
+  if (kpi?.format !== "pct" && /degree|category|gender|mode|status/i.test(report?.breakdownLabel ?? "")) {
+    return uniqueChartTypes(["bar", "pie", "table"]);
+  }
+  return base;
+}
+
+function chartViewMeta(type) {
+  const normalized = normalizeChartType(type);
+  if (normalized === "line") return { id: "line", label: "Line chart", shortLabel: "Line", iconType: "line" };
+  if (normalized === "pie") return { id: "pie", label: "Pie chart", shortLabel: "Pie", iconType: "pie" };
+  if (normalized === "table") return { id: "table", label: "Table view", shortLabel: "Table", iconType: "table" };
+  return { id: "bar", label: "Bar chart", shortLabel: "Bar", iconType: "bar" };
+}
+
 
 function computeOverallParts(kpi, rows) {
   rows = applyKpiRowFilter(kpi, rows);
@@ -506,122 +687,37 @@ function tokenize(text) {
 }
 
 function scoreReportForQuestion(report, kpi, questionTokens, questionText) {
-  const haystack = `${report.name} ${report.domain} ${kpi?.label ?? ""} ${kpi?.fact ?? ""} ${(kpi?.levels ?? []).map((x) => x.label).join(" ")}`.toLowerCase();
+  const reportKpis = getReportKpis(report);
+  const kpiWords = reportKpis
+    .map((item) => `${item.label ?? ""} ${item.fact ?? ""} ${(item.levels ?? []).map((x) => x.label).join(" ")}`)
+    .join(" ");
+  const haystack = `${report.name} ${report.description ?? ""} ${report.domain ?? ""} ${(report.modules ?? []).join(" ")} ${report.scopeType ?? ""} ${kpi?.label ?? ""} ${kpi?.fact ?? ""} ${kpiWords}`.toLowerCase();
   let score = 0;
   for (const token of questionTokens) {
     if (haystack.includes(token)) score += token.length > 6 ? 4 : 2;
   }
 
+  const reportModules = new Set([report.domain, ...(report.modules ?? []), ...reportKpis.map((item) => item.module)].filter(Boolean));
   const rules = [
     { words: ["student", "students", "enrolment", "enrollment", "admission"], boost: "People & Student Life" },
     { words: ["placement", "placed", "ctc", "recruiter"], boost: "People & Student Life" },
     { words: ["publication", "publications", "research", "patent", "patents"], boost: "Research & Innovation" },
     { words: ["budget", "funding", "finance", "utilisation", "utilization"], boost: "Infrastructure & Finance" },
     { words: ["collaboration", "collaborations", "outreach", "alumni"], boost: "Collaboration & Outreach" },
-    { words: ["ranking", "rankings", "accreditation", "governance", "audit", "legal"], boost: "Institution & Governance" },
+    { words: ["ranking", "rankings", "accreditation", "governance", "audit", "legal", "institution"], boost: "Institution & Governance" },
   ];
 
   for (const rule of rules) {
-    if (rule.words.some((w) => questionText.includes(w)) && report.domain === rule.boost) score += 8;
+    if (rule.words.some((w) => questionText.includes(w)) && reportModules.has(rule.boost)) score += 8;
+  }
+
+  if (/ministry|minister|briefing|brief|parliament|question|pq|all module|performance summary|overview/.test(questionText)) {
+    if (report.scopeType === "cross_module" || report.scopeType === "all_modules") score += 18;
   }
 
   if (questionText.includes(String(report.reportId))) score += 50;
   if (questionText.includes(report.name.toLowerCase())) score += 30;
   return score;
-}
-
-function questionWantsTrend(text) {
-  return /trend|growth|year\s*on\s*year|year-on-year|last\s+\d+\s+years|over\s+time|increase|decrease|from\s+20\d{2}\s+to\s+20\d{2}|between\s+20\d{2}\s+and\s+20\d{2}/.test(String(text ?? "").toLowerCase());
-}
-
-function clampReportYear(year, availableYears = YEARS) {
-  const numericYear = Number(year);
-  if (!Number.isFinite(numericYear)) return availableYears[availableYears.length - 1] ?? YEARS[YEARS.length - 1];
-  const sorted = [...availableYears].sort((a, b) => a - b);
-  if (!sorted.length) return numericYear;
-  if (numericYear <= sorted[0]) return sorted[0];
-  if (numericYear >= sorted[sorted.length - 1]) return sorted[sorted.length - 1];
-  return sorted.reduce((best, item) => Math.abs(item - numericYear) < Math.abs(best - numericYear) ? item : best, sorted[0]);
-}
-
-function resolveNaturalLanguageYearRange(text, availableYears = YEARS) {
-  const lowered = String(text ?? "").toLowerCase();
-  const sorted = [...availableYears].sort((a, b) => a - b);
-  const firstYear = sorted[0] ?? YEARS[0];
-  const latestYear = sorted[sorted.length - 1] ?? YEARS[YEARS.length - 1];
-  const wantsTrend = questionWantsTrend(lowered);
-  const lastYearsMatch = lowered.match(/last\s+(\d+)\s+years?/);
-
-  if (lastYearsMatch) {
-    const count = Math.max(1, Math.min(sorted.length, Number(lastYearsMatch[1]) || sorted.length));
-    const selected = sorted.slice(-count);
-    return {
-      yearFrom: selected[0] ?? firstYear,
-      yearTo: selected[selected.length - 1] ?? latestYear,
-      focusYear: selected[selected.length - 1] ?? latestYear,
-      wantsTrend: true,
-    };
-  }
-
-  const years = Array.from(new Set((lowered.match(/\b20\d{2}\b/g) ?? []).map((item) => clampReportYear(Number(item), sorted)))).sort((a, b) => a - b);
-  if (years.length >= 2) {
-    return { yearFrom: years[0], yearTo: years[years.length - 1], focusYear: years[years.length - 1], wantsTrend: true };
-  }
-  if (years.length === 1) {
-    if (wantsTrend) return { yearFrom: firstYear, yearTo: years[0], focusYear: years[0], wantsTrend: true };
-    return { yearFrom: years[0], yearTo: years[0], focusYear: years[0], wantsTrend: false };
-  }
-  if (wantsTrend) return { yearFrom: firstYear, yearTo: latestYear, focusYear: latestYear, wantsTrend: true };
-  return { yearFrom: firstYear, yearTo: latestYear, focusYear: latestYear, wantsTrend: false };
-}
-
-const REPORT_IIT_REGION_GROUPS = {
-  north: ["IITD", "IITR", "IITRPR", "IITMD", "IITJ", "IITJMU", "IITK", "IITBHU"],
-  south: ["IITM", "IITH", "IITPKD", "IITT", "IITDH"],
-  east: ["IITKGP", "IITBBS", "IITP", "IITISM"],
-  west: ["IITB", "IITGN", "IITI", "IITGOA", "IITJ"],
-  northeast: ["IITG"],
-};
-
-function resolveNaturalLanguageScope(text) {
-  const lowered = String(text ?? "").toLowerCase();
-  const normalized = lowered.replace(/[^a-z0-9&\s]/g, " ").replace(/\s+/g, " ").trim();
-
-  if (/\ball\s+iits?\b|\ball\s+institutes?\b|\bacross\s+all\b|\bnational\b/.test(normalized)) {
-    return { instituteIds: [], label: "All IITs" };
-  }
-  if (/\bold\s+iits?\b|\blegacy\s+iits?\b/.test(normalized)) {
-    return { instituteIds: [...REPORT_LEGACY_IITS], label: "Old IITs" };
-  }
-  if (/north\s*east|northeast/.test(normalized)) {
-    return { instituteIds: REPORT_IIT_REGION_GROUPS.northeast, label: "North-East IITs" };
-  }
-  if (/north\s*(india|indian)?|northern\s+india/.test(normalized)) {
-    return { instituteIds: REPORT_IIT_REGION_GROUPS.north, label: "North India IITs" };
-  }
-  if (/south\s*(india|indian)?|southern\s+india/.test(normalized)) {
-    return { instituteIds: REPORT_IIT_REGION_GROUPS.south, label: "South India IITs" };
-  }
-  if (/east\s*(india|indian)?|eastern\s+india/.test(normalized)) {
-    return { instituteIds: REPORT_IIT_REGION_GROUPS.east, label: "East India IITs" };
-  }
-  if (/west\s*(india|indian)?|western\s+india/.test(normalized)) {
-    return { instituteIds: REPORT_IIT_REGION_GROUPS.west, label: "West India IITs" };
-  }
-
-  const matched = IITs.filter((iit) => {
-    const short = instituteShortLabel(iit.id).toLowerCase();
-    const name = String(iit.name ?? "").toLowerCase();
-    const id = String(iit.id ?? "").toLowerCase();
-    const compactId = id.replace(/^iit/, "iit ");
-    const city = name.replace(/^iit\s*/i, "").replace(/^indian institute of technology\s*/i, "").trim();
-    return [short, name, id, compactId, city]
-      .filter((item) => item && item.length >= 3)
-      .some((item) => normalized.includes(item.replace(/[^a-z0-9&\s]/g, " ").replace(/\s+/g, " ").trim()));
-  }).map((iit) => iit.id);
-
-  if (matched.length) return { instituteIds: uniqueReportIds(matched), label: instituteLabel(matched) };
-  return { instituteIds: null, label: "Current IIT scope" };
 }
 
 function resolveNaturalLanguageReport({ text, catalog, yearsInRange }) {
@@ -630,41 +726,31 @@ function resolveNaturalLanguageReport({ text, catalog, yearsInRange }) {
 
   const lowered = query.toLowerCase();
   const tokens = tokenize(query);
-  const yearInfo = resolveNaturalLanguageYearRange(query, yearsInRange?.length ? yearsInRange : YEARS);
-  const wantsTrend = yearInfo.wantsTrend || questionWantsTrend(lowered);
+  const yearMatch = lowered.match(/\b(20\d{2})\b/);
+  const requestedYear = yearMatch ? Number(yearMatch[1]) : null;
+  const year = requestedYear && yearsInRange.includes(requestedYear) ? requestedYear : yearsInRange[yearsInRange.length - 1];
+  const wantsTrend = /trend|growth|year\s*on\s*year|year-on-year|last\s+\d+\s+years|over\s+time|increase|decrease/.test(lowered);
 
   let best = null;
   for (const report of catalog) {
-    const kpi = KPI_DEFS.find((x) => x.id === report.kpiId);
+    const kpi = getPrimaryReportKpi(report);
     let score = scoreReportForQuestion(report, kpi, tokens, lowered);
     if (wantsTrend && report.reportType === "trend") score += 14;
     if (!wantsTrend && report.reportType === "trend") score -= 3;
-    if (/highest|lowest|top|bottom|rank|compare|comparison|which\s+iit/.test(lowered) && report.breakdownField === "Institute") score += 10;
-    if (/institute|iit|iits/.test(lowered) && report.breakdownField === "Institute") score += 4;
-    if (/placement|placed|ctc|recruiter/.test(lowered) && String(kpi?.label ?? "").toLowerCase().includes("placement")) score += 12;
-    if (/student|students|enrolment|enrollment|admission/.test(lowered) && String(kpi?.label ?? "").toLowerCase().includes("student")) score += 12;
-    if (/fund|funding|budget|grant|utilisation|utilization/.test(lowered) && /fund|budget|utilisation|utilization/.test(String(kpi?.label ?? "").toLowerCase())) score += 12;
-    if (/research|publication|paper|patent/.test(lowered) && /research|publication|patent/.test(String(kpi?.label ?? "").toLowerCase())) score += 12;
     if (!best || score > best.score) best = { report, score };
   }
 
   if (!best || best.score <= 0) return { report: null, reason: "No matching report was found. Try a metric such as students, placements, research, budget, rankings or collaborations." };
 
   let report = best.report;
-  if (wantsTrend && report.reportType !== "trend") {
+  if (wantsTrend && report.reportType !== "trend" && report.kpiId) {
     report = catalog.find((r) => r.kpiId === report.kpiId && r.reportType === "trend") ?? report;
-  }
-  if (!wantsTrend && /highest|lowest|top|bottom|rank|compare|comparison|which\s+iit/.test(lowered) && report.breakdownField !== "Institute") {
-    report = catalog.find((r) => r.kpiId === report.kpiId && r.breakdownField === "Institute" && r.reportType !== "trend") ?? report;
   }
 
   return {
     report,
-    year: yearInfo.focusYear,
-    yearFrom: yearInfo.yearFrom,
-    yearTo: yearInfo.yearTo,
-    wantsTrend,
-    reason: `Matched to ${report.name}. Filters from the question were applied where possible.`,
+    year,
+    reason: `Matched to ${report.name}. Review the generated report page before using it for exports.`,
   };
 }
 
@@ -744,22 +830,20 @@ function firstActiveIdInReportList(items = [], activeIds = []) {
   return items.find((item) => active.has(item.id))?.id ?? null;
 }
 
-function firstValidReportItem(items = []) {
-  return (items ?? []).find((item) => item?.kpiId) ?? (items ?? []).find(Boolean) ?? null;
-}
-
 function firstReportItemFromModuleEntity(module) {
-  return firstValidReportItem(
-    (module?.submodules ?? []).flatMap((submodule) => (submodule.sheets ?? []).flatMap((sheet) => sheet.kpis ?? []))
-  );
+  return (module?.submodules ?? [])
+    .flatMap((submodule) => (submodule.sheets ?? []).flatMap((sheet) => sheet.kpis ?? []))
+    .find(Boolean) ?? null;
 }
 
 function firstReportItemFromSubmoduleEntity(submodule) {
-  return firstValidReportItem((submodule?.sheets ?? []).flatMap((sheet) => sheet.kpis ?? []));
+  return (submodule?.sheets ?? [])
+    .flatMap((sheet) => sheet.kpis ?? [])
+    .find(Boolean) ?? null;
 }
 
 function firstReportItemFromSheetEntity(sheet) {
-  return firstValidReportItem(sheet?.kpis ?? []);
+  return (sheet?.kpis ?? []).find(Boolean) ?? null;
 }
 
 function buildReportHierarchyMaps(hierarchy = []) {
@@ -853,11 +937,10 @@ function reportSelectionFromItem(item, prev = {}, role, instituteId) {
 }
 
 function makeReportSelectionFromConfig({ config, role, instituteId, allItems }) {
-  const configuredKpiIds = uniqueReportIds(config?.KpiIds).slice(0, 1);
-  const validItems = (allItems ?? []).filter((item) => item?.kpiId);
+  const configuredKpiIds = uniqueReportIds(config?.KpiIds);
   const selectedItem = configuredKpiIds.length
-    ? (validItems.find((item) => configuredKpiIds.includes(item.kpiId)) ?? firstValidReportItem(validItems))
-    : firstValidReportItem(validItems);
+    ? allItems.find((item) => configuredKpiIds.includes(item.kpiId))
+    : null;
   const fromRaw = Number(config?.YearRange?.from ?? YEARS[0]);
   const toRaw = Number(config?.YearRange?.to ?? YEARS[YEARS.length - 1]);
   const yearFrom = Math.min(fromRaw, toRaw);
@@ -1015,81 +1098,35 @@ function ReportTableActionIcon({ accent = "#1252a0" }) {
 }
 
 
-function reportTableSortableValue(value) {
-  if (value == null) return "";
-  if (typeof value === "number") return Number.isFinite(value) ? value : "";
-  const text = String(value).trim();
-  if (!text || text === "-" || text === "—") return "";
-  const numeric = Number(text.replace(/rs|cr|lpa|%|,|₹/gi, "").trim());
-  if (Number.isFinite(numeric)) return numeric;
-  return text.toLowerCase();
-}
-
-function compareReportTableValues(left, right) {
-  const a = reportTableSortableValue(left);
-  const b = reportTableSortableValue(right);
-  if (typeof a === "number" && typeof b === "number") return a - b;
-  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
-}
-
 function UdiseReportTable({ columns, rows, footerRow = null, maxHeight = 560, hiddenKeys = [] }) {
-  const [sortState, setSortState] = useState({ key: null, direction: null });
   const hidden = new Set(hiddenKeys ?? []);
   const displayColumns = (columns ?? []).filter((column) => !hidden.has(column.key));
-  const sortedRows = useMemo(() => {
-    if (!sortState.key || !sortState.direction) return rows ?? [];
-    const direction = sortState.direction === "asc" ? 1 : -1;
-    return [...(rows ?? [])].sort((left, right) => compareReportTableValues(left?.[sortState.key], right?.[sortState.key]) * direction);
-  }, [rows, sortState]);
-
-  function toggleSort(key) {
-    setSortState((current) => {
-      if (current.key !== key) return { key, direction: "asc" };
-      if (current.direction === "asc") return { key, direction: "desc" };
-      return { key: null, direction: null };
-    });
-  }
 
   return (
     <div className="overflow-auto bg-white" style={{ maxHeight }}>
       <table className="w-full min-w-[760px] border-collapse text-[13px]">
         <thead className="sticky top-0 z-20">
           <tr>
-            {displayColumns.map((column, index) => {
-              const active = sortState.key === column.key;
-              return (
-                <th
-                  key={column.key}
-                  className="border border-slate-400 px-3 py-3 text-left align-middle font-extrabold text-slate-950"
-                  style={{ background: "#ece9ff", minWidth: index === 0 ? 250 : 150 }}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort(column.key)}
-                      className="inline-flex min-w-0 items-center gap-2 rounded-md text-left transition hover:text-blue-800"
-                      title={`Sort by ${column.label ?? column.key}`}
-                      aria-label={`Sort by ${column.label ?? column.key}`}
-                    >
-                      <span className="truncate">{column.label ?? column.key}</span>
-                      <span className="inline-flex flex-col text-[9px] leading-[8px]" aria-hidden="true">
-                        <span style={{ color: active && sortState.direction === "asc" ? "#173f91" : "#94a3b8" }}>▲</span>
-                        <span style={{ color: active && sortState.direction === "desc" ? "#173f91" : "#94a3b8" }}>▼</span>
-                      </span>
-                    </button>
-                    <span className="flex shrink-0 items-center gap-2 text-slate-700" aria-hidden="true">
-                      <span className="h-4 border-l border-slate-400" />
-                      <span className="text-lg leading-none">⋮</span>
-                    </span>
-                  </div>
-                </th>
-              );
-            })}
+            {displayColumns.map((column, index) => (
+              <th
+                key={column.key}
+                className="border border-slate-400 px-3 py-3 text-left align-middle font-extrabold text-slate-950"
+                style={{ background: "#ece9ff", minWidth: index === 0 ? 250 : 150 }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span>{column.label ?? column.key}</span>
+                  <span className="flex items-center gap-2 text-slate-700" aria-hidden="true">
+                    <span className="h-4 border-l border-slate-400" />
+                    <span className="text-lg leading-none">⋮</span>
+                  </span>
+                </div>
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {sortedRows.length ? (
-            sortedRows.map((row, rowIndex) => (
+          {(rows ?? []).length ? (
+            rows.map((row, rowIndex) => (
               <tr key={rowIndex} className="bg-white">
                 {displayColumns.map((column, colIndex) => (
                   <td
@@ -1154,7 +1191,6 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
   const [viewMode, setViewMode] = useState(report?.defaultView ?? "table");
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
-  const [reportNotesCopied, setReportNotesCopied] = useState(false);
 
   useEffect(() => {
     setYear(initialYear ?? yearsInRange[yearsInRange.length - 1] ?? YEARS[YEARS.length - 1]);
@@ -1165,7 +1201,6 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
     setViewMode(report?.defaultView ?? "table");
     setDownloadMenuOpen(false);
     setFilterPanelOpen(false);
-    setReportNotesCopied(false);
   }, [report?.reportId, initialYear, yearsInRange, config?.MaxRows, configuredInstituteIds, defaultBreakdownId, report?.defaultView]);
 
   useEffect(() => {
@@ -1348,6 +1383,16 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
       .map((item) => ({ name: item.name, value: item.value }));
   }, [kpi, activeBreakdown, trendData, visibleGroups, topN]);
 
+  const chartViewOptions = useMemo(() => {
+    const base = chartTypesForReport(report, kpi);
+    if (activeBreakdown?.id === "__trend") return uniqueChartTypes(["line", base.includes("bar") ? "bar" : null, "table"].filter(Boolean));
+    return uniqueChartTypes(base.filter((type) => type !== "line"));
+  }, [report, kpi, activeBreakdown]);
+
+  useEffect(() => {
+    if (!chartViewOptions.includes(viewMode)) setViewMode(chartViewOptions[0] ?? "table");
+  }, [chartViewOptions, viewMode]);
+
   const reportOptions = useMemo(() => {
     const sameDomain = catalog.filter((item) => item.domain === report?.domain);
     const other = catalog.filter((item) => item.domain !== report?.domain);
@@ -1448,7 +1493,7 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
         <div style="height:10px;"></div>
 
         <div class="card">
-          <h2 style="font-size:14px;font-weight:900;margin-bottom:8px;">${escHtml(viewMode === "chart" ? "Chart data table" : "Report table")}</h2>
+          <h2 style="font-size:14px;font-weight:900;margin-bottom:8px;">${escHtml(`${chartViewMeta(viewMode).label} data table`)}</h2>
           ${htmlTable(detailTable.columns, detailTable.rows)}
         </div>
 
@@ -1510,6 +1555,59 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
         <path d="M4 12h16" stroke={tone} strokeWidth="2" strokeLinecap="round" />
         <path d="M4 17h7" stroke={tone} strokeWidth="2" strokeLinecap="round" />
       </svg>
+    );
+  }
+
+  function renderDetailVisualOutput() {
+    if (viewMode === "table") {
+      return <UdiseReportTable columns={detailTable.columns} rows={detailTable.rows.slice(0, Math.max(10, Math.min(40, topN)))} footerRow={tableFooterRow} hiddenKeys={["Rank"]} maxHeight={420} />;
+    }
+
+    if (!chartData.length) {
+      return (
+        <div className="grid min-h-[320px] place-items-center bg-white text-sm font-semibold text-slate-500">
+          No visual data available for the selected scope and view.
+        </div>
+      );
+    }
+
+    if (viewMode === "line") {
+      return (
+        <BreakdownLine
+          data={chartData}
+          format={kpi.format}
+          accent={accent}
+          yLabel={kpi.label}
+          height={420}
+          drillHint="Use the detailed numbers table below for source-row counts and availability."
+        />
+      );
+    }
+
+    if (viewMode === "pie") {
+      return (
+        <BreakdownDonut
+          data={chartData.slice(0, 12)}
+          format={kpi.format}
+          accent={accent}
+          soft="#dbeafe"
+          metricLabel={kpi.label}
+          height={420}
+          drillHint="Use the detailed numbers table below for exact values."
+        />
+      );
+    }
+
+    return (
+      <BreakdownBar
+        data={chartData}
+        format={kpi.format}
+        accent={accent}
+        xLabel={activeBreakdown?.id === "__trend" ? "Year" : (activeBreakdown?.label ?? report.breakdownLabel)}
+        yLabel={kpi.label}
+        height={440}
+        forceHorizontal={chartData.length > 7}
+      />
     );
   }
 
@@ -1625,11 +1723,11 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
 
                 <div className="rounded-2xl bg-white p-3 shadow-sm">
                   <Select
-                    label="View Data By"
+                    label="Breakdown By"
                     value={activeBreakdownId}
                     onChange={(value) => {
                       setActiveBreakdownId(value);
-                      setViewMode(value === "__trend" ? "chart" : "table");
+                      setViewMode(value === "__trend" ? "line" : (chartViewOptions[0] ?? "table"));
                     }}
                     options={breakdownOptions.map((option) => ({
                       value: option.id,
@@ -1653,30 +1751,6 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
                     value={String(topN)}
                     onChange={(value) => setTopN(Number(value))}
                     options={[10, 25, 50, 100, 200].map((item) => ({ value: String(item), label: String(item) }))}
-                  />
-                </div>
-
-                <div className="rounded-2xl bg-white p-3 shadow-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-extrabold text-slate-950">Full AI report interpretation and data notes</div>
-                      <div className="mt-0.5 text-[11px] font-semibold text-slate-500">Selectable text with copy support.</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={copyReportNotes}
-                      className="rounded-full px-3 py-1.5 text-xs font-extrabold text-white transition hover:opacity-95"
-                      style={{ background: "#173f91" }}
-                    >
-                      {reportNotesCopied ? "Copied" : "Copy"}
-                    </button>
-                  </div>
-                  <textarea
-                    readOnly
-                    value={aiNotesText}
-                    onFocus={(event) => event.currentTarget.select()}
-                    className="mt-3 h-44 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700 outline-none focus:border-blue-300"
-                    aria-label="Full AI report interpretation and data notes"
                   />
                 </div>
               </div>
@@ -1747,45 +1821,8 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
     return row;
   })();
 
-  const aiNotesText = useMemo(() => {
-    const lines = [
-      `Report: ${report.name}`,
-      `Report ID: ${report.reportId}`,
-      `Hierarchy: ${breadcrumbTrail}`,
-      `Scope: ${scopeText}`,
-      `Year: ${year}`,
-      `View: ${activeBreakdown?.id === "__trend" ? "Year-on-Year Trend" : `${activeBreakdown?.label ?? report.breakdownLabel} ${activeBreakdown?.variant ?? ""}`.trim()}`,
-      `Data note: ${dataQualityCopy}`,
-      "",
-      "Full AI report interpretation:",
-      ...interpretation.map((text, index) => `${index + 1}. ${text}`),
-      "",
-      `Evidence (demo): ${EVIDENCE_LINKS.map((item) => item.label).join(" | ")}`,
-    ];
-    return lines.join("\n");
-  }, [report, breadcrumbTrail, scopeText, year, activeBreakdown, dataQualityCopy, interpretation]);
-
-  async function copyReportNotes() {
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(aiNotesText);
-      } else if (typeof document !== "undefined") {
-        const textarea = document.createElement("textarea");
-        textarea.value = aiNotesText;
-        textarea.setAttribute("readonly", "");
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textarea);
-      }
-      setReportNotesCopied(true);
-      window.setTimeout(() => setReportNotesCopied(false), 1600);
-    } catch {
-      setReportNotesCopied(false);
-    }
-  }
+  const insightLead = interpretation.find((line) => line && !line.startsWith("What this report is:")) ?? interpretation[0] ?? "AI insight is generated from the selected report data.";
+  const detailCoverage = getReportCoverage(report, [kpi], selectedHierarchyItem);
 
   return (
     <div className="overflow-hidden rounded-[26px] bg-white shadow-sm" style={{ border: "1px solid rgba(15,23,42,0.08)" }}>
@@ -1803,9 +1840,11 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <div className="rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">
+            <div className="max-w-[720px] rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">
               Reports <span className="px-1 text-slate-400">›</span>
-              <span className="rounded-full px-3 py-1 text-white" style={{ background: "#173f91" }}>{report.domain}</span>
+              <span>{detailCoverage.label}</span>
+              <span className="px-1 text-slate-400">›</span>
+              <span className="rounded-full px-3 py-1 text-white" style={{ background: "#173f91" }}>{report.name}</span>
             </div>
             <button
               type="button"
@@ -1831,13 +1870,13 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
               onClick={() => setDownloadMenuOpen((value) => !value)}
               className="min-w-[190px] rounded-full bg-white px-5 py-2 text-left text-sm font-extrabold text-slate-950 shadow-sm transition hover:opacity-95"
             >
-              <span className="flex items-center justify-between gap-3">Download Report <span>⌄</span></span>
+              <span className="flex items-center justify-between gap-3">Download PDF <span>⌄</span></span>
             </button>
             {downloadMenuOpen ? (
               <div className="absolute right-0 z-40 mt-1 w-[230px] overflow-hidden border border-slate-300 bg-white shadow-xl">
-                <button type="button" onClick={() => doDownload("pdf")} className="block w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50">Download as PDF</button>
-                <button type="button" onClick={() => doDownload("xls")} className="block w-full bg-[#1d62c7] px-4 py-2.5 text-left text-sm font-semibold text-white">Download as Excel</button>
-                <button type="button" onClick={() => doDownload("csv")} className="block w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50">Download as CSV</button>
+                <button type="button" onClick={() => doDownload("pdf")} className="block w-full bg-[#1d62c7] px-4 py-2.5 text-left text-sm font-semibold text-white">Download PDF</button>
+                <button type="button" onClick={() => doDownload("xls")} className="block w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50">Download Excel</button>
+                <button type="button" onClick={() => doDownload("csv")} className="block w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50">Download CSV</button>
               </div>
             ) : null}
           </div>
@@ -1846,7 +1885,7 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
 
       <div className="bg-[#f2f0f0] px-6 py-3" data-export-hide="true">
         <div className="flex flex-wrap items-center gap-4">
-          <div className="text-lg font-black text-slate-950">View Data By</div>
+          <div className="text-lg font-black text-slate-950">Breakdown By</div>
           <div className="flex max-w-full flex-wrap gap-2 rounded-full bg-white p-1.5 shadow-sm">
             {breakdownOptions.map((option) => {
               const selected = activeBreakdown?.id === option.id;
@@ -1856,7 +1895,7 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
                   type="button"
                   onClick={() => {
                     setActiveBreakdownId(option.id);
-                    setViewMode(option.id === "__trend" ? "chart" : "table");
+                    setViewMode(option.id === "__trend" ? "line" : (chartViewOptions[0] ?? "table"));
                   }}
                   className="rounded-full px-4 py-2 text-xs font-black transition"
                   style={selected ? { background: "#e8e6ff", color: "#173f91" } : { background: "#ffffff", color: "#0f172a" }}
@@ -1875,71 +1914,77 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
             Showing Results for: <span className="font-black">{scopeText}</span> <span className="px-1">›</span> <span className="font-black">{year}</span>
             {selectedBucketNames.length ? <span> <span className="px-1">›</span> <span className="font-black">{selectedBucketNames.length} selected value</span></span> : null}
           </div>
-          <div className="flex rounded-full bg-slate-50 p-1 shadow-sm" data-export-hide="true">
-            {[
-              { id: "table", label: "▦ Table" },
-              { id: "chart", label: "◔ Chart" },
-            ].map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setViewMode(item.id)}
-                className="rounded-full px-4 py-2 text-sm font-black transition"
-                style={viewMode === item.id ? { background: "#e8e6ff", color: "#173f91" } : { color: "#8b8b8b" }}
-              >
-                {item.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-2" data-export-hide="true">
+            <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Chart View</div>
+            <div className="flex rounded-full bg-slate-50 p-1 shadow-sm">
+              {chartViewOptions.map((type) => {
+                const meta = chartViewMeta(type);
+                return (
+                  <button
+                    key={meta.id}
+                    type="button"
+                    onClick={() => setViewMode(meta.id)}
+                    className="grid h-10 w-10 place-items-center rounded-full transition"
+                    style={viewMode === meta.id ? { background: "#e8e6ff", color: "#173f91" } : { color: "#64748b" }}
+                    title={meta.label}
+                    aria-label={meta.label}
+                  >
+                    <ReportHubTypeIcon type={meta.iconType} accent="currentColor" />
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
+        <div className="rounded-[18px] border border-slate-200 bg-slate-50/80 px-4 py-3">
+          <div className="text-sm font-black text-slate-950">AI Insight / Summary</div>
+          <div className="mt-1 text-sm font-medium leading-6 text-slate-700">{insightLead}</div>
+        </div>
 
-        {missingInstituteIds.length || !rowsYear.length ? (
-          <div
-            className="rounded-[14px] px-4 py-3 text-sm font-bold"
-            style={{
-              background: missingInstituteIds.length ? "rgba(254,242,242,0.85)" : "rgba(248,250,252,0.95)",
-              border: missingInstituteIds.length ? "1px solid rgba(248,113,113,0.38)" : "1px solid rgba(148,163,184,0.28)",
-              color: missingInstituteIds.length ? "#991b1b" : "#475569",
-            }}
-          >
-            {dataQualityCopy}
+        {missingInstituteIds.length ? (
+          <details className="rounded-[14px] border border-amber-100 bg-amber-50/60 px-4 py-3 text-sm font-semibold text-slate-700">
+            <summary className="cursor-pointer font-black text-amber-800">Data unavailable for {missingInstituteIds.length} IIT{missingInstituteIds.length === 1 ? "" : "s"} — View list</summary>
+            <div className="mt-2 leading-6 text-slate-600">{missingInstituteIds.map(instituteName).join(", ")}</div>
+          </details>
+        ) : !rowsYear.length ? (
+          <div className="rounded-[14px] border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm font-bold text-slate-600">
+            No source rows are available for the selected scope and year.
           </div>
         ) : null}
 
-        <div className="overflow-hidden rounded-[14px] border border-slate-300 bg-white">
-          {viewMode === "table" ? (
-            <UdiseReportTable columns={detailTable.columns} rows={detailTable.rows} footerRow={tableFooterRow} hiddenKeys={["Rank"]} maxHeight={560} />
-          ) : chartData.length ? (
-            <div className="bg-white p-4">
-              {activeBreakdown?.id === "__trend" ? (
-                <BreakdownLine
-                  data={chartData}
-                  format={kpi.format}
-                  accent={accent}
-                  yLabel={kpi.label}
-                  height={520}
-                  drillHint="Switch to table for YoY growth values and source-row counts."
-                />
-              ) : (
-                <BreakdownBar
-                  data={chartData}
-                  format={kpi.format}
-                  accent={accent}
-                  xLabel={activeBreakdown?.label ?? report.breakdownLabel}
-                  yLabel={kpi.label}
-                  height={560}
-                  forceHorizontal={chartData.length > 7}
-                />
-              )}
+        <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+            <div>
+              <div className="text-sm font-black text-slate-950">Visual chart section</div>
+              <div className="mt-0.5 text-xs font-semibold text-slate-500">{chartViewMeta(viewMode).label} for {activeBreakdown?.id === "__trend" ? "year-on-year values" : activeBreakdown?.label}</div>
             </div>
-          ) : (
-            <div className="grid min-h-[320px] place-items-center bg-white text-sm font-semibold text-slate-500">
-              No chart data available for the selected scope and view.
-            </div>
-          )}
-        </div>
+          </div>
+          <div className="bg-white p-4">
+            {renderDetailVisualOutput()}
+          </div>
+        </section>
 
+        <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <div className="text-sm font-black text-slate-950">Numbers / detailed table</div>
+            <div className="mt-0.5 text-xs font-semibold text-slate-500">Exact values, source rows, and availability for the selected breakdown.</div>
+          </div>
+          <UdiseReportTable columns={detailTable.columns} rows={detailTable.rows} footerRow={tableFooterRow} hiddenKeys={["Rank"]} maxHeight={520} />
+        </section>
+
+        <details className="rounded-[18px] border border-sky-100 bg-sky-50/50 p-4">
+          <summary className="cursor-pointer text-sm font-black" style={{ color: "#173f91" }}>Full AI report interpretation and data notes</summary>
+          <div className="mt-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{breadcrumbTrail}</div>
+          <ul className="mt-3 list-disc pl-5 text-sm leading-6 text-slate-700">
+            {interpretation.map((text, index) => (
+              <li key={index}>{text}</li>
+            ))}
+          </ul>
+          <div className="mt-3 text-xs text-slate-500">
+            Evidence (demo): {EVIDENCE_LINKS.map((item) => item.label).join(" | ")}
+          </div>
+        </details>
       </div>
 
       {renderFloatingFilterPanel()}
@@ -1947,14 +1992,720 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
   );
 }
 
+
+function CrossModuleReportDetailPage({ report, catalog = [], facts, config, accent, role, instituteId, initialYear, onBack, onChangeReport }) {
+  const reportKpis = useMemo(() => getReportKpis(report), [report]);
+  const coverage = useMemo(() => getReportCoverage(report, reportKpis), [report, reportKpis]);
+
+  const yrFrom = Math.min(config?.YearRange?.from ?? YEARS[0], config?.YearRange?.to ?? YEARS[YEARS.length - 1]);
+  const yrTo = Math.max(config?.YearRange?.from ?? YEARS[0], config?.YearRange?.to ?? YEARS[YEARS.length - 1]);
+  const yearsInRange = useMemo(() => YEARS.filter((y) => y >= yrFrom && y <= yrTo), [yrFrom, yrTo]);
+
+  const configuredInstituteIds = useMemo(() => {
+    if (role === "iit") return [instituteId].filter(Boolean);
+    return uniqueReportIds(config?.InstituteId ?? []);
+  }, [role, instituteId, config]);
+
+  const [year, setYear] = useState(initialYear ?? yearsInRange[yearsInRange.length - 1] ?? YEARS[YEARS.length - 1]);
+  const [detailInstituteIds, setDetailInstituteIds] = useState(configuredInstituteIds);
+  const [viewMode, setViewMode] = useState(report?.defaultView ?? "table");
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+
+  useEffect(() => {
+    setYear(initialYear ?? yearsInRange[yearsInRange.length - 1] ?? YEARS[YEARS.length - 1]);
+    setDetailInstituteIds(configuredInstituteIds);
+    setViewMode(report?.defaultView ?? "table");
+    setDownloadMenuOpen(false);
+    setFilterPanelOpen(false);
+  }, [report?.reportId, initialYear, yearsInRange, configuredInstituteIds, report?.defaultView]);
+
+  const scopedIds = useMemo(() => {
+    if (role === "iit") return [instituteId].filter(Boolean);
+    return detailInstituteIds.length ? detailInstituteIds : IITs.map((x) => x.id);
+  }, [role, instituteId, detailInstituteIds]);
+  const scopeText = useMemo(() => instituteLabel(detailInstituteIds), [detailInstituteIds]);
+  const expectedInstituteIds = useMemo(() => {
+    if (role === "iit") return [instituteId].filter(Boolean);
+    return scopedIds.length ? scopedIds : IITs.map((x) => x.id);
+  }, [role, instituteId, scopedIds]);
+
+  const metrics = useMemo(() => {
+    return reportKpis.map((kpi) => {
+      const rows = rowsForKpiYear({ facts, kpi, year, scopedInstituteIds: scopedIds });
+      const prevRows = rowsForKpiYear({ facts, kpi, year: year - 1, scopedInstituteIds: scopedIds });
+      const value = kpiValue(kpi, rows);
+      const prevValue = kpiValue(kpi, prevRows);
+      const dataRows = metricRowsForMissingCheck(kpi, rows);
+      const available = new Set(dataRows.map((r) => r.InstituteId).filter(Boolean));
+      const missing = expectedInstituteIds.filter((id) => !available.has(id));
+      return {
+        kpi,
+        section: kpi.module ?? "Reports",
+        indicator: kpi.label,
+        value,
+        prevValue,
+        formattedValue: fmtValue(kpi, value),
+        yoy: formatYoYForCard(kpi, value, prevValue),
+        sourceRows: rows.length,
+        missing,
+        availability: missing.length ? `Partial (${expectedInstituteIds.length - missing.length}/${expectedInstituteIds.length} IITs)` : rows.length ? "Available" : "Data not available",
+      };
+    });
+  }, [reportKpis, facts, year, scopedIds, expectedInstituteIds]);
+
+  const detailColumns = useMemo(() => [
+    { key: "Section", label: "Section" },
+    { key: "Indicator", label: "Indicator" },
+    { key: "Value", label: "Value" },
+    { key: "YoY", label: "YoY" },
+    { key: "SourceRows", label: "Source Rows" },
+    { key: "Availability", label: "Availability" },
+  ], []);
+
+  const detailRows = useMemo(() => metrics.map((item) => ({
+    Section: item.section,
+    Indicator: item.indicator,
+    Value: item.formattedValue,
+    YoY: item.yoy,
+    SourceRows: item.sourceRows,
+    Availability: item.availability,
+  })), [metrics]);
+
+  const sectionBlocks = useMemo(() => {
+    const map = new Map();
+    for (const row of detailRows) {
+      if (!map.has(row.Section)) map.set(row.Section, []);
+      map.get(row.Section).push(row);
+    }
+    return Array.from(map.entries()).map(([section, rows]) => ({ section, rows }));
+  }, [detailRows]);
+
+  const chartViewOptions = useMemo(() => uniqueChartTypes(report?.chartTypes ?? ["table", "bar"]), [report?.chartTypes]);
+  useEffect(() => {
+    if (!chartViewOptions.includes(viewMode)) setViewMode(chartViewOptions[0] ?? "table");
+  }, [chartViewOptions, viewMode]);
+
+  const chartData = useMemo(() => {
+    const finite = metrics.filter((item) => item.value != null && Number.isFinite(Number(item.value)));
+    const nonPctMax = Math.max(1, ...finite.filter((item) => item.kpi.format !== "pct").map((item) => Math.abs(Number(item.value ?? 0))));
+    return finite.map((item) => ({
+      name: item.indicator.length > 34 ? `${item.indicator.slice(0, 32)}...` : item.indicator,
+      value: item.kpi.format === "pct" ? Number(item.value ?? 0) * 100 : (Math.abs(Number(item.value ?? 0)) / nonPctMax) * 100,
+      actualValue: item.formattedValue,
+    }));
+  }, [metrics]);
+
+  const trendData = useMemo(() => {
+    const maxByKpi = new Map();
+    for (const kpi of reportKpis) {
+      let max = 0;
+      for (const y of yearsInRange) {
+        const rows = rowsForKpiYear({ facts, kpi, year: y, scopedInstituteIds: scopedIds });
+        const value = kpiValue(kpi, rows);
+        if (value != null && Number.isFinite(Number(value))) max = Math.max(max, Math.abs(Number(value)));
+      }
+      maxByKpi.set(kpi.id, Math.max(1, max));
+    }
+
+    return yearsInRange.map((y) => {
+      const values = reportKpis.map((kpi) => {
+        const rows = rowsForKpiYear({ facts, kpi, year: y, scopedInstituteIds: scopedIds });
+        const value = kpiValue(kpi, rows);
+        if (value == null || !Number.isFinite(Number(value))) return null;
+        return kpi.format === "pct" ? Number(value) * 100 : (Math.abs(Number(value)) / (maxByKpi.get(kpi.id) || 1)) * 100;
+      }).filter((value) => value != null);
+      return {
+        name: String(y),
+        value: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null,
+      };
+    }).filter((item) => item.value != null);
+  }, [reportKpis, yearsInRange, facts, scopedIds]);
+
+  const availableCount = metrics.filter((item) => item.value != null).length;
+  const missingMetrics = metrics.filter((item) => item.value == null || item.missing.length);
+  const summaryText = `${report.name} combines ${reportKpis.length} indicators across ${coverage.label.toLowerCase()} coverage. For ${scopeText} in ${year}, ${availableCount} of ${reportKpis.length} indicators have usable data.`;
+
+  const reportOptions = useMemo(() => {
+    const scoped = catalog.filter((item) => item.scopeType === report?.scopeType);
+    const other = catalog.filter((item) => item.scopeType !== report?.scopeType);
+    return [...scoped, ...other];
+  }, [catalog, report?.scopeType]);
+
+  function changeReport(reportId) {
+    const next = catalog.find((item) => String(item.reportId) === String(reportId));
+    if (next) onChangeReport?.(next);
+  }
+
+  function rankedIitsForCross(direction = "top") {
+    const firstKpi = reportKpis[0];
+    if (!firstKpi) return [...REPORT_LEGACY_IITS];
+    const rows = IITs.map((iit) => {
+      const scopedRows = rowsForKpiYear({ facts, kpi: firstKpi, year, scopedInstituteIds: [iit.id] });
+      return { id: iit.id, value: kpiValue(firstKpi, scopedRows) };
+    }).filter((item) => item.value != null && Number.isFinite(Number(item.value)));
+    rows.sort((a, b) => direction === "bottom" ? Number(a.value) - Number(b.value) : Number(b.value) - Number(a.value));
+    return rows.slice(0, 10).map((item) => item.id);
+  }
+
+  function applyInstituteScope(nextValue) {
+    if (role === "iit") return;
+    if (nextValue === "__all") setDetailInstituteIds([]);
+    else if (nextValue === "__old") setDetailInstituteIds([...REPORT_LEGACY_IITS]);
+    else if (nextValue === "__top") setDetailInstituteIds(rankedIitsForCross("top"));
+    else if (nextValue === "__bottom") setDetailInstituteIds(rankedIitsForCross("bottom"));
+    else if (nextValue !== "__custom") setDetailInstituteIds([nextValue]);
+  }
+
+  function toggleInstitute(iid) {
+    if (role === "iit") return;
+    setDetailInstituteIds((prev) => {
+      const base = prev.length ? prev : IITs.map((item) => item.id);
+      const next = base.includes(iid) ? base.filter((item) => item !== iid) : [...base, iid];
+      if (!next.length || next.length === IITs.length) return [];
+      return sortReportIitsAlphabetically(next);
+    });
+  }
+
+  function renderCrossVisual() {
+    if (viewMode === "table") {
+      return <UdiseReportTable columns={detailColumns} rows={detailRows} maxHeight={420} />;
+    }
+    if (viewMode === "line") {
+      return trendData.length ? (
+        <BreakdownLine data={trendData} format="number" accent={accent} yLabel="Normalised score" height={420} drillHint="Line view shows an averaged, normalised multi-KPI trend." />
+      ) : <div className="grid min-h-[320px] place-items-center text-sm font-semibold text-slate-500">No trend data available.</div>;
+    }
+    if (!chartData.length) {
+      return <div className="grid min-h-[320px] place-items-center text-sm font-semibold text-slate-500">No visual data available.</div>;
+    }
+    if (viewMode === "pie") {
+      return <BreakdownDonut data={chartData} format="number" accent={accent} soft="#dbeafe" metricLabel="Normalised value" height={420} drillHint="Numbers below show actual values and units." />;
+    }
+    return <BreakdownBar data={chartData} format="number" accent={accent} xLabel="Indicator" yLabel="Normalised value" height={440} forceHorizontal />;
+  }
+
+  function doDownload(fmt) {
+    setDownloadMenuOpen(false);
+    const filenameBase = `${report.reportId}_${report.name}`.replace(/[^a-z0-9\-_ ]/gi, "").replace(/\s+/g, "_");
+    if (fmt === "csv") {
+      downloadText(`${filenameBase}_${year}.csv`, toCsv(detailRows, detailColumns), "text/csv;charset=utf-8");
+      return;
+    }
+    if (fmt === "xls") {
+      downloadExcelHtml(`${filenameBase}_${year}.xls`, detailColumns, detailRows);
+      return;
+    }
+
+    const metadata = [
+      { Field: "Report", Value: report.name },
+      { Field: "Coverage", Value: [coverage.label, coverage.subLabel].filter(Boolean).join(" - ") },
+      { Field: "Scope", Value: scopeText },
+      { Field: "Year", Value: year },
+      { Field: "Indicators", Value: reportKpis.length },
+    ];
+    const html = `
+      <div style="padding:18px;">
+        <div class="card">
+          <h1 style="font-size:20px;font-weight:900;">${escHtml(report.name)}</h1>
+          <div class="muted" style="font-size:12px;margin-top:4px;">Reports > ${escHtml(coverage.label)} > ${escHtml(report.name)}</div>
+        </div>
+        <div style="height:10px;"></div>
+        <div class="card">
+          <h2 style="font-size:14px;font-weight:900;margin-bottom:8px;">Summary</h2>
+          <p style="font-size:12px;margin-top:0;">${escHtml(summaryText)}</p>
+          ${htmlTable([{ key: "Field", label: "Field" }, { key: "Value", label: "Value" }], metadata)}
+        </div>
+        <div style="height:10px;"></div>
+        <div class="card">
+          <h2 style="font-size:14px;font-weight:900;margin-bottom:8px;">Detailed numbers</h2>
+          ${htmlTable(detailColumns, detailRows)}
+        </div>
+        <div style="height:10px;"></div>
+        <div class="muted" style="font-size:11px;">Evidence (demo): ${EVIDENCE_LINKS.map((x) => escHtml(x.label)).join(" | ")}</div>
+      </div>
+    `;
+    downloadHtmlAsPdf({ title: `${report.name} (${year})`, html, orientation: "landscape", pageSize: "A4" });
+  }
+
+  function renderFloatingFilterPanel() {
+    const allIitIds = IITs.map((iit) => iit.id);
+    const oldKey = REPORT_LEGACY_IITS.join("|");
+    const selectedKey = (detailInstituteIds ?? []).join("|");
+    const currentInstituteScope = role === "iit"
+      ? instituteId
+      : !detailInstituteIds.length
+        ? "__all"
+        : selectedKey === oldKey
+          ? "__old"
+          : detailInstituteIds.length === 1
+            ? detailInstituteIds[0]
+            : "__custom";
+
+    const instituteScopeOptions = [
+      { value: "__all", label: "All IITs" },
+      { value: "__old", label: "Old IITs" },
+      { value: "__top", label: "Top 10 by first indicator" },
+      { value: "__bottom", label: "Bottom 10 by first indicator" },
+      { value: "__custom", label: detailInstituteIds.length ? `${detailInstituteIds.length} selected IITs` : "Custom selection" },
+      ...IITs.map((iit) => ({ value: iit.id, label: instituteShortLabel(iit.id) })),
+    ];
+
+    return (
+      <div data-export-hide="true">
+        {filterPanelOpen ? (
+          <>
+            <button type="button" aria-label="Close report filters backdrop" className="fixed inset-0 z-[250] cursor-default bg-slate-950/10" onClick={() => setFilterPanelOpen(false)} />
+            <aside className="fixed right-4 z-[260] w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-[18px] bg-white shadow-[0_18px_55px_rgba(15,23,42,0.22)]" style={{ top: "11.75rem", border: "1px solid rgba(15,23,42,0.08)" }}>
+              <div className="flex items-center justify-between gap-3 px-5 py-4 text-white" style={{ background: "#173f91" }}>
+                <div className="flex items-center gap-3">
+                  <ReportHubFilterIcon />
+                  <div className="text-xl font-extrabold">Apply Filters</div>
+                </div>
+                <button type="button" onClick={() => setFilterPanelOpen(false)} className="grid h-8 w-8 place-items-center rounded-full bg-white/10 transition hover:bg-white/20" aria-label="Close filters">
+                  <ReportCloseIcon />
+                </button>
+              </div>
+
+              <div className="max-h-[calc(100vh-16rem)] space-y-4 overflow-auto bg-[#f7f7f7] px-5 py-5">
+                <div className="rounded-2xl bg-white p-3 shadow-sm">
+                  <Select label="Select Report" value={String(report.reportId)} onChange={changeReport} options={reportOptions.slice(0, 200).map((item) => ({ value: String(item.reportId), label: item.name }))} />
+                </div>
+                <div className="rounded-2xl bg-white p-3 shadow-sm">
+                  <Select label="Select Year" value={String(year)} onChange={(value) => setYear(Number(value))} options={yearsInRange.map((item) => ({ value: String(item), label: String(item) }))} />
+                </div>
+                <div className="rounded-2xl bg-white p-3 shadow-sm">
+                  <Select label="Select IIT / Group" value={currentInstituteScope} onChange={applyInstituteScope} options={instituteScopeOptions} disabled={role === "iit"} />
+                  <details className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2">
+                    <summary className="cursor-pointer text-xs font-extrabold text-slate-700">Select multiple IITs</summary>
+                    <div className="mt-3 grid max-h-44 gap-2 overflow-auto">
+                      {IITs.map((iit) => {
+                        const selected = role === "iit" ? iit.id === instituteId : (!detailInstituteIds.length || detailInstituteIds.includes(iit.id));
+                        return (
+                          <button key={iit.id} type="button" onClick={() => toggleInstitute(iit.id)} disabled={role === "iit"} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60">
+                            <span>{instituteShortLabel(iit.id)}</span>
+                            <span className={cx("h-3 w-3 rounded-sm border", selected ? "border-blue-700 bg-blue-700" : "border-slate-300 bg-white")} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </details>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center gap-3 bg-[#f7f7f7] px-5 pb-5">
+                <button type="button" onClick={() => { setYear(yearsInRange[yearsInRange.length - 1] ?? YEARS[YEARS.length - 1]); setDetailInstituteIds(configuredInstituteIds); }} className="rounded-full px-7 py-2.5 text-sm font-extrabold text-white shadow-sm transition hover:opacity-95" style={{ background: "#173f91" }}>Reset</button>
+                <button type="button" onClick={() => setFilterPanelOpen(false)} className="rounded-full bg-[#3ac778] px-7 py-2.5 text-sm font-extrabold text-white shadow-sm transition hover:opacity-95">Apply</button>
+              </div>
+            </aside>
+          </>
+        ) : null}
+
+        <div className="fixed bottom-6 right-6 z-[240]">
+          <button type="button" onClick={() => setFilterPanelOpen(true)} className="grid h-14 w-14 place-items-center rounded-full text-white shadow-2xl transition hover:-translate-y-0.5 hover:opacity-95" style={{ background: "#173f91" }} aria-label="Open report filters" title="Apply Filters">
+            <ReportHubFilterIcon />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-[26px] bg-white shadow-sm" style={{ border: "1px solid rgba(15,23,42,0.08)" }}>
+      <div className="border-b border-slate-100 bg-white px-6 py-5" data-export-hide="true">
+        <div className="flex flex-wrap items-center justify-between gap-5">
+          <div className="flex items-center gap-4">
+            <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-slate-100 text-sm font-black" style={{ color: "#173f91", border: "1px solid rgba(23,63,145,0.16)" }}>MIS</div>
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Department of Higher Education</div>
+              <div className="text-2xl font-black leading-tight text-slate-950">IITMIS Reports</div>
+              <div className="text-sm font-semibold text-slate-500">Cross-module analytical reporting</div>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="max-w-[720px] rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">
+              Reports <span className="px-1 text-slate-400">›</span>
+              <span>{coverage.label}</span>
+              <span className="px-1 text-slate-400">›</span>
+              <span className="rounded-full px-3 py-1 text-white" style={{ background: "#173f91" }}>{report.name}</span>
+            </div>
+            <button type="button" onClick={onBack} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 shadow-sm transition hover:bg-slate-50">Back to reports</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-6 py-3 text-white" style={{ background: "#173f91" }}>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex min-w-0 flex-wrap items-center gap-4">
+            <span className="rounded-full bg-white/95 px-4 py-1.5 text-xs font-black" style={{ color: "#173f91" }}>Reports ID: {report.reportId}</span>
+            <div className="min-w-0 text-xl font-black leading-tight">{report.name}</div>
+          </div>
+          <div className="relative" data-export-hide="true">
+            <button type="button" onClick={() => setDownloadMenuOpen((value) => !value)} className="min-w-[180px] rounded-full bg-white px-5 py-2 text-left text-sm font-extrabold text-slate-950 shadow-sm transition hover:opacity-95">
+              <span className="flex items-center justify-between gap-3">Download PDF <span>⌄</span></span>
+            </button>
+            {downloadMenuOpen ? (
+              <div className="absolute right-0 z-40 mt-1 w-[220px] overflow-hidden border border-slate-300 bg-white shadow-xl">
+                <button type="button" onClick={() => doDownload("pdf")} className="block w-full bg-[#1d62c7] px-4 py-2.5 text-left text-sm font-semibold text-white">Download PDF</button>
+                <button type="button" onClick={() => doDownload("xls")} className="block w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50">Download Excel</button>
+                <button type="button" onClick={() => doDownload("csv")} className="block w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50">Download CSV</button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-5 bg-white px-6 py-6">
+        <div className="text-base font-semibold text-slate-950">
+          Showing Results for: <span className="font-black">{scopeText}</span> <span className="px-1">›</span> <span className="font-black">{year}</span>
+        </div>
+
+        <div className="rounded-[18px] border border-slate-200 bg-slate-50/80 px-4 py-3">
+          <div className="text-sm font-black text-slate-950">AI Insight / Summary</div>
+          <div className="mt-1 text-sm font-medium leading-6 text-slate-700">{summaryText}</div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {metrics.slice(0, 4).map((item) => (
+            <div key={item.kpi.id} className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-xs font-black uppercase tracking-[0.12em] text-slate-400">{item.section}</div>
+              <div className="mt-2 min-h-[40px] text-sm font-black leading-5 text-slate-950">{item.indicator}</div>
+              <div className="mt-3 text-2xl font-black" style={{ color: "#173f91" }}>{item.formattedValue}</div>
+              <div className="mt-1 text-xs font-semibold text-slate-500">YoY: {item.yoy} · {item.sourceRows} rows</div>
+            </div>
+          ))}
+        </div>
+
+        {missingMetrics.length ? (
+          <details className="rounded-[14px] border border-amber-100 bg-amber-50/60 px-4 py-3 text-sm font-semibold text-slate-700">
+            <summary className="cursor-pointer font-black text-amber-800">Data notes for {missingMetrics.length} indicator{missingMetrics.length === 1 ? "" : "s"} — View list</summary>
+            <div className="mt-2 grid gap-2 text-slate-600">
+              {missingMetrics.map((item) => (
+                <div key={item.kpi.id}><span className="font-black">{item.indicator}:</span> {item.availability}{item.missing.length ? `; missing ${item.missing.map(instituteName).join(", ")}` : ""}</div>
+              ))}
+            </div>
+          </details>
+        ) : null}
+
+        <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+            <div>
+              <div className="text-sm font-black text-slate-950">Visual chart section</div>
+              <div className="mt-0.5 text-xs font-semibold text-slate-500">{chartViewMeta(viewMode).label} for cross-module indicators</div>
+            </div>
+            <div className="flex items-center gap-2" data-export-hide="true">
+              <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Chart View</div>
+              <div className="flex rounded-full bg-slate-50 p-1 shadow-sm">
+                {chartViewOptions.map((type) => {
+                  const meta = chartViewMeta(type);
+                  return (
+                    <button key={meta.id} type="button" onClick={() => setViewMode(meta.id)} className="grid h-10 w-10 place-items-center rounded-full transition" style={viewMode === meta.id ? { background: "#e8e6ff", color: "#173f91" } : { color: "#64748b" }} title={meta.label} aria-label={meta.label}>
+                      <ReportHubTypeIcon type={meta.iconType} accent="currentColor" />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          <div className="bg-white p-4">{renderCrossVisual()}</div>
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-2">
+          {sectionBlocks.map((block) => (
+            <div key={block.section} className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
+              <div className="border-b border-slate-100 px-4 py-3 text-sm font-black text-slate-950">{block.section}</div>
+              <UdiseReportTable columns={detailColumns.filter((column) => column.key !== "Section")} rows={block.rows} maxHeight={320} />
+            </div>
+          ))}
+        </section>
+
+        <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <div className="text-sm font-black text-slate-950">Numbers / detailed table</div>
+            <div className="mt-0.5 text-xs font-semibold text-slate-500">All indicators, values, YoY movement, source rows, and availability.</div>
+          </div>
+          <UdiseReportTable columns={detailColumns} rows={detailRows} maxHeight={520} />
+        </section>
+
+        <details className="rounded-[18px] border border-sky-100 bg-sky-50/50 p-4">
+          <summary className="cursor-pointer text-sm font-black" style={{ color: "#173f91" }}>Data notes</summary>
+          <ul className="mt-3 list-disc pl-5 text-sm leading-6 text-slate-700">
+            <li>This is a curated {coverage.label.toLowerCase()} report pack, not a single-KPI page.</li>
+            <li>Visuals use normalised values when indicators have different units; the numbers table keeps the original units.</li>
+            <li>Evidence (demo): {EVIDENCE_LINKS.map((item) => item.label).join(" | ")}</li>
+          </ul>
+        </details>
+      </div>
+
+      {renderFloatingFilterPanel()}
+    </div>
+  );
+}
+
+
+const REPORTS_PAGE_SIZE = 7;
+const REPORT_HUB_SORT_OPTIONS = [
+  { value: "coverage", label: "Sort: Coverage" },
+  { value: "name", label: "Sort: Report Name" },
+  { value: "dataSource", label: "Sort: Data Source" },
+  { value: "views", label: "Sort: Views" },
+  { value: "used", label: "Sort: Frequently Used" },
+];
+
+const REPORT_HUB_PRIORITY = [
+  { kpiId: "kpi_inst_profile_mix", reportType: "trend" },
+  { kpiId: "kpi_inst_profile_mix", breakdownField: "Institute" },
+  { kpiId: "kpi_inst_profile_mix", breakdownField: "DegreeCategory" },
+  { kpiId: "kpi_psl_placement_statistics", reportType: "trend" },
+  { kpiId: "kpi_placement_rate", reportType: "trend" },
+  { kpiId: "kpi_inst_program_portfolio", breakdownField: "ModeOfDelivery" },
+  { kpiId: "kpi_inst_program_portfolio", breakdownField: "Department" },
+  { kpiId: "kpi_inst_program_portfolio", breakdownField: "Degree" },
+  { kpiId: "kpi_outreach_events", reportType: "trend" },
+  { kpiId: "kpi_outreach_students", reportType: "breakdown" },
+];
+
+function reportHubPriority(report) {
+  const customPriority = { 9001: 3.1, 9002: 3.2, 9003: 3.3 };
+  if (Object.prototype.hasOwnProperty.call(customPriority, report?.reportId)) return customPriority[report.reportId];
+
+  const index = REPORT_HUB_PRIORITY.findIndex((item) => {
+    if (item.kpiId && item.kpiId !== report?.kpiId) return false;
+    if (item.reportType && item.reportType !== report?.reportType) return false;
+    if (item.breakdownField && item.breakdownField !== report?.breakdownField) return false;
+    return true;
+  });
+  return index >= 0 ? index : 1000;
+}
+
+function reportHubDisplayModule(report, hierarchyItem, kpi) {
+  const submodule = humanizeReportLabel(hierarchyItem?.submoduleLabel ?? hierarchyItem?.submodule ?? "");
+  const sheet = humanizeReportLabel(hierarchyItem?.sheetLabel ?? hierarchyItem?.sheet ?? "");
+  const domain = humanizeReportLabel(kpi?.module ?? report?.domain ?? "Reports");
+
+  if (/academic programs/i.test(sheet)) return "Academic Programs";
+  if (submodule) return submodule;
+  return domain;
+}
+
+function reportHubSheetParts(report, hierarchyItem, kpi) {
+  const sheet = humanizeReportLabel(hierarchyItem?.sheetLabel ?? hierarchyItem?.sheet ?? "");
+  const kpiLabel = humanizeReportLabel(kpi?.label ?? report?.name ?? "KPI");
+  const breakdown = humanizeReportLabel(report?.breakdownLabel ?? "");
+
+  if (report?.reportType === "trend") {
+    return { primary: sheet || kpiLabel, secondary: kpiLabel && kpiLabel !== sheet ? kpiLabel : "", multi: false };
+  }
+
+  if (breakdown && !/^institute$/i.test(breakdown) && breakdown !== sheet) {
+    return { primary: sheet || kpiLabel, secondary: breakdown, multi: true };
+  }
+
+  return { primary: sheet || kpiLabel, secondary: /^institute$/i.test(breakdown) ? "Institute breakdown" : "", multi: false };
+}
+
+function reportHubDescription(report, kpi, hierarchyItem) {
+  if (report?.description) return report.description;
+
+  const breakdown = humanizeReportLabel(report?.breakdownLabel ?? "");
+  const helper = humanizeReportLabel(hierarchyItem?.helper ?? "");
+  const label = humanizeReportLabel(kpi?.label ?? "metric");
+  const subject = label || "selected indicator";
+
+  if (report?.reportType === "trend") {
+    return `Shows ${subject} values across years with visual trend and summary table.`;
+  }
+  if (/^institute$/i.test(breakdown)) {
+    return `Compares ${subject} across IITs with chart and tabular data.`;
+  }
+  if (/degree/i.test(breakdown)) return `Shows how ${subject} is distributed by degree category with chart and numbers.`;
+  if (/discipline|department/i.test(breakdown)) return `Breaks down ${subject} across disciplines or departments with visual comparison and table.`;
+  if (/mode/i.test(breakdown)) return `Compares ${subject} by delivery mode so online and on-campus patterns are clear.`;
+  if (/state|ut|geograph/i.test(breakdown)) return `Summarises geographic coverage for ${subject} with counts and tabular detail.`;
+  if (helper) return helper.length > 96 ? `${helper.slice(0, 94).trim()}...` : helper;
+  return `Shows ${breakdown || subject} distribution with visual output, numbers, and export-ready notes.`;
+}
+
+function reportHubType(report) {
+  const breakdown = String(report?.breakdownLabel ?? report?.breakdownField ?? "").toLowerCase();
+  if (report?.reportType === "trend") return { id: "trend", label: "Trend" };
+  if (/degree|category|share|status|gender|mode/.test(breakdown)) return { id: "donut", label: "Distribution" };
+  if (/state|ut|records|observation|case/.test(breakdown)) return { id: "table", label: "Table" };
+  return { id: "bar", label: "Breakdown" };
+}
+
+function reportHubModuleTone(moduleLabel, domain) {
+  const text = `${moduleLabel ?? ""} ${domain ?? ""}`.toLowerCase();
+  if (/people|student|placement|alumni/.test(text)) return { accent: "#7c3aed", soft: "#f1eaff", kind: "people" };
+  if (/academic|degree|program|discipline/.test(text)) return { accent: "#1252a0", soft: "#eaf5ff", kind: "academic" };
+  if (/outreach|collaboration|admission|event|international/.test(text)) return { accent: "#ec4899", soft: "#fdf2f8", kind: "outreach" };
+  if (/research|innovation|patent|publication/.test(text)) return { accent: "#16a34a", soft: "#ecfdf5", kind: "research" };
+  if (/finance|infrastructure|budget|fund/.test(text)) return { accent: "#7c3aed", soft: "#f5f3ff", kind: "finance" };
+  return { accent: "#1252a0", soft: "#eaf5ff", kind: "institution" };
+}
+
+function ReportHubModuleIcon({ tone }) {
+  const common = { stroke: tone.accent, strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round" };
+  if (tone.kind === "people") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+        <circle {...common} cx="9" cy="8" r="3" />
+        <path {...common} d="M3.5 19c.9-3.4 2.8-5.1 5.5-5.1s4.6 1.7 5.5 5.1" />
+        <path {...common} d="M15.5 11.2a2.7 2.7 0 1 0-.2-5.2" />
+        <path {...common} d="M17 14c1.9.5 3 2.1 3.5 5" />
+      </svg>
+    );
+  }
+  if (tone.kind === "academic") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+        <path {...common} d="M3 8.5 12 4l9 4.5-9 4.5L3 8.5Z" />
+        <path {...common} d="M7 11v4.2c1.4 1.5 3.1 2.3 5 2.3s3.6-.8 5-2.3V11" />
+        <path {...common} d="M20 9v5" />
+      </svg>
+    );
+  }
+  if (tone.kind === "outreach") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+        <path {...common} d="M5 13h3l8 4V7l-8 4H5v2Z" />
+        <path {...common} d="M8 13l1.5 5" />
+        <path {...common} d="M19 9.5c.8.6 1.2 1.5 1.2 2.5s-.4 1.9-1.2 2.5" />
+      </svg>
+    );
+  }
+  if (tone.kind === "research") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+        <path {...common} d="M9 3h6" />
+        <path {...common} d="M10 3v5.5l-4.5 8A3 3 0 0 0 8.1 21h7.8a3 3 0 0 0 2.6-4.5l-4.5-8V3" />
+        <path {...common} d="M8 15h8" />
+      </svg>
+    );
+  }
+  if (tone.kind === "finance") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+        <path {...common} d="M4 19V9" />
+        <path {...common} d="M10 19V5" />
+        <path {...common} d="M16 19v-8" />
+        <path {...common} d="M22 19H2" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <path {...common} d="M4 20V8l8-4 8 4v12" />
+      <path {...common} d="M8 20v-7h8v7" />
+      <path {...common} d="M9 9h.01" />
+      <path {...common} d="M15 9h.01" />
+    </svg>
+  );
+}
+
+function ReportHubTypeIcon({ type, accent = "#1d4ed8" }) {
+  const common = { stroke: accent, strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
+  if (type === "trend" || type === "line") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+        <path {...common} d="M4 18V6" />
+        <path {...common} d="M4 18h16" />
+        <path {...common} d="M7 15l3.5-4 3 2.4L18 8" />
+      </svg>
+    );
+  }
+  if (type === "donut" || type === "pie") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+        <path {...common} d="M12 3a9 9 0 1 0 9 9h-9V3Z" />
+        <path {...common} d="M14 3.25A9 9 0 0 1 20.75 10H14V3.25Z" />
+      </svg>
+    );
+  }
+  if (type === "table") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+        <rect x="4" y="5" width="16" height="14" rx="2" {...common} />
+        <path {...common} d="M4 10h16M4 15h16M10 5v14" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <path {...common} d="M5 19V9" />
+      <path {...common} d="M12 19V5" />
+      <path {...common} d="M19 19v-7" />
+    </svg>
+  );
+}
+
+function ReportHubSearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+      <path d="m16.2 16.2 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ReportHubFilterIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <path d="M4 6h16l-6.2 7.1V19l-3.6 1.5v-7.4L4 6Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ReportHubSparkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" aria-hidden="true">
+      <path d="M12 3l1.3 4.2L17.5 8l-4.2 1.3L12 13.5l-1.3-4.2L6.5 8l4.2-1.3L12 3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M18.5 13l.8 2.3 2.2.7-2.2.7-.8 2.3-.8-2.3-2.2-.7 2.2-.7.8-2.3Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M5.5 13l.7 1.8L8 15.5l-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ReportHubEyeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+      <path d="M3.5 12s3-5 8.5-5 8.5 5 8.5 5-3 5-8.5 5-8.5-5-8.5-5Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
+      <circle cx="12" cy="12" r="2.3" stroke="currentColor" strokeWidth="1.9" />
+    </svg>
+  );
+}
+
+function ReportHubDownloadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <path d="M12 4v10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="m8 10 4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5 20h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SortGlyph() {
+  return <span className="ml-1 align-middle text-[10px] font-black text-[#85a1c7]">↕</span>;
+}
+
+function slugFileName(value) {
+  const slug = String(value ?? "report")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 90);
+  return slug || "report";
+}
 export default function ReportsHubPage({ facts, config, accent: dashboardAccent, role, instituteId, onOpenFilters, onOpenSource, onOpenInstructions, onBack, focusKpiId, autoOpenKey = 0 }) {
-  const accent = "#1d4ed8";
-  const [qDraft, setQDraft] = useState("");
-  const [domainDraft, setDomainDraft] = useState("All");
-  const [q, setQ] = useState("");
-  const [domain, setDomain] = useState("All");
+  const accent = dashboardAccent || "#1d4ed8";
+  const [searchTerm, setSearchTerm] = useState("");
+  const [moduleFilter, setModuleFilter] = useState("All");
+  const [sortMode, setSortMode] = useState("coverage");
   const [nlDraft, setNlDraft] = useState("");
   const [nlStatus, setNlStatus] = useState("");
+  const [askPanelOpen, setAskPanelOpen] = useState(false);
+  const [pageIndex, setPageIndex] = useState(0);
 
   const reportHierarchyMaps = useMemo(() => buildReportHierarchyMaps(COMPARE_HIERARCHY), []);
   const allReportItems = useMemo(() => Object.values(reportHierarchyMaps.itemMap), [reportHierarchyMaps]);
@@ -2014,48 +2765,18 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
   const yrTo = Number(reportSelection.yearTo ?? Math.max(config?.YearRange?.from ?? YEARS[0], config?.YearRange?.to ?? YEARS[YEARS.length - 1]));
   const yearsInRange = useMemo(() => YEARS.filter((y) => y >= yrFrom && y <= yrTo), [yrFrom, yrTo]);
 
-  const [yearlyYear, setYearlyYear] = useState(yearsInRange[yearsInRange.length - 1] ?? YEARS[YEARS.length - 1]);
-
-  useEffect(() => {
-    setYearlyYear(yearsInRange[yearsInRange.length - 1] ?? YEARS[YEARS.length - 1]);
-  }, [yearsInRange]);
-
   const activeKpiSet = useMemo(() => {
-    const selectionIds = uniqueReportIds(reportSelection?.kpiIds).slice(0, 1);
-    if (selectionIds.length) return new Set(selectionIds);
-    const configIds = uniqueReportIds(config?.KpiIds).slice(0, 1);
-    return configIds.length ? new Set(configIds) : null;
-  }, [config?.KpiIds, reportSelection?.kpiIds]);
+    const configIds = config?.KpiIds ?? [];
+    const selectionIds = reportSelection?.kpiIds ?? [];
+    const configSet = configIds.length ? new Set(configIds) : null;
+    const selectionSet = selectionIds.length ? new Set(selectionIds) : null;
+    return selectionSet ?? configSet;
+  }, [config, reportSelection?.kpiIds]);
 
-  const catalog = useMemo(() => {
-    const kpis = activeKpiSet ? KPI_DEFS.filter((k) => activeKpiSet.has(k.id)) : KPI_DEFS;
-    return buildReportCatalog(kpis);
-  }, [activeKpiSet]);
-
-  const allCatalog = useMemo(() => buildReportCatalog(KPI_DEFS), []);
-
-  const effectiveReportConfig = useMemo(() => ({
-    ...config,
-    KpiIds: activeKpiSet ? Array.from(activeKpiSet) : uniqueReportIds(config?.KpiIds),
-    InstituteId: role === "iit" ? [instituteId].filter(Boolean) : uniqueReportIds(reportSelection?.iits),
-    YearRange: { from: yrFrom, to: yrTo },
-    MaxRows: config?.MaxRows ?? 1000,
-  }), [config, activeKpiSet, role, instituteId, reportSelection?.iits, yrFrom, yrTo]);
-
-  const domains = useMemo(() => {
-    const uniq = Array.from(new Set(catalog.map((r) => r.domain)));
-    uniq.sort();
-    return ["All", ...uniq];
-  }, [catalog]);
-
-  const filtered = useMemo(() => {
-    const qq = q.trim().toLowerCase();
-    return catalog.filter((r) => {
-      const okDomain = domain === "All" ? true : r.domain === domain;
-      const okQ = !qq ? true : r.name.toLowerCase().includes(qq) || r.domain.toLowerCase().includes(qq) || String(r.reportId).includes(qq);
-      return okDomain && okQ;
-    });
-  }, [catalog, q, domain]);
+  const catalog = useMemo(() => [
+    ...buildReportCatalog(KPI_DEFS),
+    ...CUSTOM_REPORTS,
+  ], []);
 
   const [usage, setUsage] = useState(() => safeGetUsage());
   function bumpUsage(reportId) {
@@ -2066,36 +2787,17 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
     });
   }
 
-  const frequent = useMemo(() => {
-    const scored = catalog
-      .map((r) => ({ r, c: Number(usage?.[r.reportId] ?? 0) }))
-      .sort((a, b) => b.c - a.c);
-    const top = scored.filter((x) => x.c > 0).slice(0, 5).map((x) => x.r);
-    return top.length ? top : catalog.slice(0, 5);
-  }, [catalog, usage]);
-
-  const byDomain = useMemo(() => {
-    const m = new Map();
-    for (const r of filtered) {
-      const key = r.domain;
-      const arr = m.get(key) ?? [];
-      arr.push(r);
-      m.set(key, arr);
-    }
-    return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [filtered]);
-
   const [activeReport, setActiveReport] = useState(null);
   const [reportInitialYear, setReportInitialYear] = useState(null);
 
   useEffect(() => {
-    if (!focusKpiId || !autoOpenKey) return;
-    const first = allCatalog.find((item) => item.kpiId === focusKpiId && item.reportType !== "trend") ?? allCatalog.find((item) => item.kpiId === focusKpiId);
+    if (!focusKpiId) return;
+    const first = catalog.find((item) => item.kpiId === focusKpiId && item.reportType !== "trend") ?? catalog.find((item) => item.kpiId === focusKpiId);
     if (first) {
       setReportInitialYear(null);
       setActiveReport(first);
     }
-  }, [focusKpiId, autoOpenKey, allCatalog]);
+  }, [focusKpiId, autoOpenKey, catalog]);
 
   function openReport(report, year = null) {
     bumpUsage(report.reportId);
@@ -2111,25 +2813,9 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
   }
 
   function runNaturalLanguageReport() {
-    const resolved = resolveNaturalLanguageReport({ text: nlDraft, catalog: allCatalog, yearsInRange: YEARS });
+    const resolved = resolveNaturalLanguageReport({ text: nlDraft, catalog, yearsInRange });
     setNlStatus(resolved.reason ?? "");
-    if (!resolved.report) return;
-
-    const scope = resolveNaturalLanguageScope(nlDraft);
-    const hierarchyItem = firstValidReportItem(allReportItems.filter((item) => item.kpiId === resolved.report.kpiId));
-    const nextSelectionBase = hierarchyItem
-      ? reportSelectionFromItem(hierarchyItem, reportSelection, role, instituteId)
-      : normalizeReportSelection({ ...reportSelection, kpiIds: [resolved.report.kpiId] }, role, instituteId);
-
-    setReportSelection(normalizeReportSelection({
-      ...nextSelectionBase,
-      iits: scope.instituteIds === null ? nextSelectionBase.iits : scope.instituteIds,
-      yearFrom: resolved.yearFrom ?? nextSelectionBase.yearFrom,
-      yearTo: resolved.yearTo ?? nextSelectionBase.yearTo,
-      focusYear: resolved.year ?? nextSelectionBase.focusYear,
-    }, role, instituteId));
-
-    openReport(resolved.report, resolved.year);
+    if (resolved.report) openReport(resolved.report, resolved.year);
   }
 
   const reportCarouselCategoryItems = useMemo(
@@ -2174,58 +2860,221 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
     );
   }, [reportSelection.sheets, reportHierarchyMaps]);
 
-  function renderReportCarouselSelector() {
-    return (
-      <CombinedKpiSelector
-        title={(
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span>Select KPI</span>
-            <ReportSelectionActionButton label="Advanced filters" onClick={() => setReportFilterModalOpen(true)} title="Open advanced filters" />
-          </div>
-        )}
-        helper="Select the Category, Module, Sheet, and KPI for report filtering."
-        accent={accent}
-        soft={`${accent}12`}
-        rows={[
-          {
-            id: "report-category",
-            label: "Category",
-            items: reportCarouselCategoryItems,
-            activeIds: reportSelection.modules ?? [],
-            activeId: firstActiveIdInReportList(reportCarouselCategoryItems, reportSelection.modules ?? []),
-            autoScrollTargetId: firstActiveIdInReportList(reportCarouselCategoryItems, reportSelection.modules ?? []),
-            onPick: toggleReportModule,
-          },
-          {
-            id: "report-module",
-            label: "Module",
-            items: reportCarouselModuleItems,
-            activeIds: reportSelection.submodules ?? [],
-            activeId: firstActiveIdInReportList(reportCarouselModuleItems, reportSelection.submodules ?? []),
-            autoScrollTargetId: firstActiveIdInReportList(reportCarouselModuleItems, reportSelection.submodules ?? []),
-            onPick: toggleReportSubmodule,
-          },
-          {
-            id: "report-sheet",
-            label: "Sheet",
-            items: reportCarouselSheetItems,
-            activeIds: reportSelection.sheets ?? [],
-            activeId: firstActiveIdInReportList(reportCarouselSheetItems, reportSelection.sheets ?? []),
-            autoScrollTargetId: firstActiveIdInReportList(reportCarouselSheetItems, reportSelection.sheets ?? []),
-            onPick: toggleReportSheet,
-          },
-          {
-            id: "report-kpi",
-            label: "KPI",
-            items: reportCarouselKpiItems,
-            activeIds: reportSelection.items ?? [],
-            activeId: firstActiveIdInReportList(reportCarouselKpiItems, reportSelection.items ?? []),
-            autoScrollTargetId: firstActiveIdInReportList(reportCarouselKpiItems, reportSelection.items ?? []),
-            onPick: applyReportItemSelection,
-          },
-        ]}
-      />
-    );
+  const hierarchyItemsByKpi = useMemo(() => {
+    const map = new Map();
+    for (const item of allReportItems) {
+      if (!item?.kpiId || map.has(item.kpiId)) continue;
+      map.set(item.kpiId, item);
+    }
+    return map;
+  }, [allReportItems]);
+
+  const hubRows = useMemo(() => {
+    return catalog.map((report) => {
+      const reportKpis = getReportKpis(report);
+      const kpi = reportKpis[0] ?? null;
+      const hierarchyItem = hierarchyItemsByKpi.get(report.kpiId ?? reportKpis[0]?.id) ?? null;
+      const coverage = getReportCoverage(report, reportKpis, hierarchyItem);
+      const dataSource = getReportDataSource(report, reportKpis, hierarchyItem);
+      const chartTypes = chartTypesForReport(report, kpi);
+      const tone = reportHubModuleTone(coverage.label, coverage.subLabel || report.domain);
+      return {
+        report,
+        kpi,
+        reportKpis,
+        hierarchyItem,
+        name: report.name,
+        description: reportHubDescription(report, kpi, hierarchyItem),
+        coverageLabel: coverage.label,
+        coverageSubLabel: coverage.subLabel,
+        coverageModules: coverage.modules,
+        isCrossModule: coverage.isCrossModule,
+        dataSourcePrimary: dataSource.primary,
+        dataSourceSecondary: dataSource.secondary,
+        dataSourceMulti: dataSource.multi,
+        chartTypes,
+        viewsLabel: chartTypes.map((type) => chartViewMeta(type).shortLabel).join(", "),
+        moduleLabel: coverage.label,
+        domainLabel: coverage.subLabel || humanizeReportLabel(report.domain),
+        sheetPrimary: dataSource.primary,
+        sheetSecondary: dataSource.secondary,
+        sheetMulti: dataSource.multi,
+        type: { id: chartTypes[0] ?? "table", label: chartTypes.map((type) => chartViewMeta(type).shortLabel).join(", ") },
+        tone,
+        priority: reportHubPriority(report),
+        searchText: `${report.name} ${report.description ?? ""} ${report.domain ?? ""} ${(report.modules ?? []).join(" ")} ${coverage.label} ${coverage.subLabel} ${dataSource.primary} ${dataSource.secondary} ${report.breakdownLabel ?? ""} ${reportKpis.map((item) => item.label).join(" ")}`.toLowerCase(),
+      };
+    });
+  }, [catalog, hierarchyItemsByKpi]);
+
+  const moduleOptions = useMemo(() => {
+    const labels = new Set();
+    for (const row of hubRows) {
+      if (row.coverageLabel) labels.add(row.coverageLabel);
+      for (const moduleName of row.coverageModules ?? []) {
+        if (moduleName && moduleName !== "All modules") labels.add(moduleName);
+      }
+    }
+    const preferred = ["Institution & Governance", "People & Student Life", "Research & Innovation", "Infrastructure & Finance", "Collaboration & Outreach", "Cross-module", "All modules"];
+    const sorted = Array.from(labels).sort((a, b) => {
+      const ai = preferred.indexOf(a);
+      const bi = preferred.indexOf(b);
+      if (ai >= 0 || bi >= 0) return (ai >= 0 ? ai : 999) - (bi >= 0 ? bi : 999) || a.localeCompare(b);
+      return a.localeCompare(b);
+    });
+    return ["All", ...sorted];
+  }, [hubRows]);
+
+  const visibleRows = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    const rows = hubRows.filter((row) => {
+      const okCoverage =
+        moduleFilter === "All" ||
+        row.coverageLabel === moduleFilter ||
+        row.coverageModules?.includes(moduleFilter) ||
+        (moduleFilter === "Cross-module" && row.isCrossModule);
+      const okKpi = reportMatchesKpiFilter(row.report, activeKpiSet);
+      const okSearch = !query || row.searchText.includes(query) || String(row.report.reportId).includes(query);
+      return okCoverage && okKpi && okSearch;
+    });
+
+    const sorted = [...rows].sort((left, right) => {
+      if (sortMode === "used") {
+        const usedDelta = Number(usage?.[right.report.reportId] ?? 0) - Number(usage?.[left.report.reportId] ?? 0);
+        if (usedDelta) return usedDelta;
+      }
+      if (sortMode === "name") return left.name.localeCompare(right.name);
+      if (sortMode === "dataSource") return `${left.dataSourcePrimary} ${left.dataSourceSecondary}`.localeCompare(`${right.dataSourcePrimary} ${right.dataSourceSecondary}`);
+      if (sortMode === "views") return left.viewsLabel.localeCompare(right.viewsLabel) || left.name.localeCompare(right.name);
+
+      const priorityDelta = left.priority - right.priority;
+      if (priorityDelta) return priorityDelta;
+      return left.coverageLabel.localeCompare(right.coverageLabel) || left.name.localeCompare(right.name);
+    });
+    return sorted;
+  }, [hubRows, searchTerm, moduleFilter, sortMode, usage, activeKpiSet]);
+
+  const selectionSignature = reportSelectionSignature(reportSelection);
+  useEffect(() => {
+    setPageIndex(0);
+  }, [searchTerm, moduleFilter, sortMode, selectionSignature]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / REPORTS_PAGE_SIZE));
+  useEffect(() => {
+    if (pageIndex > totalPages - 1) setPageIndex(totalPages - 1);
+  }, [pageIndex, totalPages]);
+
+  const pageStart = pageIndex * REPORTS_PAGE_SIZE;
+  const pageRows = visibleRows.slice(pageStart, pageStart + REPORTS_PAGE_SIZE);
+  const showingFrom = visibleRows.length ? pageStart + 1 : 0;
+  const showingTo = visibleRows.length ? pageStart + pageRows.length : 0;
+
+  function buildHubExportData(report) {
+    const reportKpis = getReportKpis(report);
+    const kpi = reportKpis[0] ?? null;
+    const exportYear = Number(reportSelection.focusYear ?? yrTo ?? YEARS[YEARS.length - 1]);
+    if (!report) return { columns: [], rows: [] };
+
+    if (report.scopeType === "cross_module" || report.scopeType === "all_modules") {
+      const columns = [
+        { key: "Section", label: "Section" },
+        { key: "Indicator", label: "Indicator" },
+        { key: "Value", label: "Value" },
+        { key: "YoY", label: "YoY" },
+        { key: "SourceRows", label: "Source rows" },
+        { key: "Year", label: "Year" },
+      ];
+      const rows = reportKpis.map((item) => {
+        const currentRows = rowsForKpiYear({ facts, kpi: item, year: exportYear, scopedInstituteIds });
+        const previousRows = rowsForKpiYear({ facts, kpi: item, year: exportYear - 1, scopedInstituteIds });
+        const currentValue = kpiValue(item, currentRows);
+        const previousValue = kpiValue(item, previousRows);
+        return {
+          Section: item.module ?? "Reports",
+          Indicator: item.label,
+          Value: fmtValue(item, currentValue),
+          YoY: formatYoYForCard(item, currentValue, previousValue),
+          SourceRows: currentRows.length,
+          Year: exportYear,
+        };
+      });
+      return { columns, rows };
+    }
+
+    if (!kpi) return { columns: [], rows: [] };
+
+    if (report.reportType === "trend") {
+      const trendRows = trendDataForReport({ facts, report, kpi, yearsInRange, scopedInstituteIds });
+      return {
+        columns: [
+          { key: "Year", label: "Year" },
+          { key: "Value", label: kpi.label },
+          { key: "YoY", label: "YoY" },
+          { key: "Records", label: "Source rows" },
+        ],
+        rows: trendRows.map((row) => ({
+          Year: row.year,
+          Value: row.formattedValue,
+          YoY: row.formattedYoY,
+          Records: row.Records,
+        })),
+      };
+    }
+
+    const rows = rowsForYear({ facts, report, year: exportYear, scopedInstituteIds });
+    const groups = computeGroupMetrics(kpi, rows, [report.breakdownField ?? "Institute"]).slice(0, Number(config?.MaxRows ?? 1000));
+    return {
+      columns: [
+        { key: "Rank", label: "Rank" },
+        { key: "Breakdown", label: report.breakdownLabel ?? "Breakdown" },
+        { key: "Value", label: kpi.label },
+        { key: "Records", label: "Source rows" },
+        { key: "Year", label: "Year" },
+      ],
+      rows: groups.map((row, index) => ({
+        Rank: index + 1,
+        Breakdown: row.name,
+        Value: fmtValue(kpi, row.value),
+        Records: row._records,
+        Year: exportYear,
+      })),
+    };
+  }
+
+  function downloadHubReport(row) {
+    const { columns, rows } = buildHubExportData(row.report);
+    const metadata = [
+      { Field: "Report", Value: row.name },
+      { Field: "Coverage", Value: [row.coverageLabel, row.coverageSubLabel].filter(Boolean).join(" - ") },
+      { Field: "Data Source", Value: [row.dataSourcePrimary, row.dataSourceSecondary].filter(Boolean).join(" / ") },
+      { Field: "Scope", Value: scopeText },
+      { Field: "Years", Value: `${yrFrom}-${yrTo}` },
+      { Field: "Views", Value: row.viewsLabel },
+    ];
+    const html = `
+      <div style="padding:18px;">
+        <div class="card">
+          <h1 style="font-size:20px;font-weight:900;">${escHtml(row.name)}</h1>
+          <div class="muted" style="font-size:12px;margin-top:5px;">IITMIS report export | PDF primary export</div>
+        </div>
+        <div style="height:10px;"></div>
+        <div class="card">
+          <h2 style="font-size:14px;font-weight:900;margin-bottom:8px;">Report summary</h2>
+          ${htmlTable([{ key: "Field", label: "Field" }, { key: "Value", label: "Value" }], metadata)}
+        </div>
+        <div style="height:10px;"></div>
+        <div class="card">
+          <h2 style="font-size:14px;font-weight:900;margin-bottom:8px;">Numbers table</h2>
+          ${rows.length ? htmlTable(columns, rows) : `<div class="muted">No rows available for the selected filters.</div>`}
+        </div>
+      </div>
+    `;
+    downloadHtmlAsPdf({
+      title: `${row.name} PDF`,
+      html,
+      orientation: "landscape",
+      pageSize: "A4",
+    });
   }
 
   function renderReportAdvancedFilterModal() {
@@ -2236,7 +3085,7 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
     const activeSheetId = reportSelection.sheets?.[0] ?? reportHierarchyMaps.submoduleMap[activeModuleId]?.sheets?.[0]?.id ?? "";
     const activeItemId = reportSelection.items?.[0] ?? reportHierarchyMaps.sheetMap[activeSheetId]?.kpis?.[0]?.id ?? "";
     const categoryOptions = reportCarouselCategoryItems.map((item) => ({ value: item.id, label: item.label }));
-    const moduleOptions = (reportHierarchyMaps.moduleMap[activeCategoryId]?.submodules ?? []).map((item) => ({ value: item.id, label: humanizeReportLabel(item.label ?? item.id) }));
+    const moduleOptionsInner = (reportHierarchyMaps.moduleMap[activeCategoryId]?.submodules ?? []).map((item) => ({ value: item.id, label: humanizeReportLabel(item.label ?? item.id) }));
     const sheetOptions = (reportHierarchyMaps.submoduleMap[activeModuleId]?.sheets ?? []).map((item) => ({ value: item.id, label: humanizeReportLabel(item.label ?? item.id) }));
     const kpiOptions = (reportHierarchyMaps.sheetMap[activeSheetId]?.kpis ?? []).map((item) => ({ value: item.id, label: reportItemLabel(item) }));
     const allIitIds = IITs.map((iit) => iit.id);
@@ -2271,7 +3120,10 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
       <div className="fixed inset-0 z-[260] bg-slate-950/18 px-4 py-5 backdrop-blur-[2px]">
         <div className="mx-auto flex h-full w-full max-w-[1040px] flex-col overflow-hidden rounded-[30px] border border-slate-200 bg-[#f3f4f6] shadow-[0_30px_90px_rgba(15,23,42,0.18)]">
           <div className="flex items-start justify-between gap-4 px-6 py-5">
-            <div className="text-[1.25rem] font-extrabold text-slate-900">Select KPI</div>
+            <div>
+              <div className="text-[1.25rem] font-extrabold text-slate-900">Advanced report filters</div>
+              <div className="mt-1 text-sm font-semibold text-slate-500">Choose KPI, reporting period, and IIT coverage for the report table.</div>
+            </div>
             <button
               type="button"
               onClick={() => setReportFilterModalOpen(false)}
@@ -2289,10 +3141,7 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
                   <div className="text-[1.02rem] font-extrabold text-slate-900">Select KPI</div>
                   <button
                     type="button"
-                    onClick={() => {
-                      const firstItem = firstValidReportItem(allReportItems);
-                      setReportSelection(reportSelectionFromItem(firstItem, { ...reportSelection, iits: reportSelection.iits }, role, instituteId));
-                    }}
+                    onClick={() => updateReportSelectionSource({ modules: [], submodules: [], sheets: [], items: [], kpiIds: [], iits: reportSelection.iits, yearFrom: reportSelection.yearFrom, yearTo: reportSelection.yearTo, focusYear: reportSelection.focusYear })}
                     className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50"
                   >
                     Clear all
@@ -2300,7 +3149,7 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <Select label="Category" value={activeCategoryId} onChange={toggleReportModule} options={categoryOptions.length ? categoryOptions : [{ value: "", label: "No category available" }]} disabled={!categoryOptions.length} />
-                  <Select label="Module" value={activeModuleId} onChange={toggleReportSubmodule} options={moduleOptions.length ? moduleOptions : [{ value: "", label: "Select category first" }]} disabled={!moduleOptions.length} />
+                  <Select label="Module" value={activeModuleId} onChange={toggleReportSubmodule} options={moduleOptionsInner.length ? moduleOptionsInner : [{ value: "", label: "Select category first" }]} disabled={!moduleOptionsInner.length} />
                   <Select label="Sheet" value={activeSheetId} onChange={toggleReportSheet} options={sheetOptions.length ? sheetOptions : [{ value: "", label: "Select module first" }]} disabled={!sheetOptions.length} />
                   <Select label="KPI" value={activeItemId} onChange={applyReportItemSelection} options={kpiOptions.length ? kpiOptions : [{ value: "", label: "Select sheet first" }]} disabled={!kpiOptions.length} />
                 </div>
@@ -2361,250 +3210,276 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
     );
   }
 
-  function downloadYearlyPdf() {
-    const kpis = activeKpiSet ? KPI_DEFS.filter((k) => activeKpiSet.has(k.id)) : KPI_DEFS;
-
-    const rows = kpis.map((kpi) => {
-      let r = facts?.[kpi.fact] ?? [];
-      r = r.filter((x) => Number(x.Year ?? 0) === Number(yearlyYear));
-      if (scopedInstituteIds.length) {
-        const set = new Set(scopedInstituteIds);
-        r = r.filter((x) => set.has(x.InstituteId));
-      }
-      const v = kpiValue(kpi, r);
-      const parts = computeOverallParts(kpi, r);
-      return {
-        Domain: kpi.module,
-        KPI: kpi.label,
-        Value: kpi.format === "pct" ? formatPct(v) : fmtValue(kpi, v),
-        Meaning: oneSentenceMeaning(kpi, parts, v),
-      };
-    });
-
-    const columns = [
-      { key: "Domain", label: "Domain" },
-      { key: "KPI", label: "KPI" },
-      { key: "Value", label: "Value" },
-      { key: "Meaning", label: "Plain-English meaning" },
-    ];
-
-    const html = `
-      <div style="padding: 18px;">
-        <div class="card">
-          <h1 style="font-size:18px;font-weight:900;">IITMIS Yearly Report</h1>
-          <div class="muted" style="font-size:12px;margin-top:4px;">Year: ${escHtml(yearlyYear)} | Scope: ${escHtml(scopeText)}</div>
-        </div>
-
-        <div style="height:10px;"></div>
-
-        <div class="card">
-          <h2 style="font-size:14px;font-weight:900;margin-bottom:8px;">KPI summary with AI-style one-line explanations</h2>
-          ${htmlTable(columns, rows)}
-        </div>
-
-        <div style="height:10px;"></div>
-        <div class="muted" style="font-size:11px;">Evidence (demo): ${EVIDENCE_LINKS.map((x) => escHtml(x.label)).join(" | ")}</div>
-      </div>
-    `;
-
-    downloadHtmlAsPdf({
-      title: `IITMIS Yearly Report ${yearlyYear}`,
-      html,
-      orientation: "portrait",
-      pageSize: "A4",
-    });
-  }
-
-  function rowsForReportsTable(reports) {
-    return reports.map((r, idx) => ({
-      Sno: idx + 1,
-      Id: r.reportId,
-      Name: r.name,
-      Tags: r.tag ?? r.domain,
-      Type: r.reportType === "trend" ? "YoY Trend" : "Breakdown",
-      Action: r,
-    }));
-  }
-
-  const reportColumns = useMemo(
-    () => [
-      { key: "Sno", label: "S.no" },
-      { key: "Id", label: "Id" },
-      { key: "Name", label: "Report Name" },
-      { key: "Tags", label: "Tags" },
-      { key: "Type", label: "View" },
-      {
-        key: "Action",
-        label: "Action",
-        format: (r) => (
-          <div className="flex justify-end">
-            <button
-              type="button"
-              title="View report"
-              onClick={() => openReport(r)}
-              className="grid h-9 w-9 place-items-center rounded-full bg-white shadow-sm transition hover:-translate-y-0.5 hover:opacity-90"
-              style={{ border: `1px solid ${accent}2b`, color: accent }}
-            >
-              <ReportTableActionIcon accent={accent} />
-            </button>
-          </div>
-        ),
-      },
-    ],
-    [accent, catalog]
-  );
-
   if (activeReport) {
-    return (
-      <ReportDetailPage
-        report={activeReport}
-        catalog={catalog}
-        facts={facts}
-        config={effectiveReportConfig}
-        accent={accent}
-        role={role}
-        instituteId={instituteId}
-        initialYear={reportInitialYear}
-        onChangeReport={changeActiveReport}
-        onBack={() => {
-          setActiveReport(null);
-          setReportInitialYear(null);
-        }}
-      />
-    );
+    const detailProps = {
+      report: activeReport,
+      catalog,
+      facts,
+      config: { ...config, InstituteId: scopedInstituteIds, YearRange: { from: yrFrom, to: yrTo } },
+      accent,
+      role,
+      instituteId,
+      initialYear: reportInitialYear,
+      onChangeReport: changeActiveReport,
+      onBack: () => {
+        setActiveReport(null);
+        setReportInitialYear(null);
+      },
+    };
+
+    if (activeReport.scopeType === "cross_module" || activeReport.scopeType === "all_modules") {
+      return <CrossModuleReportDetailPage {...detailProps} />;
+    }
+
+    return <ReportDetailPage {...detailProps} />;
   }
 
   return (
-    <div className="space-y-4">
-      <SectionTitle
-        title="Reports"
-        subtitle="Browse, search, preview, and export. Classification is by Domain (Module), which matches how your data is organized."
-        right={
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={onBack}
-              className="rounded-2xl px-4 py-2 text-sm hover:opacity-90"
-              style={{ background: "rgba(255,255,255,0.9)", border: "1px solid rgba(59,130,246,0.18)", color: "#1252a0" }}
-            >
-              ← Back
-            </button>
-            <button
-              type="button"
-              onClick={() => setReportFilterModalOpen(true)}
-              className="rounded-2xl px-4 py-2 text-sm font-extrabold hover:opacity-90"
-              style={{ background: "rgba(255,255,255,0.9)", border: "1px solid rgba(59,130,246,0.18)", color: "#1252a0" }}
-            >
-              Filters
-            </button>
-          </div>
-        }
-      />
-
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.95fr]">
-        <div className="min-w-0">
-          {renderReportCarouselSelector()}
+    <div className="space-y-5">
+      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="text-[2rem] font-black leading-tight tracking-[-0.03em] text-slate-950">Reports</h2>
+          <p className="mt-2 text-sm font-semibold text-slate-500">Browse, search, preview, and export reports across all modules.</p>
         </div>
+        {onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="self-start rounded-2xl px-4 py-2 text-sm font-extrabold transition hover:-translate-y-0.5 hover:opacity-90 md:self-auto"
+            style={{ background: "rgba(255,255,255,0.92)", border: "1px solid rgba(59,130,246,0.18)", color: "#1252a0" }}
+          >
+            ← Back
+          </button>
+        ) : null}
+      </div>
 
-        <div
-          className="rounded-[28px] border p-3 shadow-sm"
-          style={{
-            borderColor: "rgba(59,130,246,0.15)",
-            background: "rgba(255,255,255,0.94)",
-          }}
-        >
-          <div className="text-sm font-bold" style={{ color: accent }}>Select Date</div>
-          <div className="mt-3">
-            <ReportDateSelector
-              source={reportSelection}
-              updateSource={updateReportSelectionSource}
-              years={YEARS}
-              accent={accent}
+      <div
+        className="rounded-[18px] border bg-white/90 p-4 shadow-[0_12px_34px_rgba(37,99,235,0.08)]"
+        style={{ borderColor: "rgba(59,130,246,0.16)" }}
+      >
+        <div className="grid gap-3 xl:grid-cols-[minmax(280px,1fr)_180px_190px_170px_190px]">
+          <label className="relative block">
+            <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
+              <ReportHubSearchIcon />
+            </span>
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Search reports by name, description, coverage, data source, or KPI"
+              className="h-14 w-full rounded-xl border bg-white pl-12 pr-4 text-sm font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+              style={{ borderColor: "rgba(59,130,246,0.18)" }}
             />
-          </div>
+          </label>
 
-          <div className="mt-5 text-sm font-bold" style={{ color: accent }}>Select IITs</div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <ReportSelectionActionButton label="OLD IITs" onClick={() => updateReportSelectionSource((prev) => ({ ...prev, iits: [...REPORT_LEGACY_IITS] }))} disabled={role === "iit"} />
-            <ReportSelectionActionButton label="ALL" onClick={() => updateReportSelectionSource((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))} disabled={role === "iit"} />
-            <ReportSelectionActionButton label="Top 10 by KPI" onClick={() => updateReportSelectionSource((prev) => ({ ...prev, iits: rankedIitsForReportSelection("top") }))} disabled={role === "iit"} />
-            <ReportSelectionActionButton label="Bottom 10 by KPI" onClick={() => updateReportSelectionSource((prev) => ({ ...prev, iits: rankedIitsForReportSelection("bottom") }))} disabled={role === "iit"} />
-            <ReportSelectionActionButton label="Advanced filters" onClick={() => setReportFilterModalOpen(true)} />
-          </div>
-          <div className="mt-3 text-xs font-semibold text-slate-500">
-            {scopeText} | {yrFrom}-{yrTo}
-          </div>
+          <select
+            value={moduleFilter}
+            onChange={(event) => setModuleFilter(event.target.value)}
+            className="h-14 rounded-xl border bg-white px-4 text-sm font-extrabold text-slate-950 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+            style={{ borderColor: "rgba(59,130,246,0.18)" }}
+            aria-label="Filter reports by coverage"
+          >
+            {moduleOptions.map((item) => (
+              <option key={item} value={item}>{item === "All" ? "All Coverage" : item}</option>
+            ))}
+          </select>
+
+          <select
+            value={sortMode}
+            onChange={(event) => setSortMode(event.target.value)}
+            className="h-14 rounded-xl border bg-white px-4 text-sm font-extrabold text-slate-950 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+            style={{ borderColor: "rgba(59,130,246,0.18)" }}
+            aria-label="Sort reports"
+          >
+            {REPORT_HUB_SORT_OPTIONS.map((item) => (
+              <option key={item.value} value={item.value}>{item.label}</option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            onClick={() => setReportFilterModalOpen(true)}
+            className="inline-flex h-14 items-center justify-center gap-3 rounded-xl border bg-white px-4 text-sm font-extrabold text-[#1252a0] transition hover:-translate-y-0.5 hover:bg-blue-50"
+            style={{ borderColor: "rgba(59,130,246,0.18)" }}
+          >
+            <ReportHubFilterIcon />
+            Advanced Filters
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAskPanelOpen((value) => !value)}
+            className="inline-flex h-14 items-center justify-center gap-3 rounded-xl border px-4 text-left text-sm font-extrabold text-slate-950 transition hover:-translate-y-0.5 hover:bg-blue-50"
+            style={{ borderColor: "rgba(59,130,246,0.18)", background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(239,246,255,0.92))" }}
+          >
+            <span className="text-[#1d4ed8]"><ReportHubSparkIcon /></span>
+            <span className="leading-tight">Can&apos;t find a report?<br /><span className="text-[#1d4ed8]">Ask AI</span></span>
+          </button>
         </div>
+
+        {askPanelOpen ? (
+          <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-extrabold text-slate-950">Ask for the report you need</div>
+                <input
+                  value={nlDraft}
+                  onChange={(event) => setNlDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") runNaturalLanguageReport();
+                  }}
+                  placeholder="Example: show placement trend for the last 5 years"
+                  className="mt-2 h-11 w-full rounded-xl border border-blue-100 bg-white px-4 text-sm font-semibold text-slate-700 outline-none focus:ring-4 focus:ring-blue-100"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={runNaturalLanguageReport}
+                className="h-11 rounded-xl px-5 text-sm font-extrabold text-white shadow-sm transition hover:-translate-y-0.5 hover:opacity-95"
+                style={{ background: accent }}
+              >
+                Generate report
+              </button>
+            </div>
+            {nlStatus ? <div className="mt-2 text-xs font-semibold text-slate-500">{nlStatus}</div> : null}
+          </div>
+        ) : null}
       </div>
 
       {renderReportAdvancedFilterModal()}
 
-      <div className="rounded-3xl p-4 shadow-sm" style={{ background: "rgba(255,255,255,0.94)", border: "1px solid rgba(59,130,246,0.15)" }}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-extrabold" style={{ color: "#0f172a" }}>Ask a Report Question</div>
-            <div className="mt-1 text-xs font-semibold" style={{ color: "#64748b" }}>
-              Example: compare student growth, show placement trends, or find budget utilisation for the selected scope.
-            </div>
-          </div>
-          <div className="rounded-full bg-sky-50 px-3 py-1 text-xs font-extrabold text-sky-700">Natural-language report generator</div>
+      <div
+        className="overflow-hidden rounded-[18px] border bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.05)]"
+        style={{ borderColor: "rgba(59,130,246,0.14)" }}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1180px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b" style={{ borderColor: "rgba(148,163,184,0.28)" }}>
+                <th className="w-[72px] px-5 py-5 text-left text-xs font-black text-slate-950">S.No <SortGlyph /></th>
+                <th className="px-5 py-5 text-left text-xs font-black text-slate-950">Report Name <SortGlyph /></th>
+                <th className="px-5 py-5 text-left text-xs font-black text-slate-950">Description <SortGlyph /></th>
+                <th className="px-5 py-5 text-left text-xs font-black text-slate-950">Coverage <SortGlyph /></th>
+                <th className="px-5 py-5 text-left text-xs font-black text-slate-950">Data Source <SortGlyph /></th>
+                <th className="w-[160px] px-5 py-5 text-left text-xs font-black text-slate-950">Views <SortGlyph /></th>
+                <th className="w-[210px] px-5 py-5 text-center text-xs font-black text-slate-950">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.length ? pageRows.map((row, index) => (
+                <tr
+                  key={row.report.reportId}
+                  className="border-b transition hover:bg-blue-50/50"
+                  style={{ borderColor: "rgba(226,232,240,0.9)", background: index % 2 === 1 ? "rgba(248,250,252,0.74)" : "rgba(255,255,255,0.98)" }}
+                >
+                  <td className="px-5 py-5 text-center font-semibold text-slate-800">{pageStart + index + 1}</td>
+                  <td className="px-5 py-5 align-middle">
+                    <button
+                      type="button"
+                      onClick={() => openReport(row.report)}
+                      className="max-w-[260px] text-left text-[13px] font-black leading-5 text-slate-950 transition hover:text-blue-700"
+                    >
+                      {row.name}
+                    </button>
+                  </td>
+                  <td className="px-5 py-5 align-middle text-[13px] font-semibold leading-5 text-slate-700">
+                    <div className="max-w-[260px]">{row.description}</div>
+                  </td>
+                  <td className="px-5 py-5 align-middle">
+                    <div className="flex items-center gap-3">
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[14px]" style={{ background: row.tone.soft }}>
+                        <ReportHubModuleIcon tone={row.tone} />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="truncate text-[13px] font-semibold text-slate-800">{row.coverageLabel}</div>
+                        <div className="mt-0.5 truncate text-[11px] font-semibold text-slate-400">{row.coverageSubLabel}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-5 py-5 align-middle text-[13px] font-semibold text-slate-800">
+                    <div className="max-w-[260px] leading-5">
+                      <span>{row.dataSourcePrimary}</span>
+                      {row.dataSourceSecondary ? <><span className="px-1 text-slate-400">/</span><span>{row.dataSourceSecondary}</span></> : null}
+                      {row.dataSourceMulti ? <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">Multiple</span> : null}
+                    </div>
+                  </td>
+                  <td className="px-5 py-5 align-middle">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {row.chartTypes.map((type) => {
+                        const meta = chartViewMeta(type);
+                        return (
+                          <span key={meta.id} className="inline-grid h-10 w-10 place-items-center rounded-[14px] bg-blue-50 text-[#1d4ed8]" title={meta.label} aria-label={meta.label}>
+                            <ReportHubTypeIcon type={meta.iconType} accent="#1d4ed8" />
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </td>
+                  <td className="px-5 py-5 align-middle">
+                    <div className="flex items-center justify-center gap-4">
+                      <button
+                        type="button"
+                        onClick={() => openReport(row.report)}
+                        className="inline-flex h-9 min-w-[116px] items-center justify-center gap-2 rounded-lg border bg-white px-4 text-xs font-black text-[#1d4ed8] transition hover:-translate-y-0.5 hover:bg-blue-50"
+                        style={{ borderColor: "rgba(37,99,235,0.35)" }}
+                      >
+                        <ReportHubEyeIcon />
+                        Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadHubReport(row)}
+                        className="grid h-9 w-9 place-items-center rounded-lg border bg-white text-[#1d4ed8] transition hover:-translate-y-0.5 hover:bg-blue-50"
+                        style={{ borderColor: "rgba(37,99,235,0.35)" }}
+                        title="Download PDF"
+                        aria-label={`Download PDF for ${row.name}`}
+                      >
+                        <ReportHubDownloadIcon />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )) : (
+                <tr>
+                  <td colSpan={7} className="px-6 py-16 text-center">
+                    <div className="text-base font-black text-slate-800">No reports match your filters.</div>
+                    <div className="mt-2 text-sm font-semibold text-slate-500">Try a broader search term, switch to All Coverage, or use Ask AI.</div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <label className="flex min-w-[260px] flex-1 flex-col gap-1">
-            <span className="text-[11px] font-semibold" style={{ color: "#64748b" }}>Question</span>
-            <input
-              value={nlDraft}
-              onChange={(event) => setNlDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") runNaturalLanguageReport();
-              }}
-              placeholder="Show number of placements for the last 5 years for all IITs"
-              className="h-10 rounded-xl px-3 text-sm shadow-sm outline-none"
-              style={{ border: "1px solid rgba(59,130,246,0.2)", background: "rgba(255,255,255,0.96)", color: "#334155" }}
-            />
-          </label>
-          <button
-            type="button"
-            onClick={runNaturalLanguageReport}
-            className="h-10 rounded-2xl px-5 text-sm font-extrabold text-white hover:opacity-90"
-            style={{ background: accent }}
-          >
-            GENERATE REPORT
-          </button>
-        </div>
-        {nlStatus ? <div className="mt-3 text-xs font-semibold" style={{ color: "#64748b" }}>{nlStatus}</div> : null}
-      </div>
 
-      <div className="rounded-3xl p-4 shadow-sm" style={{ background: "rgba(255,255,255,0.9)", border: "1px solid rgba(59,130,246,0.15)" }}>
-        <div className="text-sm font-extrabold" style={{ color: "#0f172a" }}>Frequently Used Reports</div>
-        <div className="mt-3">
-          <DataTable columns={reportColumns} rows={rowsForReportsTable(frequent)} maxHeight={360} accent={accent} />
+        <div className="flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "rgba(226,232,240,0.95)" }}>
+          <div className="text-sm font-semibold text-slate-500">
+            Showing {showingFrom} to {showingTo} of {visibleRows.length} reports
+            <span className="ml-2 text-xs text-slate-400">({scopeText}, {yrFrom}-{yrTo})</span>
+          </div>
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setPageIndex((value) => Math.max(0, value - 1))}
+              disabled={pageIndex === 0}
+              className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100 text-xl font-black text-slate-400 transition hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45"
+              aria-label="Previous page"
+            >
+              ‹
+            </button>
+            <div className="grid h-10 min-w-10 place-items-center rounded-xl border border-blue-500 bg-white px-3 text-sm font-black text-blue-700 shadow-sm">
+              {pageIndex + 1}
+            </div>
+            <button
+              type="button"
+              onClick={() => setPageIndex((value) => Math.min(totalPages - 1, value + 1))}
+              disabled={pageIndex >= totalPages - 1}
+              className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100 text-xl font-black text-slate-400 transition hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45"
+              aria-label="Next page"
+            >
+              ›
+            </button>
+          </div>
         </div>
       </div>
-
-      {byDomain.length ? (
-        byDomain.map(([dom, reports]) => (
-          <div key={dom} className="rounded-3xl p-4 shadow-sm" style={{ background: "rgba(255,255,255,0.9)", border: "1px solid rgba(59,130,246,0.15)" }}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-sm font-extrabold" style={{ color: "#0f172a" }}>{dom}</div>
-              <div className="text-xs font-semibold" style={{ color: "#64748b" }}>{reports.length} reports</div>
-            </div>
-            <div className="mt-3">
-              <DataTable
-                columns={reportColumns}
-                rows={rowsForReportsTable(reports)}
-                maxHeight={520}
-                accent={accent}
-                onRowClick={(row) => openReport(row.Action)}
-              />
-            </div>
-          </div>
-        ))
-      ) : (
-        <div className="rounded-3xl p-4" style={{ background: "rgba(255,255,255,0.9)", border: "1px solid rgba(59,130,246,0.15)", color: "#64748b" }}>
-          No reports match your search.
-        </div>
-      )}
     </div>
   );
 }
