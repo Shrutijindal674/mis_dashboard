@@ -21,7 +21,6 @@ import SectionTitle from "../components/ui/SectionTitle";
 import CombinedKpiSelector from "../components/ui/CombinedKpiSelector";
 import BreakdownBar from "../components/charts/BreakdownBar";
 import BreakdownLine from "../components/charts/BreakdownLine";
-import BreakdownDonut from "../components/charts/BreakdownDonut";
 import { COMPARE_HIERARCHY } from "../data/compareHierarchy";
 
 // ------------------------------------------------------------
@@ -29,15 +28,60 @@ import { COMPARE_HIERARCHY } from "../data/compareHierarchy";
 // ------------------------------------------------------------
 export function buildTemplateForFact(factName) {
   const templates = {
-    enrollment: ["InstituteId", "Institute", "State", "Year", "Program", "Discipline", "Gender", "Category", "Students"],
-    placements: ["InstituteId", "Institute", "Year", "Program", "Registered", "Placed", "AvgCTC_LPA", "MedianCTC_LPA"],
-    publications: ["InstituteId", "Institute", "Year", "Type", "Discipline", "Count"],
+    enrollment: [
+      "InstituteId",
+      "Institute",
+      "State",
+      "Year",
+      "Program",
+      "Discipline",
+      "Gender",
+      "Category",
+      "Students",
+    ],
+    placements: [
+      "InstituteId",
+      "Institute",
+      "Year",
+      "Program",
+      "Registered",
+      "Placed",
+      "AvgCTC_LPA",
+      "MedianCTC_LPA",
+    ],
+    publications: [
+      "InstituteId",
+      "Institute",
+      "Year",
+      "Type",
+      "Discipline",
+      "Count",
+    ],
     patents: ["InstituteId", "Institute", "Year", "Status", "Count"],
-    budget: ["InstituteId", "Institute", "Year", "Head", "Allocated_Cr", "Utilised_Cr"],
-    collaborations: ["InstituteId", "Institute", "Year", "Geography", "Type", "Count"],
+    budget: [
+      "InstituteId",
+      "Institute",
+      "Year",
+      "Head",
+      "Allocated_Cr",
+      "Utilised_Cr",
+    ],
+    collaborations: [
+      "InstituteId",
+      "Institute",
+      "Year",
+      "Geography",
+      "Type",
+      "Count",
+    ],
     intlStudents: ["InstituteId", "Institute", "Year", "Level", "Students"],
   };
-  const cols = templates[factName] ?? ["InstituteId", "Institute", "Year", "Value"];
+  const cols = templates[factName] ?? [
+    "InstituteId",
+    "Institute",
+    "Year",
+    "Value",
+  ];
   const rows = Array.from({ length: 5 }).map(() => {
     const r = {};
     for (const c of cols) r[c] = "";
@@ -114,7 +158,8 @@ function fmtValue(kpi, v) {
 
   const label = String(kpi?.label ?? "").toLowerCase();
   if (label.includes("ctc")) return `${fmtPlain(v, 1)} LPA`;
-  if (kpi?.fact === "budget" || label.includes("(cr)")) return `Rs ${fmtPlain(v, 1)} Cr`;
+  if (kpi?.fact === "budget" || label.includes("(cr)"))
+    return `Rs ${fmtPlain(v, 1)} Cr`;
   return fmtPlain(v, 0);
 }
 
@@ -134,7 +179,8 @@ function instituteLabel(ids) {
   if (!ids?.length) return "All IITs";
   const allIds = IITs.map((x) => x.id);
   const idSet = new Set(ids);
-  if (ids.length >= allIds.length && allIds.every((id) => idSet.has(id))) return "All IITs";
+  if (ids.length >= allIds.length && allIds.every((id) => idSet.has(id)))
+    return "All IITs";
   if (ids.length === 1) {
     const inst = IITs.find((x) => x.id === ids[0]);
     return inst ? inst.name : ids[0];
@@ -168,17 +214,6 @@ function rowsForYear({ facts, report, year, scopedInstituteIds }) {
   return rows;
 }
 
-function rowsForKpiYear({ facts, kpi, year, scopedInstituteIds }) {
-  if (!kpi) return [];
-  let rows = facts?.[kpi.fact] ?? [];
-  rows = rows.filter((r) => Number(r.Year ?? 0) === Number(year));
-  if (scopedInstituteIds?.length) {
-    const set = new Set(scopedInstituteIds);
-    rows = rows.filter((r) => set.has(r.InstituteId));
-  }
-  return rows;
-}
-
 function metricRowsForMissingCheck(kpi, rows = []) {
   let out = applyKpiRowFilter(kpi, rows);
   if (kpi?.kind === "sum_where" && kpi?.where) out = out.filter(kpi.where);
@@ -190,228 +225,50 @@ function buildReportCatalog(kpis) {
   const out = [];
 
   for (const kpi of kpis) {
-    const base = {
-      domain: kpi.module,
-      tag: kpi.module,
-      scopeType: "kpi",
-      modules: [kpi.module].filter(Boolean),
-      kpiIds: [kpi.id].filter(Boolean),
-    };
-
     out.push({
-      ...base,
       reportId: ++nextId,
       name: `Year-on-Year Trend for ${kpi.label}`,
+      domain: kpi.module,
+      tag: kpi.module,
       kpiId: kpi.id,
       fact: kpi.fact,
       breakdownField: "Year",
       breakdownLabel: "Year",
       reportType: "trend",
-      chartTypes: ["line", "table"],
-      defaultView: "line",
+      defaultView: "table",
     });
 
     out.push({
-      ...base,
       reportId: ++nextId,
       name: `${kpi.label} by Institute`,
+      domain: kpi.module,
+      tag: kpi.module,
       kpiId: kpi.id,
       fact: kpi.fact,
       breakdownField: "Institute",
       breakdownLabel: "Institute",
       reportType: "breakdown",
-      chartTypes: ["bar", "table"],
-      defaultView: "bar",
+      defaultView: "table",
     });
 
     for (const lvl of kpi.levels ?? []) {
-      const lower = `${lvl.label ?? ""} ${lvl.field ?? ""}`.toLowerCase();
-      const chartTypes = /degree|category|gender|mode|status|share|type/.test(lower)
-        ? ["bar", "pie", "table"]
-        : /year/.test(lower)
-          ? ["line", "bar", "table"]
-          : ["bar", "table"];
-
       out.push({
-        ...base,
         reportId: ++nextId,
         name: `${kpi.label} by ${lvl.label}`,
+        domain: kpi.module,
+        tag: kpi.module,
         kpiId: kpi.id,
         fact: kpi.fact,
         breakdownField: lvl.field,
         breakdownLabel: lvl.label,
         reportType: "breakdown",
-        chartTypes,
-        defaultView: chartTypes[0] ?? "table",
+        defaultView: "table",
       });
     }
   }
 
   return out;
 }
-
-const CUSTOM_REPORTS = [
-  {
-    reportId: 9001,
-    name: "Ministry Briefing Pack",
-    description: "Cross-module summary for ministry-level reporting across institutions, students, placements, research, and finance.",
-    domain: "Cross-module",
-    scopeType: "cross_module",
-    modules: [
-      "Institution & Governance",
-      "People & Student Life",
-      "Research & Innovation",
-      "Infrastructure & Finance",
-    ],
-    kpiIds: [
-      "kpi_inst_profile_mix",
-      "kpi_psl_placement_statistics",
-      "kpi_placement_rate",
-      "kpi_publications",
-      "kpi_budget_utilisation",
-    ],
-    chartTypes: ["table", "bar", "line"],
-    defaultView: "table",
-  },
-  {
-    reportId: 9002,
-    name: "Parliamentary Question Pack",
-    description: "Export-ready cross-module report for answering parliamentary questions with visuals, numbers, and notes.",
-    domain: "Cross-module",
-    scopeType: "cross_module",
-    modules: [
-      "Institution & Governance",
-      "People & Student Life",
-      "Research & Innovation",
-      "Infrastructure & Finance",
-    ],
-    kpiIds: [
-      "kpi_inst_profile_mix",
-      "kpi_placement_rate",
-      "kpi_budget_utilisation",
-    ],
-    chartTypes: ["table", "bar"],
-    defaultView: "table",
-  },
-  {
-    reportId: 9003,
-    name: "IIT Performance Summary",
-    description: "All-module performance overview combining academic, student, placement, research, and finance indicators.",
-    domain: "All modules",
-    scopeType: "all_modules",
-    modules: ["All modules"],
-    kpiIds: [
-      "kpi_inst_profile_mix",
-      "kpi_inst_program_portfolio",
-      "kpi_total_students",
-      "kpi_placement_rate",
-      "kpi_publications",
-      "kpi_budget_utilisation",
-    ],
-    chartTypes: ["table", "line", "bar", "pie"],
-    defaultView: "table",
-  },
-];
-
-function getReportKpis(report) {
-  const ids = uniqueReportIds(report?.kpiIds?.length ? report.kpiIds : [report?.kpiId]);
-  return ids.map((id) => KPI_DEFS.find((kpi) => kpi.id === id)).filter(Boolean);
-}
-
-function getPrimaryReportKpi(report) {
-  return getReportKpis(report)[0] ?? null;
-}
-
-function reportMatchesKpiFilter(report, activeKpiSet) {
-  if (!activeKpiSet) return true;
-  const ids = report?.kpiIds?.length ? report.kpiIds : [report?.kpiId].filter(Boolean);
-  return ids.some((id) => activeKpiSet.has(id));
-}
-
-function getReportCoverage(report, kpis = [], hierarchyItem = null) {
-  if (report?.scopeType === "all_modules") {
-    return {
-      label: "All modules",
-      subLabel: "Ministry-level summary",
-      modules: ["All modules"],
-      isCrossModule: true,
-    };
-  }
-
-  const modules = report?.modules?.length
-    ? uniqueReportIds(report.modules)
-    : uniqueReportIds(kpis.map((kpi) => kpi.module).filter(Boolean));
-
-  if (modules.length > 1 || report?.scopeType === "cross_module") {
-    return {
-      label: "Cross-module",
-      subLabel: modules.join(" + "),
-      modules,
-      isCrossModule: true,
-    };
-  }
-
-  const moduleLabel = modules[0] ?? report?.domain ?? "Reports";
-  const hierarchyCoverage = humanizeReportLabel(hierarchyItem?.submoduleLabel ?? hierarchyItem?.submodule ?? "");
-  return {
-    label: hierarchyCoverage || humanizeReportLabel(moduleLabel),
-    subLabel: hierarchyCoverage ? humanizeReportLabel(moduleLabel) : "",
-    modules: modules.length ? modules : [moduleLabel].filter(Boolean),
-    isCrossModule: false,
-  };
-}
-
-function getReportDataSource(report, kpis = [], hierarchyItem = null) {
-  if (report?.scopeType === "cross_module" || report?.scopeType === "all_modules" || kpis.length > 1) {
-    return {
-      primary: "Multiple KPIs",
-      secondary: kpis.length ? `${kpis.length} indicators` : "Curated report pack",
-      multi: true,
-    };
-  }
-  const kpi = kpis[0] ?? getPrimaryReportKpi(report);
-  const parts = reportHubSheetParts(report, hierarchyItem, kpi);
-  return parts;
-}
-
-function normalizeChartType(type) {
-  const value = String(type ?? "").toLowerCase();
-  if (["trend", "line", "line_chart"].includes(value)) return "line";
-  if (["donut", "pie", "distribution"].includes(value)) return "pie";
-  if (["table", "grid"].includes(value)) return "table";
-  return "bar";
-}
-
-function uniqueChartTypes(types = []) {
-  const seen = new Set();
-  const out = [];
-  for (const type of types) {
-    const normalized = normalizeChartType(type);
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-    out.push(normalized);
-  }
-  return out.length ? out : ["table"];
-}
-
-function chartTypesForReport(report, kpi = null) {
-  if (report?.chartTypes?.length) return uniqueChartTypes(report.chartTypes);
-  const type = reportHubType(report);
-  const base = uniqueChartTypes([type.id, "table"]);
-  if (kpi?.format !== "pct" && /degree|category|gender|mode|status/i.test(report?.breakdownLabel ?? "")) {
-    return uniqueChartTypes(["bar", "pie", "table"]);
-  }
-  return base;
-}
-
-function chartViewMeta(type) {
-  const normalized = normalizeChartType(type);
-  if (normalized === "line") return { id: "line", label: "Line chart", shortLabel: "Line", iconType: "line" };
-  if (normalized === "pie") return { id: "pie", label: "Pie chart", shortLabel: "Pie", iconType: "pie" };
-  if (normalized === "table") return { id: "table", label: "Table view", shortLabel: "Table", iconType: "table" };
-  return { id: "bar", label: "Bar chart", shortLabel: "Bar", iconType: "bar" };
-}
-
 
 function computeOverallParts(kpi, rows) {
   rows = applyKpiRowFilter(kpi, rows);
@@ -439,7 +296,11 @@ function computeOverallParts(kpi, rows) {
   }
 
   if (kpi.kind === "count_distinct") {
-    return { distinct: new Set(rows.map((r) => r[kpi.distinctField || kpi.valueField]).filter(Boolean)).size };
+    return {
+      distinct: new Set(
+        rows.map((r) => r[kpi.distinctField || kpi.valueField]).filter(Boolean),
+      ).size,
+    };
   }
 
   if (kpi.kind === "sum") return { sum: sumBy(rows, kpi.valueField) };
@@ -450,14 +311,17 @@ function computeOverallParts(kpi, rows) {
 function groupLabelForRow(row, groupFields) {
   const parts = groupFields.map((field) => {
     const value = row?.[field];
-    if (value === null || value === undefined || value === "") return "Data not available";
+    if (value === null || value === undefined || value === "")
+      return "Data not available";
     return String(value);
   });
   return parts.join(" > ");
 }
 
 function computeGroupMetrics(kpi, rawRows, groupFieldsInput) {
-  const groupFields = Array.isArray(groupFieldsInput) ? groupFieldsInput.filter(Boolean) : [groupFieldsInput].filter(Boolean);
+  const groupFields = Array.isArray(groupFieldsInput)
+    ? groupFieldsInput.filter(Boolean)
+    : [groupFieldsInput].filter(Boolean);
   if (!groupFields.length) return [];
 
   const rows = applyKpiRowFilter(kpi, rawRows);
@@ -465,7 +329,15 @@ function computeGroupMetrics(kpi, rawRows, groupFieldsInput) {
 
   for (const r of rows) {
     const key = groupLabelForRow(r, groupFields);
-    const prev = m.get(key) ?? { sum: 0, num: 0, den: 0, wsum: 0, w: 0, distinct: new Set(), records: 0 };
+    const prev = m.get(key) ?? {
+      sum: 0,
+      num: 0,
+      den: 0,
+      wsum: 0,
+      w: 0,
+      distinct: new Set(),
+      records: 0,
+    };
     prev.records += 1;
 
     if (kpi.kind === "sum") {
@@ -474,7 +346,8 @@ function computeGroupMetrics(kpi, rawRows, groupFieldsInput) {
       if (kpi.where?.(r)) prev.sum += Number(r[kpi.valueField] ?? 0);
     } else if (kpi.kind === "count_distinct") {
       const value = r[kpi.distinctField || kpi.valueField];
-      if (value !== null && value !== undefined && value !== "") prev.distinct.add(value);
+      if (value !== null && value !== undefined && value !== "")
+        prev.distinct.add(value);
     } else if (kpi.kind === "ratio") {
       prev.num += Number(r[kpi.numField] ?? 0);
       prev.den += Number(r[kpi.denField] ?? 0);
@@ -495,7 +368,8 @@ function computeGroupMetrics(kpi, rawRows, groupFieldsInput) {
     let value = null;
     if (kpi.kind === "sum" || kpi.kind === "sum_where") value = agg.sum;
     if (kpi.kind === "count_distinct") value = agg.distinct.size;
-    if (kpi.kind === "ratio" || kpi.kind === "share") value = agg.den ? agg.num / agg.den : null;
+    if (kpi.kind === "ratio" || kpi.kind === "share")
+      value = agg.den ? agg.num / agg.den : null;
     if (kpi.kind === "avg_weighted") value = agg.w ? agg.wsum / agg.w : null;
     return {
       name,
@@ -516,7 +390,10 @@ function computeGroupMetrics(kpi, rawRows, groupFieldsInput) {
 function buildBreakdownOptions(kpi, report) {
   if (!kpi) return [];
 
-  const base = [{ label: "Institute", field: "Institute" }, ...(kpi.levels ?? [])];
+  const base = [
+    { label: "Institute", field: "Institute" },
+    ...(kpi.levels ?? []),
+  ];
   const seen = new Set();
   const options = [
     {
@@ -544,12 +421,18 @@ function buildBreakdownOptions(kpi, report) {
       id: `${item.field}__detail`,
       label: item.label,
       variant: "Detailed View",
-      groupFields: item.field === "Institute" ? ["State", "Institute"] : [item.field, "Institute"],
+      groupFields:
+        item.field === "Institute"
+          ? ["State", "Institute"]
+          : [item.field, "Institute"],
       chartKind: "bar",
     });
   }
 
-  const defaultId = report?.reportType === "trend" ? "__trend" : `${report?.breakdownField ?? "Institute"}__broad`;
+  const defaultId =
+    report?.reportType === "trend"
+      ? "__trend"
+      : `${report?.breakdownField ?? "Institute"}__broad`;
   if (!options.some((o) => o.id === defaultId)) {
     options.push({
       id: defaultId,
@@ -573,26 +456,56 @@ function oneSentenceMeaning(kpi, parts, value) {
     if (kpi.id === "kpi_budget_utilisation") {
       return `${label} is ${formatPct(value)} - roughly Rs ${outOf100} used out of every Rs 100 allocated.`;
     }
-    if (String(kpi.label ?? "").toLowerCase().includes("placement") && parts?.num != null && parts?.den != null) {
+    if (
+      String(kpi.label ?? "")
+        .toLowerCase()
+        .includes("placement") &&
+      parts?.num != null &&
+      parts?.den != null
+    ) {
       return `${label} is ${formatPct(value)} - about ${fmtPlain(parts.num)} placed out of ${fmtPlain(parts.den)} registered.`;
     }
-    if (kpi.id === "kpi_female_share" && parts?.num != null && parts?.den != null) {
+    if (
+      kpi.id === "kpi_female_share" &&
+      parts?.num != null &&
+      parts?.den != null
+    ) {
       return `${label} is ${formatPct(value)} - about ${fmtPlain(parts.num)} female students out of ${fmtPlain(parts.den)} total.`;
     }
     return `${label} is ${formatPct(value)} - roughly ${outOf100} out of every 100.`;
   }
 
-  if (String(kpi.label ?? "").toLowerCase().includes("ctc")) {
-    const placed = parts?.w ? ` (based on ${fmtPlain(parts.w)} placed students)` : "";
+  if (
+    String(kpi.label ?? "")
+      .toLowerCase()
+      .includes("ctc")
+  ) {
+    const placed = parts?.w
+      ? ` (based on ${fmtPlain(parts.w)} placed students)`
+      : "";
     return `${label} is ${fmtPlain(value, 1)} LPA${placed}. Median means half are below and half are above this value.`;
   }
 
   return `${label} is ${fmtValue(kpi, value)} in the selected scope.`;
 }
 
-function buildInterpretation({ kpi, report, year, scopeText, value, prevValue, parts, groups, activeBreakdown, missingInstitutes }) {
+function buildInterpretation({
+  kpi,
+  report,
+  year,
+  scopeText,
+  value,
+  prevValue,
+  parts,
+  groups,
+  activeBreakdown,
+  missingInstitutes,
+}) {
   const lines = [];
-  const breakdownLabel = activeBreakdown?.id === "__trend" ? "year-on-year trend" : `${activeBreakdown?.label ?? report.breakdownLabel} ${activeBreakdown?.variant ?? ""}`.trim();
+  const breakdownLabel =
+    activeBreakdown?.id === "__trend"
+      ? "year-on-year trend"
+      : `${activeBreakdown?.label ?? report.breakdownLabel} ${activeBreakdown?.variant ?? ""}`.trim();
 
   lines.push(`What this report is: ${report.name}.`);
   lines.push(`Scope: ${scopeText} | Year: ${year} | View: ${breakdownLabel}.`);
@@ -601,35 +514,53 @@ function buildInterpretation({ kpi, report, year, scopeText, value, prevValue, p
   if (value != null && prevValue != null) {
     if (kpi.format === "pct") {
       const pp = (value - prevValue) * 100;
-      lines.push(`Compared to ${year - 1}, it is ${pp >= 0 ? "up" : "down"} by ${Math.abs(pp).toFixed(1)} percentage points.`);
+      lines.push(
+        `Compared to ${year - 1}, it is ${pp >= 0 ? "up" : "down"} by ${Math.abs(pp).toFixed(1)} percentage points.`,
+      );
     } else {
       const d = safeDelta(value, prevValue);
-      if (d != null) lines.push(`Compared to ${year - 1}, it is ${d >= 0 ? "up" : "down"} by ${(Math.abs(d) * 100).toFixed(1)}%.`);
+      if (d != null)
+        lines.push(
+          `Compared to ${year - 1}, it is ${d >= 0 ? "up" : "down"} by ${(Math.abs(d) * 100).toFixed(1)}%.`,
+        );
     }
   }
 
   if (groups?.length && activeBreakdown?.id !== "__trend") {
     const top = groups[0];
-    if (kpi.kind === "sum" || kpi.kind === "sum_where" || kpi.kind === "count_distinct") {
-      const total = value ?? groups.reduce((s, g) => s + Number(g.value ?? 0), 0);
+    if (
+      kpi.kind === "sum" ||
+      kpi.kind === "sum_where" ||
+      kpi.kind === "count_distinct"
+    ) {
+      const total =
+        value ?? groups.reduce((s, g) => s + Number(g.value ?? 0), 0);
       const share = total ? (top.value ?? 0) / total : null;
       lines.push(
-        `Largest ${activeBreakdown?.label ?? report.breakdownLabel}: ${top.name} with ${fmtValue(kpi, top.value)}${share != null ? ` (${(share * 100).toFixed(1)}% of the total).` : "."}`
+        `Largest ${activeBreakdown?.label ?? report.breakdownLabel}: ${top.name} with ${fmtValue(kpi, top.value)}${share != null ? ` (${(share * 100).toFixed(1)}% of the total).` : "."}`,
       );
     } else {
       const bottom = groups[groups.length - 1];
-      lines.push(`Highest ${activeBreakdown?.label ?? report.breakdownLabel}: ${top.name} (${kpi.format === "pct" ? formatPct(top.value) : fmtValue(kpi, top.value)}).`);
+      lines.push(
+        `Highest ${activeBreakdown?.label ?? report.breakdownLabel}: ${top.name} (${kpi.format === "pct" ? formatPct(top.value) : fmtValue(kpi, top.value)}).`,
+      );
       if (bottom && bottom.name !== top.name) {
-        lines.push(`Lowest ${activeBreakdown?.label ?? report.breakdownLabel}: ${bottom.name} (${kpi.format === "pct" ? formatPct(bottom.value) : fmtValue(kpi, bottom.value)}).`);
+        lines.push(
+          `Lowest ${activeBreakdown?.label ?? report.breakdownLabel}: ${bottom.name} (${kpi.format === "pct" ? formatPct(bottom.value) : fmtValue(kpi, bottom.value)}).`,
+        );
       }
     }
   }
 
   if (missingInstitutes?.length) {
-    lines.push(`Data is not available for ${missingInstitutes.length} selected institute(s): ${missingInstitutes.map(instituteName).join(", ")}.`);
+    lines.push(
+      `Data is not available for ${missingInstitutes.length} selected institute(s): ${missingInstitutes.map(instituteName).join(", ")}.`,
+    );
   }
 
-  lines.push(`Simple way to say it aloud: In ${year}, for ${scopeText}, ${oneSentenceMeaning(kpi, parts, value)}`);
+  lines.push(
+    `Simple way to say it aloud: In ${year}, for ${scopeText}, ${oneSentenceMeaning(kpi, parts, value)}`,
+  );
   return lines;
 }
 
@@ -650,28 +581,52 @@ function htmlTable(columns, rows) {
       (r) =>
         `<tr>${columns
           .map((c) => `<td>${escHtml(r[c.key])}</td>`)
-          .join("")}</tr>`
+          .join("")}</tr>`,
     )
     .join("")}</tbody>`;
   return `<table>${thead}${tbody}</table>`;
 }
 
-function trendDataForReport({ facts, report, kpi, yearsInRange, scopedInstituteIds }) {
+function trendDataForReport({
+  facts,
+  report,
+  kpi,
+  yearsInRange,
+  scopedInstituteIds,
+}) {
   return yearsInRange.map((y, index) => {
     const rows = rowsForYear({ facts, report, year: y, scopedInstituteIds });
     const value = kpiValue(kpi, rows);
-    const prev = index > 0 ? kpiValue(kpi, rowsForYear({ facts, report, year: yearsInRange[index - 1], scopedInstituteIds })) : null;
+    const prev =
+      index > 0
+        ? kpiValue(
+            kpi,
+            rowsForYear({
+              facts,
+              report,
+              year: yearsInRange[index - 1],
+              scopedInstituteIds,
+            }),
+          )
+        : null;
     let yoy = null;
     if (value != null && prev != null) {
-      yoy = kpi.format === "pct" ? (value - prev) * 100 : safeDelta(value, prev);
+      yoy =
+        kpi.format === "pct" ? (value - prev) * 100 : safeDelta(value, prev);
     }
     return {
       name: String(y),
       year: y,
       value,
-      formattedValue: kpi.format === "pct" ? formatPct(value) : fmtValue(kpi, value),
+      formattedValue:
+        kpi.format === "pct" ? formatPct(value) : fmtValue(kpi, value),
       yoy,
-      formattedYoY: yoy == null ? "-" : kpi.format === "pct" ? `${yoy >= 0 ? "+" : ""}${yoy.toFixed(1)} pp` : `${yoy >= 0 ? "+" : ""}${(yoy * 100).toFixed(1)}%`,
+      formattedYoY:
+        yoy == null
+          ? "-"
+          : kpi.format === "pct"
+            ? `${yoy >= 0 ? "+" : ""}${yoy.toFixed(1)} pp`
+            : `${yoy >= 0 ? "+" : ""}${(yoy * 100).toFixed(1)}%`,
       Records: rows.length,
     };
   });
@@ -687,32 +642,53 @@ function tokenize(text) {
 }
 
 function scoreReportForQuestion(report, kpi, questionTokens, questionText) {
-  const reportKpis = getReportKpis(report);
-  const kpiWords = reportKpis
-    .map((item) => `${item.label ?? ""} ${item.fact ?? ""} ${(item.levels ?? []).map((x) => x.label).join(" ")}`)
-    .join(" ");
-  const haystack = `${report.name} ${report.description ?? ""} ${report.domain ?? ""} ${(report.modules ?? []).join(" ")} ${report.scopeType ?? ""} ${kpi?.label ?? ""} ${kpi?.fact ?? ""} ${kpiWords}`.toLowerCase();
+  const haystack =
+    `${report.name} ${report.domain} ${kpi?.label ?? ""} ${kpi?.fact ?? ""} ${(kpi?.levels ?? []).map((x) => x.label).join(" ")}`.toLowerCase();
   let score = 0;
   for (const token of questionTokens) {
     if (haystack.includes(token)) score += token.length > 6 ? 4 : 2;
   }
 
-  const reportModules = new Set([report.domain, ...(report.modules ?? []), ...reportKpis.map((item) => item.module)].filter(Boolean));
   const rules = [
-    { words: ["student", "students", "enrolment", "enrollment", "admission"], boost: "People & Student Life" },
-    { words: ["placement", "placed", "ctc", "recruiter"], boost: "People & Student Life" },
-    { words: ["publication", "publications", "research", "patent", "patents"], boost: "Research & Innovation" },
-    { words: ["budget", "funding", "finance", "utilisation", "utilization"], boost: "Infrastructure & Finance" },
-    { words: ["collaboration", "collaborations", "outreach", "alumni"], boost: "Collaboration & Outreach" },
-    { words: ["ranking", "rankings", "accreditation", "governance", "audit", "legal", "institution"], boost: "Institution & Governance" },
+    {
+      words: ["student", "students", "enrolment", "enrollment", "admission"],
+      boost: "People & Student Life",
+    },
+    {
+      words: ["placement", "placed", "ctc", "recruiter"],
+      boost: "People & Student Life",
+    },
+    {
+      words: ["publication", "publications", "research", "patent", "patents"],
+      boost: "Research & Innovation",
+    },
+    {
+      words: ["budget", "funding", "finance", "utilisation", "utilization"],
+      boost: "Infrastructure & Finance",
+    },
+    {
+      words: ["collaboration", "collaborations", "outreach", "alumni"],
+      boost: "Collaboration & Outreach",
+    },
+    {
+      words: [
+        "ranking",
+        "rankings",
+        "accreditation",
+        "governance",
+        "audit",
+        "legal",
+      ],
+      boost: "Institution & Governance",
+    },
   ];
 
   for (const rule of rules) {
-    if (rule.words.some((w) => questionText.includes(w)) && reportModules.has(rule.boost)) score += 8;
-  }
-
-  if (/ministry|minister|briefing|brief|parliament|question|pq|all module|performance summary|overview/.test(questionText)) {
-    if (report.scopeType === "cross_module" || report.scopeType === "all_modules") score += 18;
+    if (
+      rule.words.some((w) => questionText.includes(w)) &&
+      report.domain === rule.boost
+    )
+      score += 8;
   }
 
   if (questionText.includes(String(report.reportId))) score += 50;
@@ -722,29 +698,44 @@ function scoreReportForQuestion(report, kpi, questionTokens, questionText) {
 
 function resolveNaturalLanguageReport({ text, catalog, yearsInRange }) {
   const query = String(text ?? "").trim();
-  if (!query) return { report: null, reason: "Please type a report question first." };
+  if (!query)
+    return { report: null, reason: "Please type a report question first." };
 
   const lowered = query.toLowerCase();
   const tokens = tokenize(query);
   const yearMatch = lowered.match(/\b(20\d{2})\b/);
   const requestedYear = yearMatch ? Number(yearMatch[1]) : null;
-  const year = requestedYear && yearsInRange.includes(requestedYear) ? requestedYear : yearsInRange[yearsInRange.length - 1];
-  const wantsTrend = /trend|growth|year\s*on\s*year|year-on-year|last\s+\d+\s+years|over\s+time|increase|decrease/.test(lowered);
+  const year =
+    requestedYear && yearsInRange.includes(requestedYear)
+      ? requestedYear
+      : yearsInRange[yearsInRange.length - 1];
+  const wantsTrend =
+    /trend|growth|year\s*on\s*year|year-on-year|last\s+\d+\s+years|over\s+time|increase|decrease/.test(
+      lowered,
+    );
 
   let best = null;
   for (const report of catalog) {
-    const kpi = getPrimaryReportKpi(report);
+    const kpi = KPI_DEFS.find((x) => x.id === report.kpiId);
     let score = scoreReportForQuestion(report, kpi, tokens, lowered);
     if (wantsTrend && report.reportType === "trend") score += 14;
     if (!wantsTrend && report.reportType === "trend") score -= 3;
     if (!best || score > best.score) best = { report, score };
   }
 
-  if (!best || best.score <= 0) return { report: null, reason: "No matching report was found. Try a metric such as students, placements, research, budget, rankings or collaborations." };
+  if (!best || best.score <= 0)
+    return {
+      report: null,
+      reason:
+        "No matching report was found. Try a metric such as students, placements, research, budget, rankings or collaborations.",
+    };
 
   let report = best.report;
-  if (wantsTrend && report.reportType !== "trend" && report.kpiId) {
-    report = catalog.find((r) => r.kpiId === report.kpiId && r.reportType === "trend") ?? report;
+  if (wantsTrend && report.reportType !== "trend") {
+    report =
+      catalog.find(
+        (r) => r.kpiId === report.kpiId && r.reportType === "trend",
+      ) ?? report;
   }
 
   return {
@@ -765,9 +756,26 @@ function formatYoYForCard(kpi, value, prevValue) {
   return `${d >= 0 ? "+" : ""}${(d * 100).toFixed(1)}%`;
 }
 
-
 const REPORT_LEGACY_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
-const REPORT_LABEL_ACRONYMS = new Set(["ai", "api", "cgpa", "gpa", "iit", "iits", "iqac", "ip", "ipr", "iso", "mooc", "naac", "nba", "nirf", "phd", "qa", "ugc"]);
+const REPORT_LABEL_ACRONYMS = new Set([
+  "ai",
+  "api",
+  "cgpa",
+  "gpa",
+  "iit",
+  "iits",
+  "iqac",
+  "ip",
+  "ipr",
+  "iso",
+  "mooc",
+  "naac",
+  "nba",
+  "nirf",
+  "phd",
+  "qa",
+  "ugc",
+]);
 
 function humanizeReportLabel(value) {
   const raw = String(value ?? "").trim();
@@ -790,13 +798,17 @@ function humanizeReportLabel(value) {
 }
 
 function reportItemLabel(item) {
-  return humanizeReportLabel(item?.kpiLabel ?? item?.label ?? item?.kpi?.label ?? item?.id ?? "");
+  return humanizeReportLabel(
+    item?.kpiLabel ?? item?.label ?? item?.kpi?.label ?? item?.id ?? "",
+  );
 }
 
 function instituteShortLabel(id) {
   const inst = IITs.find((item) => item.id === id);
   if (!inst) return id;
-  return inst.name?.replace(/^Indian Institute of Technology\s*/i, "IIT ") ?? id;
+  return (
+    inst.name?.replace(/^Indian Institute of Technology\s*/i, "IIT ") ?? id
+  );
 }
 
 function uniqueReportIds(values = []) {
@@ -804,7 +816,9 @@ function uniqueReportIds(values = []) {
 }
 
 function sortReportIitsAlphabetically(values = []) {
-  return uniqueReportIds(values).sort((left, right) => instituteShortLabel(left).localeCompare(instituteShortLabel(right)));
+  return uniqueReportIds(values).sort((left, right) =>
+    instituteShortLabel(left).localeCompare(instituteShortLabel(right)),
+  );
 }
 
 function flattenReportHierarchy(hierarchy = []) {
@@ -819,9 +833,9 @@ function flattenReportHierarchy(hierarchy = []) {
           submoduleLabel: item.submoduleLabel ?? submodule.label,
           sheetId: item.sheetId ?? sheet.id,
           sheetLabel: item.sheetLabel ?? sheet.label,
-        }))
-      )
-    )
+        })),
+      ),
+    ),
   );
 }
 
@@ -831,15 +845,21 @@ function firstActiveIdInReportList(items = [], activeIds = []) {
 }
 
 function firstReportItemFromModuleEntity(module) {
-  return (module?.submodules ?? [])
-    .flatMap((submodule) => (submodule.sheets ?? []).flatMap((sheet) => sheet.kpis ?? []))
-    .find(Boolean) ?? null;
+  return (
+    (module?.submodules ?? [])
+      .flatMap((submodule) =>
+        (submodule.sheets ?? []).flatMap((sheet) => sheet.kpis ?? []),
+      )
+      .find(Boolean) ?? null
+  );
 }
 
 function firstReportItemFromSubmoduleEntity(submodule) {
-  return (submodule?.sheets ?? [])
-    .flatMap((sheet) => sheet.kpis ?? [])
-    .find(Boolean) ?? null;
+  return (
+    (submodule?.sheets ?? [])
+      .flatMap((sheet) => sheet.kpis ?? [])
+      .find(Boolean) ?? null
+  );
 }
 
 function firstReportItemFromSheetEntity(sheet) {
@@ -847,7 +867,9 @@ function firstReportItemFromSheetEntity(sheet) {
 }
 
 function buildReportHierarchyMaps(hierarchy = []) {
-  const moduleMap = Object.fromEntries((hierarchy ?? []).map((module) => [module.id, module]));
+  const moduleMap = Object.fromEntries(
+    (hierarchy ?? []).map((module) => [module.id, module]),
+  );
   const submoduleMap = Object.fromEntries(
     (hierarchy ?? []).flatMap((module) =>
       (module.submodules ?? []).map((submodule) => [
@@ -857,8 +879,8 @@ function buildReportHierarchyMaps(hierarchy = []) {
           moduleId: submodule.moduleId ?? module.id,
           moduleLabel: submodule.moduleLabel ?? module.label,
         },
-      ])
-    )
+      ]),
+    ),
   );
   const sheetMap = Object.fromEntries(
     (hierarchy ?? []).flatMap((module) =>
@@ -872,19 +894,31 @@ function buildReportHierarchyMaps(hierarchy = []) {
             submoduleId: sheet.submoduleId ?? submodule.id,
             submoduleLabel: sheet.submoduleLabel ?? submodule.label,
           },
-        ])
-      )
-    )
+        ]),
+      ),
+    ),
   );
-  const itemMap = Object.fromEntries(flattenReportHierarchy(hierarchy).map((item) => [item.id, item]));
+  const itemMap = Object.fromEntries(
+    flattenReportHierarchy(hierarchy).map((item) => [item.id, item]),
+  );
   return { moduleMap, submoduleMap, sheetMap, itemMap };
 }
 
 function ReportCloseIcon({ tone = "#ffffff" }) {
   return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <path d="M6 6l12 12" stroke={tone} strokeWidth="2" strokeLinecap="round" />
-      <path d="M18 6 6 18" stroke={tone} strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M6 6l12 12"
+        stroke={tone}
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M18 6 6 18"
+        stroke={tone}
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -902,7 +936,10 @@ function normalizeReportSelection(value, role, instituteId) {
     sheets: uniqueReportIds(value?.sheets),
     items: uniqueReportIds(value?.items).slice(0, 1),
     kpiIds: uniqueReportIds(value?.kpiIds).slice(0, 1),
-    iits: role === "iit" ? [instituteId].filter(Boolean) : uniqueReportIds(value?.iits),
+    iits:
+      role === "iit"
+        ? [instituteId].filter(Boolean)
+        : uniqueReportIds(value?.iits),
     yearFrom,
     yearTo,
     focusYear,
@@ -926,17 +963,26 @@ function reportSelectionSignature(value) {
 
 function reportSelectionFromItem(item, prev = {}, role, instituteId) {
   if (!item) return normalizeReportSelection(prev, role, instituteId);
-  return normalizeReportSelection({
-    ...prev,
-    modules: [item.moduleId].filter(Boolean),
-    submodules: [item.submoduleId].filter(Boolean),
-    sheets: [item.sheetId].filter(Boolean),
-    items: [item.id].filter(Boolean),
-    kpiIds: [item.kpiId].filter(Boolean),
-  }, role, instituteId);
+  return normalizeReportSelection(
+    {
+      ...prev,
+      modules: [item.moduleId].filter(Boolean),
+      submodules: [item.submoduleId].filter(Boolean),
+      sheets: [item.sheetId].filter(Boolean),
+      items: [item.id].filter(Boolean),
+      kpiIds: [item.kpiId].filter(Boolean),
+    },
+    role,
+    instituteId,
+  );
 }
 
-function makeReportSelectionFromConfig({ config, role, instituteId, allItems }) {
+function makeReportSelectionFromConfig({
+  config,
+  role,
+  instituteId,
+  allItems,
+}) {
   const configuredKpiIds = uniqueReportIds(config?.KpiIds);
   const selectedItem = configuredKpiIds.length
     ? allItems.find((item) => configuredKpiIds.includes(item.kpiId))
@@ -945,20 +991,32 @@ function makeReportSelectionFromConfig({ config, role, instituteId, allItems }) 
   const toRaw = Number(config?.YearRange?.to ?? YEARS[YEARS.length - 1]);
   const yearFrom = Math.min(fromRaw, toRaw);
   const yearTo = Math.max(fromRaw, toRaw);
-  return normalizeReportSelection({
-    modules: selectedItem?.moduleId ? [selectedItem.moduleId] : [],
-    submodules: selectedItem?.submoduleId ? [selectedItem.submoduleId] : [],
-    sheets: selectedItem?.sheetId ? [selectedItem.sheetId] : [],
-    items: selectedItem?.id ? [selectedItem.id] : [],
-    kpiIds: selectedItem?.kpiId ? [selectedItem.kpiId] : configuredKpiIds,
-    iits: role === "iit" ? [instituteId].filter(Boolean) : [...(config?.InstituteId ?? [])],
-    yearFrom,
-    yearTo,
-    focusYear: yearTo,
-  }, role, instituteId);
+  return normalizeReportSelection(
+    {
+      modules: selectedItem?.moduleId ? [selectedItem.moduleId] : [],
+      submodules: selectedItem?.submoduleId ? [selectedItem.submoduleId] : [],
+      sheets: selectedItem?.sheetId ? [selectedItem.sheetId] : [],
+      items: selectedItem?.id ? [selectedItem.id] : [],
+      kpiIds: selectedItem?.kpiId ? [selectedItem.kpiId] : configuredKpiIds,
+      iits:
+        role === "iit"
+          ? [instituteId].filter(Boolean)
+          : [...(config?.InstituteId ?? [])],
+      yearFrom,
+      yearTo,
+      focusYear: yearTo,
+    },
+    role,
+    instituteId,
+  );
 }
 
-function ReportSelectionActionButton({ label = "Advanced filters", onClick, title, disabled = false }) {
+function ReportSelectionActionButton({
+  label = "Advanced filters",
+  onClick,
+  title,
+  disabled = false,
+}) {
   return (
     <button
       type="button"
@@ -967,7 +1025,7 @@ function ReportSelectionActionButton({ label = "Advanced filters", onClick, titl
       disabled={disabled}
       className={cx(
         "inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-4 py-2 text-sm font-extrabold text-sky-700 transition hover:border-sky-200 hover:bg-sky-100",
-        disabled ? "cursor-not-allowed opacity-50" : ""
+        disabled ? "cursor-not-allowed opacity-50" : "",
       )}
     >
       {label}
@@ -984,7 +1042,9 @@ function ReportFilterChoiceChip({ label, active = false, onClick, title }) {
       className="inline-flex min-h-[42px] items-center gap-2 rounded-[12px] border px-3 py-2 text-left text-sm font-medium transition"
       style={{
         borderColor: active ? "rgba(37,99,235,0.32)" : "rgba(226,232,240,0.95)",
-        background: active ? "rgba(239,246,255,0.96)" : "rgba(248,250,252,0.95)",
+        background: active
+          ? "rgba(239,246,255,0.96)"
+          : "rgba(248,250,252,0.95)",
         color: "#1d4ed8",
       }}
     >
@@ -1012,7 +1072,12 @@ function ReportDateSelector({ source, updateSource, years, accent }) {
 
   function setSingleYear(yearValue) {
     const year = Number(yearValue);
-    updateSource((prev) => ({ ...prev, yearFrom: year, yearTo: year, focusYear: year }));
+    updateSource((prev) => ({
+      ...prev,
+      yearFrom: year,
+      yearTo: year,
+      focusYear: year,
+    }));
   }
 
   function setRangeBoundary(kind, yearValue) {
@@ -1020,11 +1085,17 @@ function ReportDateSelector({ source, updateSource, years, accent }) {
     updateSource((prev) => {
       if (kind === "from") {
         const nextFrom = Math.min(year, prev.yearTo);
-        const nextFocus = Math.min(Math.max(prev.focusYear, nextFrom), prev.yearTo);
+        const nextFocus = Math.min(
+          Math.max(prev.focusYear, nextFrom),
+          prev.yearTo,
+        );
         return { ...prev, yearFrom: nextFrom, focusYear: nextFocus };
       }
       const nextTo = Math.max(year, prev.yearFrom);
-      const nextFocus = Math.min(Math.max(prev.focusYear, prev.yearFrom), nextTo);
+      const nextFocus = Math.min(
+        Math.max(prev.focusYear, prev.yearFrom),
+        nextTo,
+      );
       return { ...prev, yearTo: nextTo, focusYear: nextFocus };
     });
   }
@@ -1033,7 +1104,10 @@ function ReportDateSelector({ source, updateSource, years, accent }) {
     <div className="grid flex-1 content-start gap-3">
       <div
         className="grid grid-cols-2 gap-1 rounded-2xl border p-1"
-        style={{ background: "rgba(248,250,252,0.78)", borderColor: "rgba(59,130,246,0.14)" }}
+        style={{
+          background: "rgba(248,250,252,0.78)",
+          borderColor: "rgba(59,130,246,0.14)",
+        }}
       >
         {modes.map((mode) => {
           const active = mode.id === "single" ? singleYear : !singleYear;
@@ -1042,18 +1116,25 @@ function ReportDateSelector({ source, updateSource, years, accent }) {
               key={mode.id}
               type="button"
               onClick={() => {
-                if (mode.id === "single") setSingleYear(source.focusYear ?? source.yearTo);
+                if (mode.id === "single")
+                  setSingleYear(source.focusYear ?? source.yearTo);
                 else if (singleYear) {
                   updateSource((prev) => ({
                     ...prev,
-                    yearFrom: years[Math.max(0, years.indexOf(Number(prev.yearTo)) - 4)] ?? years[0],
+                    yearFrom:
+                      years[
+                        Math.max(0, years.indexOf(Number(prev.yearTo)) - 4)
+                      ] ?? years[0],
                     yearTo: Number(prev.yearTo),
                     focusYear: Number(prev.yearTo),
                   }));
                 }
               }}
               className="min-h-9 rounded-xl px-2 text-[11px] font-extrabold leading-tight transition"
-              style={{ background: active ? accent : "transparent", color: active ? "white" : "#475569" }}
+              style={{
+                background: active ? accent : "transparent",
+                color: active ? "white" : "#475569",
+              }}
             >
               {mode.label}
             </button>
@@ -1066,7 +1147,10 @@ function ReportDateSelector({ source, updateSource, years, accent }) {
           label="Year"
           value={String(source.yearTo)}
           onChange={setSingleYear}
-          options={years.map((year) => ({ value: String(year), label: String(year) }))}
+          options={years.map((year) => ({
+            value: String(year),
+            label: String(year),
+          }))}
         />
       ) : (
         <div className="grid gap-3 xl:grid-cols-1 2xl:grid-cols-2">
@@ -1074,13 +1158,19 @@ function ReportDateSelector({ source, updateSource, years, accent }) {
             label="From"
             value={String(source.yearFrom)}
             onChange={(value) => setRangeBoundary("from", value)}
-            options={years.map((year) => ({ value: String(year), label: String(year) }))}
+            options={years.map((year) => ({
+              value: String(year),
+              label: String(year),
+            }))}
           />
           <Select
             label="To"
             value={String(source.yearTo)}
             onChange={(value) => setRangeBoundary("to", value)}
-            options={years.map((year) => ({ value: String(year), label: String(year) }))}
+            options={years.map((year) => ({
+              value: String(year),
+              label: String(year),
+            }))}
           />
         </div>
       )}
@@ -1091,16 +1181,36 @@ function ReportDateSelector({ source, updateSource, years, accent }) {
 function ReportTableActionIcon({ accent = "#1252a0" }) {
   return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <rect x="4.5" y="5" width="15" height="14" rx="2.5" stroke={accent} strokeWidth="1.8" />
-      <path d="M4.5 9.5h15M4.5 14h15M9.5 5v14M14.5 5v14" stroke={accent} strokeWidth="1.55" strokeLinecap="round" />
+      <rect
+        x="4.5"
+        y="5"
+        width="15"
+        height="14"
+        rx="2.5"
+        stroke={accent}
+        strokeWidth="1.8"
+      />
+      <path
+        d="M4.5 9.5h15M4.5 14h15M9.5 5v14M14.5 5v14"
+        stroke={accent}
+        strokeWidth="1.55"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
 
-
-function UdiseReportTable({ columns, rows, footerRow = null, maxHeight = 560, hiddenKeys = [] }) {
+function UdiseReportTable({
+  columns,
+  rows,
+  footerRow = null,
+  maxHeight = 560,
+  hiddenKeys = [],
+}) {
   const hidden = new Set(hiddenKeys ?? []);
-  const displayColumns = (columns ?? []).filter((column) => !hidden.has(column.key));
+  const displayColumns = (columns ?? []).filter(
+    (column) => !hidden.has(column.key),
+  );
 
   return (
     <div className="overflow-auto bg-white" style={{ maxHeight }}>
@@ -1111,11 +1221,17 @@ function UdiseReportTable({ columns, rows, footerRow = null, maxHeight = 560, hi
               <th
                 key={column.key}
                 className="border border-slate-400 px-3 py-3 text-left align-middle font-extrabold text-slate-950"
-                style={{ background: "#ece9ff", minWidth: index === 0 ? 250 : 150 }}
+                style={{
+                  background: "#ece9ff",
+                  minWidth: index === 0 ? 250 : 150,
+                }}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span>{column.label ?? column.key}</span>
-                  <span className="flex items-center gap-2 text-slate-700" aria-hidden="true">
+                  <span
+                    className="flex items-center gap-2 text-slate-700"
+                    aria-hidden="true"
+                  >
                     <span className="h-4 border-l border-slate-400" />
                     <span className="text-lg leading-none">⋮</span>
                   </span>
@@ -1133,17 +1249,22 @@ function UdiseReportTable({ columns, rows, footerRow = null, maxHeight = 560, hi
                     key={column.key}
                     className={cx(
                       "border border-slate-400 px-3 py-3 align-middle text-slate-950",
-                      colIndex === 0 ? "text-left font-medium" : "text-left"
+                      colIndex === 0 ? "text-left font-medium" : "text-left",
                     )}
                   >
-                    {column.format ? column.format(row?.[column.key]) : String(row?.[column.key] ?? "-")}
+                    {column.format
+                      ? column.format(row?.[column.key])
+                      : String(row?.[column.key] ?? "-")}
                   </td>
                 ))}
               </tr>
             ))
           ) : (
             <tr>
-              <td className="border border-slate-400 px-3 py-12 text-center text-sm font-semibold text-slate-500" colSpan={displayColumns.length || 1}>
+              <td
+                className="border border-slate-400 px-3 py-12 text-center text-sm font-semibold text-slate-500"
+                colSpan={displayColumns.length || 1}
+              >
                 Data not available for the selected filters.
               </td>
             </tr>
@@ -1157,7 +1278,9 @@ function UdiseReportTable({ columns, rows, footerRow = null, maxHeight = 560, hi
                   key={column.key}
                   className="border border-slate-400 bg-white px-3 py-3 text-left font-extrabold text-slate-950"
                 >
-                  {index === 0 && !footerRow?.[column.key] ? "Total" : String(footerRow?.[column.key] ?? "")}
+                  {index === 0 && !footerRow?.[column.key]
+                    ? "Total"
+                    : String(footerRow?.[column.key] ?? "")}
                 </td>
               ))}
             </tr>
@@ -1168,32 +1291,74 @@ function UdiseReportTable({ columns, rows, footerRow = null, maxHeight = 560, hi
   );
 }
 
-function ReportDetailPage({ report, catalog = [], facts, config, accent, role, instituteId, initialYear, onBack, onChangeReport }) {
-  const kpi = useMemo(() => KPI_DEFS.find((x) => x.id === report?.kpiId), [report]);
+function ReportDetailPage({
+  report,
+  catalog = [],
+  facts,
+  config,
+  accent,
+  role,
+  instituteId,
+  initialYear,
+  onBack,
+  onChangeReport,
+}) {
+  const kpi = useMemo(
+    () => KPI_DEFS.find((x) => x.id === report?.kpiId),
+    [report],
+  );
 
-  const yrFrom = Math.min(config?.YearRange?.from ?? YEARS[0], config?.YearRange?.to ?? YEARS[YEARS.length - 1]);
-  const yrTo = Math.max(config?.YearRange?.from ?? YEARS[0], config?.YearRange?.to ?? YEARS[YEARS.length - 1]);
-  const yearsInRange = useMemo(() => YEARS.filter((y) => y >= yrFrom && y <= yrTo), [yrFrom, yrTo]);
+  const yrFrom = Math.min(
+    config?.YearRange?.from ?? YEARS[0],
+    config?.YearRange?.to ?? YEARS[YEARS.length - 1],
+  );
+  const yrTo = Math.max(
+    config?.YearRange?.from ?? YEARS[0],
+    config?.YearRange?.to ?? YEARS[YEARS.length - 1],
+  );
+  const yearsInRange = useMemo(
+    () => YEARS.filter((y) => y >= yrFrom && y <= yrTo),
+    [yrFrom, yrTo],
+  );
 
   const configuredInstituteIds = useMemo(() => {
     if (role === "iit") return [instituteId].filter(Boolean);
     return uniqueReportIds(config?.InstituteId ?? []);
   }, [role, instituteId, config]);
 
-  const breakdownOptions = useMemo(() => buildBreakdownOptions(kpi, report), [kpi, report]);
-  const defaultBreakdownId = report?.reportType === "trend" ? "__trend" : `${report?.breakdownField ?? "Institute"}__broad`;
+  const breakdownOptions = useMemo(
+    () => buildBreakdownOptions(kpi, report),
+    [kpi, report],
+  );
+  const defaultBreakdownId =
+    report?.reportType === "trend"
+      ? "__trend"
+      : `${report?.breakdownField ?? "Institute"}__broad`;
 
-  const [year, setYear] = useState(initialYear ?? yearsInRange[yearsInRange.length - 1] ?? YEARS[YEARS.length - 1]);
-  const [topN, setTopN] = useState(Number(config?.MaxRows ?? 100) > 200 ? 200 : 50);
-  const [detailInstituteIds, setDetailInstituteIds] = useState(configuredInstituteIds);
-  const [activeBreakdownId, setActiveBreakdownId] = useState(defaultBreakdownId);
+  const [year, setYear] = useState(
+    initialYear ??
+      yearsInRange[yearsInRange.length - 1] ??
+      YEARS[YEARS.length - 1],
+  );
+  const [topN, setTopN] = useState(
+    Number(config?.MaxRows ?? 100) > 200 ? 200 : 50,
+  );
+  const [detailInstituteIds, setDetailInstituteIds] = useState(
+    configuredInstituteIds,
+  );
+  const [activeBreakdownId, setActiveBreakdownId] =
+    useState(defaultBreakdownId);
   const [selectedBucketNames, setSelectedBucketNames] = useState([]);
   const [viewMode, setViewMode] = useState(report?.defaultView ?? "table");
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
 
   useEffect(() => {
-    setYear(initialYear ?? yearsInRange[yearsInRange.length - 1] ?? YEARS[YEARS.length - 1]);
+    setYear(
+      initialYear ??
+        yearsInRange[yearsInRange.length - 1] ??
+        YEARS[YEARS.length - 1],
+    );
     setTopN(Number(config?.MaxRows ?? 100) > 200 ? 200 : 50);
     setDetailInstituteIds(configuredInstituteIds);
     setActiveBreakdownId(defaultBreakdownId);
@@ -1201,24 +1366,49 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
     setViewMode(report?.defaultView ?? "table");
     setDownloadMenuOpen(false);
     setFilterPanelOpen(false);
-  }, [report?.reportId, initialYear, yearsInRange, config?.MaxRows, configuredInstituteIds, defaultBreakdownId, report?.defaultView]);
+  }, [
+    report?.reportId,
+    initialYear,
+    yearsInRange,
+    config?.MaxRows,
+    configuredInstituteIds,
+    defaultBreakdownId,
+    report?.defaultView,
+  ]);
 
   useEffect(() => {
     setSelectedBucketNames([]);
   }, [activeBreakdownId]);
 
   const activeBreakdown = useMemo(() => {
-    return breakdownOptions.find((x) => x.id === activeBreakdownId) ?? breakdownOptions[0];
+    return (
+      breakdownOptions.find((x) => x.id === activeBreakdownId) ??
+      breakdownOptions[0]
+    );
   }, [breakdownOptions, activeBreakdownId]);
 
   const expectedInstituteIds = useMemo(() => {
     if (role === "iit") return [instituteId].filter(Boolean);
-    return detailInstituteIds.length ? detailInstituteIds : IITs.map((x) => x.id);
+    return detailInstituteIds.length
+      ? detailInstituteIds
+      : IITs.map((x) => x.id);
   }, [role, instituteId, detailInstituteIds]);
 
-  const scopeText = useMemo(() => instituteLabel(detailInstituteIds), [detailInstituteIds]);
+  const scopeText = useMemo(
+    () => instituteLabel(detailInstituteIds),
+    [detailInstituteIds],
+  );
 
-  const rowsYear = useMemo(() => rowsForYear({ facts, report, year, scopedInstituteIds: detailInstituteIds }), [facts, report, year, detailInstituteIds]);
+  const rowsYear = useMemo(
+    () =>
+      rowsForYear({
+        facts,
+        report,
+        year,
+        scopedInstituteIds: detailInstituteIds,
+      }),
+    [facts, report, year, detailInstituteIds],
+  );
   const prevYear = useMemo(() => {
     const idx = yearsInRange.indexOf(year);
     if (idx <= 0) return null;
@@ -1227,17 +1417,33 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
 
   const rowsPrev = useMemo(() => {
     if (!prevYear) return [];
-    return rowsForYear({ facts, report, year: prevYear, scopedInstituteIds: detailInstituteIds });
+    return rowsForYear({
+      facts,
+      report,
+      year: prevYear,
+      scopedInstituteIds: detailInstituteIds,
+    });
   }, [facts, report, prevYear, detailInstituteIds]);
 
-  const value = useMemo(() => (kpi ? kpiValue(kpi, rowsYear) : null), [kpi, rowsYear]);
-  const prevValue = useMemo(() => (kpi && prevYear ? kpiValue(kpi, rowsPrev) : null), [kpi, prevYear, rowsPrev]);
-  const parts = useMemo(() => (kpi ? computeOverallParts(kpi, rowsYear) : {}), [kpi, rowsYear]);
+  const value = useMemo(
+    () => (kpi ? kpiValue(kpi, rowsYear) : null),
+    [kpi, rowsYear],
+  );
+  const prevValue = useMemo(
+    () => (kpi && prevYear ? kpiValue(kpi, rowsPrev) : null),
+    [kpi, prevYear, rowsPrev],
+  );
+  const parts = useMemo(
+    () => (kpi ? computeOverallParts(kpi, rowsYear) : {}),
+    [kpi, rowsYear],
+  );
 
   const missingInstituteIds = useMemo(() => {
     if (!kpi || !expectedInstituteIds.length) return [];
     const dataRows = metricRowsForMissingCheck(kpi, rowsYear);
-    const available = new Set(dataRows.map((r) => r.InstituteId).filter(Boolean));
+    const available = new Set(
+      dataRows.map((r) => r.InstituteId).filter(Boolean),
+    );
     return expectedInstituteIds.filter((id) => !available.has(id));
   }, [kpi, expectedInstituteIds, rowsYear]);
 
@@ -1246,17 +1452,29 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
     return computeGroupMetrics(kpi, rowsYear, activeBreakdown.groupFields);
   }, [kpi, rowsYear, activeBreakdown]);
 
-  const selectedBucketSet = useMemo(() => new Set(selectedBucketNames), [selectedBucketNames]);
+  const selectedBucketSet = useMemo(
+    () => new Set(selectedBucketNames),
+    [selectedBucketNames],
+  );
   const visibleGroups = useMemo(() => {
     if (!selectedBucketSet.size) return groups;
     return groups.filter((item) => selectedBucketSet.has(item.name));
   }, [groups, selectedBucketSet]);
 
-  const bucketOptions = useMemo(() => groups.map((item) => item.name), [groups]);
+  const bucketOptions = useMemo(
+    () => groups.map((item) => item.name),
+    [groups],
+  );
 
   const trendData = useMemo(() => {
     if (!kpi) return [];
-    return trendDataForReport({ facts, report, kpi, yearsInRange, scopedInstituteIds: detailInstituteIds });
+    return trendDataForReport({
+      facts,
+      report,
+      kpi,
+      yearsInRange,
+      scopedInstituteIds: detailInstituteIds,
+    });
   }, [facts, report, kpi, yearsInRange, detailInstituteIds]);
 
   const interpretation = useMemo(() => {
@@ -1273,7 +1491,18 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
       activeBreakdown,
       missingInstitutes: missingInstituteIds,
     });
-  }, [kpi, report, year, scopeText, value, prevValue, parts, visibleGroups, activeBreakdown, missingInstituteIds]);
+  }, [
+    kpi,
+    report,
+    year,
+    scopeText,
+    value,
+    prevValue,
+    parts,
+    visibleGroups,
+    activeBreakdown,
+    missingInstituteIds,
+  ]);
 
   const detailTable = useMemo(() => {
     if (!kpi || !report || !activeBreakdown) return { columns: [], rows: [] };
@@ -1283,7 +1512,10 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
         columns: [
           { key: "Year", label: "Year" },
           { key: "Value", label: kpi.label },
-          { key: "YoY", label: kpi.format === "pct" ? "YoY Change" : "YoY Growth" },
+          {
+            key: "YoY",
+            label: kpi.format === "pct" ? "YoY Change" : "YoY Growth",
+          },
           { key: "Records", label: "Source Rows" },
           { key: "Availability", label: "Availability" },
         ],
@@ -1297,28 +1529,40 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
       };
     }
 
-    const isSumLike = kpi.kind === "sum" || kpi.kind === "sum_where" || kpi.kind === "count_distinct";
+    const isSumLike =
+      kpi.kind === "sum" ||
+      kpi.kind === "sum_where" ||
+      kpi.kind === "count_distinct";
     const cols = [
       { key: "Rank", label: "S.no" },
-      { key: "Bucket", label: `${activeBreakdown.label}${activeBreakdown.variant === "Detailed View" ? " (Detailed)" : ""}` },
+      {
+        key: "Bucket",
+        label: `${activeBreakdown.label}${activeBreakdown.variant === "Detailed View" ? " (Detailed)" : ""}`,
+      },
     ];
 
     if (kpi.kind === "ratio") {
       cols.push(
-        { key: "Num", label: kpi.numField === "Placed" ? "Placed" : kpi.numField },
-        { key: "Den", label: kpi.denField === "Registered" ? "Registered" : kpi.denField },
-        { key: "Value", label: kpi.label }
+        {
+          key: "Num",
+          label: kpi.numField === "Placed" ? "Placed" : kpi.numField,
+        },
+        {
+          key: "Den",
+          label: kpi.denField === "Registered" ? "Registered" : kpi.denField,
+        },
+        { key: "Value", label: kpi.label },
       );
     } else if (kpi.kind === "share") {
       cols.push(
         { key: "Num", label: "Numerator" },
         { key: "Den", label: "Total" },
-        { key: "Value", label: kpi.label }
+        { key: "Value", label: kpi.label },
       );
     } else if (kpi.kind === "avg_weighted") {
       cols.push(
         { key: "Weight", label: kpi.weightField },
-        { key: "Value", label: kpi.label }
+        { key: "Value", label: kpi.label },
       );
     } else {
       cols.push({ key: "Value", label: kpi.label });
@@ -1327,37 +1571,51 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
 
     cols.push({ key: "Availability", label: "Availability" });
 
-    const visibleTotal = isSumLike ? visibleGroups.reduce((s, g) => s + Number(g.value ?? 0), 0) : null;
-    const rows = visibleGroups.slice(0, Math.max(5, Math.min(200, topN))).map((g, idx) => {
-      const base = {
-        Rank: idx + 1,
-        Bucket: g.name,
-        Availability: g.value == null ? "Data not available" : "Available",
-      };
+    const visibleTotal = isSumLike
+      ? visibleGroups.reduce((s, g) => s + Number(g.value ?? 0), 0)
+      : null;
+    const rows = visibleGroups
+      .slice(0, Math.max(5, Math.min(200, topN)))
+      .map((g, idx) => {
+        const base = {
+          Rank: idx + 1,
+          Bucket: g.name,
+          Availability: g.value == null ? "Data not available" : "Available",
+        };
 
-      if (kpi.kind === "ratio" || kpi.kind === "share") {
-        base.Num = fmtPlain(g._num);
-        base.Den = fmtPlain(g._den);
-        base.Value = kpi.format === "pct" ? formatPct(g.value) : fmtValue(kpi, g.value);
-        return base;
-      }
+        if (kpi.kind === "ratio" || kpi.kind === "share") {
+          base.Num = fmtPlain(g._num);
+          base.Den = fmtPlain(g._den);
+          base.Value =
+            kpi.format === "pct" ? formatPct(g.value) : fmtValue(kpi, g.value);
+          return base;
+        }
 
-      if (kpi.kind === "avg_weighted") {
-        base.Weight = fmtPlain(g._w);
+        if (kpi.kind === "avg_weighted") {
+          base.Weight = fmtPlain(g._w);
+          base.Value = fmtValue(kpi, g.value);
+          return base;
+        }
+
         base.Value = fmtValue(kpi, g.value);
+        base.Share = visibleTotal
+          ? `${((Number(g.value ?? 0) / visibleTotal) * 100).toFixed(1)}%`
+          : "-";
         return base;
-      }
+      });
 
-      base.Value = fmtValue(kpi, g.value);
-      base.Share = visibleTotal ? `${((Number(g.value ?? 0) / visibleTotal) * 100).toFixed(1)}%` : "-";
-      return base;
-    });
-
-    if (activeBreakdown.groupFields?.includes("Institute") && missingInstituteIds.length && !selectedBucketSet.size) {
+    if (
+      activeBreakdown.groupFields?.includes("Institute") &&
+      missingInstituteIds.length &&
+      !selectedBucketSet.size
+    ) {
       for (const id of missingInstituteIds) {
         const base = {
           Rank: "-",
-          Bucket: activeBreakdown.groupFields.length > 1 ? `Data not available > ${instituteName(id)}` : instituteName(id),
+          Bucket:
+            activeBreakdown.groupFields.length > 1
+              ? `Data not available > ${instituteName(id)}`
+              : instituteName(id),
           Availability: "Data not available",
         };
         for (const col of cols) {
@@ -1368,7 +1626,16 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
     }
 
     return { columns: cols, rows };
-  }, [kpi, report, activeBreakdown, trendData, visibleGroups, topN, missingInstituteIds, selectedBucketSet]);
+  }, [
+    kpi,
+    report,
+    activeBreakdown,
+    trendData,
+    visibleGroups,
+    topN,
+    missingInstituteIds,
+    selectedBucketSet,
+  ]);
 
   const chartData = useMemo(() => {
     if (!kpi) return [];
@@ -1383,67 +1650,126 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
       .map((item) => ({ name: item.name, value: item.value }));
   }, [kpi, activeBreakdown, trendData, visibleGroups, topN]);
 
-  const chartViewOptions = useMemo(() => {
-    const base = chartTypesForReport(report, kpi);
-    if (activeBreakdown?.id === "__trend") return uniqueChartTypes(["line", base.includes("bar") ? "bar" : null, "table"].filter(Boolean));
-    return uniqueChartTypes(base.filter((type) => type !== "line"));
-  }, [report, kpi, activeBreakdown]);
-
-  useEffect(() => {
-    if (!chartViewOptions.includes(viewMode)) setViewMode(chartViewOptions[0] ?? "table");
-  }, [chartViewOptions, viewMode]);
-
   const reportOptions = useMemo(() => {
     const sameDomain = catalog.filter((item) => item.domain === report?.domain);
     const other = catalog.filter((item) => item.domain !== report?.domain);
     return [...sameDomain, ...other];
   }, [catalog, report?.domain]);
 
+  const relatedReports = useMemo(() => {
+    const activeFamily = report?.discoveryMeta?.familyId ?? null;
+    return reportOptions
+      .filter((item) => item.reportId !== report?.reportId)
+      .map((item) => {
+        let score = 0;
+        if (item.domain === report?.domain) score += 6;
+        if (item.kpiId === report?.kpiId) score += 4;
+        if (item.discoveryMeta?.familyId && item.discoveryMeta.familyId === activeFamily) score += 5;
+        if (item.fact === report?.fact) score += 3;
+        return { item, score };
+      })
+      .sort((left, right) => right.score - left.score || String(left.item.name).localeCompare(String(right.item.name)))
+      .slice(0, 4)
+      .map((entry) => entry.item);
+  }, [reportOptions, report]);
 
-  const reportHierarchyMaps = useMemo(() => buildReportHierarchyMaps(COMPARE_HIERARCHY), []);
-  const selectedHierarchyItem = useMemo(
-    () => Object.values(reportHierarchyMaps.itemMap).find((item) => item.kpiId === report?.kpiId) ?? null,
-    [reportHierarchyMaps, report?.kpiId]
+  const reportHierarchyMaps = useMemo(
+    () => buildReportHierarchyMaps(COMPARE_HIERARCHY),
+    [],
   );
-  const selectedCategoryId = selectedHierarchyItem?.moduleId ?? Object.keys(reportHierarchyMaps.moduleMap)[0] ?? "";
-  const selectedModuleId = selectedHierarchyItem?.submoduleId ?? reportHierarchyMaps.moduleMap[selectedCategoryId]?.submodules?.[0]?.id ?? "";
-  const selectedSheetId = selectedHierarchyItem?.sheetId ?? reportHierarchyMaps.submoduleMap[selectedModuleId]?.sheets?.[0]?.id ?? "";
-  const selectedItemId = selectedHierarchyItem?.id ?? reportHierarchyMaps.sheetMap[selectedSheetId]?.kpis?.[0]?.id ?? "";
+  const selectedHierarchyItem = useMemo(
+    () =>
+      Object.values(reportHierarchyMaps.itemMap).find(
+        (item) => item.kpiId === report?.kpiId,
+      ) ?? null,
+    [reportHierarchyMaps, report?.kpiId],
+  );
+  const selectedCategoryId =
+    selectedHierarchyItem?.moduleId ??
+    Object.keys(reportHierarchyMaps.moduleMap)[0] ??
+    "";
+  const selectedModuleId =
+    selectedHierarchyItem?.submoduleId ??
+    reportHierarchyMaps.moduleMap[selectedCategoryId]?.submodules?.[0]?.id ??
+    "";
+  const selectedSheetId =
+    selectedHierarchyItem?.sheetId ??
+    reportHierarchyMaps.submoduleMap[selectedModuleId]?.sheets?.[0]?.id ??
+    "";
+  const selectedItemId =
+    selectedHierarchyItem?.id ??
+    reportHierarchyMaps.sheetMap[selectedSheetId]?.kpis?.[0]?.id ??
+    "";
   const reportCategoryOptions = useMemo(
-    () => COMPARE_HIERARCHY.map((module) => ({ value: module.id, label: humanizeReportLabel(module.label ?? module.id) })),
-    []
+    () =>
+      COMPARE_HIERARCHY.map((module) => ({
+        value: module.id,
+        label: humanizeReportLabel(module.label ?? module.id),
+      })),
+    [],
   );
   const reportModuleOptions = useMemo(
-    () => (reportHierarchyMaps.moduleMap[selectedCategoryId]?.submodules ?? []).map((submodule) => ({ value: submodule.id, label: humanizeReportLabel(submodule.label ?? submodule.id) })),
-    [reportHierarchyMaps, selectedCategoryId]
+    () =>
+      (reportHierarchyMaps.moduleMap[selectedCategoryId]?.submodules ?? []).map(
+        (submodule) => ({
+          value: submodule.id,
+          label: humanizeReportLabel(submodule.label ?? submodule.id),
+        }),
+      ),
+    [reportHierarchyMaps, selectedCategoryId],
   );
   const reportSheetOptions = useMemo(
-    () => (reportHierarchyMaps.submoduleMap[selectedModuleId]?.sheets ?? []).map((sheet) => ({ value: sheet.id, label: humanizeReportLabel(sheet.label ?? sheet.id) })),
-    [reportHierarchyMaps, selectedModuleId]
+    () =>
+      (reportHierarchyMaps.submoduleMap[selectedModuleId]?.sheets ?? []).map(
+        (sheet) => ({
+          value: sheet.id,
+          label: humanizeReportLabel(sheet.label ?? sheet.id),
+        }),
+      ),
+    [reportHierarchyMaps, selectedModuleId],
   );
   const reportKpiOptions = useMemo(
-    () => (reportHierarchyMaps.sheetMap[selectedSheetId]?.kpis ?? []).map((item) => ({ value: item.id, label: reportItemLabel(item) })),
-    [reportHierarchyMaps, selectedSheetId]
+    () =>
+      (reportHierarchyMaps.sheetMap[selectedSheetId]?.kpis ?? []).map(
+        (item) => ({ value: item.id, label: reportItemLabel(item) }),
+      ),
+    [reportHierarchyMaps, selectedSheetId],
   );
 
   function changeReportByHierarchyItem(item) {
     if (!item?.kpiId) return;
-    const nextReport = catalog.find((candidate) => candidate.kpiId === item.kpiId && candidate.reportType === report?.reportType)
-      ?? catalog.find((candidate) => candidate.kpiId === item.kpiId && candidate.reportType !== "trend")
-      ?? catalog.find((candidate) => candidate.kpiId === item.kpiId);
+    const nextReport =
+      catalog.find(
+        (candidate) =>
+          candidate.kpiId === item.kpiId &&
+          candidate.reportType === report?.reportType,
+      ) ??
+      catalog.find(
+        (candidate) =>
+          candidate.kpiId === item.kpiId && candidate.reportType !== "trend",
+      ) ??
+      catalog.find((candidate) => candidate.kpiId === item.kpiId);
     if (nextReport) onChangeReport?.(nextReport);
   }
 
   function changeReportCategory(moduleId) {
-    changeReportByHierarchyItem(firstReportItemFromModuleEntity(reportHierarchyMaps.moduleMap[moduleId]));
+    changeReportByHierarchyItem(
+      firstReportItemFromModuleEntity(reportHierarchyMaps.moduleMap[moduleId]),
+    );
   }
 
   function changeReportModule(submoduleId) {
-    changeReportByHierarchyItem(firstReportItemFromSubmoduleEntity(reportHierarchyMaps.submoduleMap[submoduleId]));
+    changeReportByHierarchyItem(
+      firstReportItemFromSubmoduleEntity(
+        reportHierarchyMaps.submoduleMap[submoduleId],
+      ),
+    );
   }
 
   function changeReportSheet(sheetId) {
-    changeReportByHierarchyItem(firstReportItemFromSheetEntity(reportHierarchyMaps.sheetMap[sheetId]));
+    changeReportByHierarchyItem(
+      firstReportItemFromSheetEntity(reportHierarchyMaps.sheetMap[sheetId]),
+    );
   }
 
   function changeReportKpi(itemId) {
@@ -1453,18 +1779,32 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
   function doDownload(fmt) {
     if (!kpi || !report) return;
     setDownloadMenuOpen(false);
-    const filenameBase = `${report.reportId}_${report.name}`.replace(/[^a-z0-9\-_ ]/gi, "").replace(/\s+/g, "_");
+    const filenameBase = `${report.reportId}_${report.name}`
+      .replace(/[^a-z0-9\-_ ]/gi, "")
+      .replace(/\s+/g, "_");
 
     if (fmt === "csv") {
-      downloadText(`${filenameBase}_${year}.csv`, toCsv(detailTable.rows, detailTable.columns), "text/csv;charset=utf-8");
+      downloadText(
+        `${filenameBase}_${year}.csv`,
+        toCsv(detailTable.rows, detailTable.columns),
+        "text/csv;charset=utf-8",
+      );
       return;
     }
     if (fmt === "xls") {
-      downloadExcelHtml(`${filenameBase}_${year}.xls`, detailTable.columns, detailTable.rows);
+      downloadExcelHtml(
+        `${filenameBase}_${year}.xls`,
+        detailTable.columns,
+        detailTable.rows,
+      );
       return;
     }
     if (fmt === "json") {
-      downloadText(`${filenameBase}_${year}.json`, JSON.stringify(detailTable.rows, null, 2), "application/json;charset=utf-8");
+      downloadText(
+        `${filenameBase}_${year}.json`,
+        JSON.stringify(detailTable.rows, null, 2),
+        "application/json;charset=utf-8",
+      );
       return;
     }
 
@@ -1493,7 +1833,7 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
         <div style="height:10px;"></div>
 
         <div class="card">
-          <h2 style="font-size:14px;font-weight:900;margin-bottom:8px;">${escHtml(`${chartViewMeta(viewMode).label} data table`)}</h2>
+          <h2 style="font-size:14px;font-weight:900;margin-bottom:8px;">${escHtml(viewMode === "chart" ? "Chart data table" : "Report table")}</h2>
           ${htmlTable(detailTable.columns, detailTable.rows)}
         </div>
 
@@ -1511,7 +1851,11 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
   }
 
   function resetDetailFilters() {
-    setYear(initialYear ?? yearsInRange[yearsInRange.length - 1] ?? YEARS[YEARS.length - 1]);
+    setYear(
+      initialYear ??
+        yearsInRange[yearsInRange.length - 1] ??
+        YEARS[YEARS.length - 1],
+    );
     setTopN(Number(config?.MaxRows ?? 100) > 200 ? 200 : 50);
     setDetailInstituteIds(configuredInstituteIds);
     setActiveBreakdownId(defaultBreakdownId);
@@ -1522,92 +1866,66 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
   function rankedIitsForDetail(direction = "top") {
     if (!kpi) return [...REPORT_LEGACY_IITS];
     const rows = IITs.map((iit) => {
-      const scopedRows = (facts?.[kpi.fact] ?? []).filter((row) => row.InstituteId === iit.id && Number(row.Year ?? 0) === Number(year));
+      const scopedRows = (facts?.[kpi.fact] ?? []).filter(
+        (row) =>
+          row.InstituteId === iit.id && Number(row.Year ?? 0) === Number(year),
+      );
       return { id: iit.id, value: kpiValue(kpi, scopedRows) };
-    }).filter((item) => item.value != null && Number.isFinite(Number(item.value)));
-    rows.sort((a, b) => direction === "bottom" ? Number(a.value) - Number(b.value) : Number(b.value) - Number(a.value));
+    }).filter(
+      (item) => item.value != null && Number.isFinite(Number(item.value)),
+    );
+    rows.sort((a, b) =>
+      direction === "bottom"
+        ? Number(a.value) - Number(b.value)
+        : Number(b.value) - Number(a.value),
+    );
     return rows.slice(0, 10).map((item) => item.id);
   }
 
   function toggleBucket(bucket) {
-    setSelectedBucketNames((prev) => prev.includes(bucket) ? prev.filter((item) => item !== bucket) : [...prev, bucket]);
+    setSelectedBucketNames((prev) =>
+      prev.includes(bucket)
+        ? prev.filter((item) => item !== bucket)
+        : [...prev, bucket],
+    );
   }
 
   function toggleInstitute(iid) {
     if (role === "iit") return;
     setDetailInstituteIds((prev) => {
       const base = prev.length ? prev : IITs.map((item) => item.id);
-      const next = base.includes(iid) ? base.filter((item) => item !== iid) : [...base, iid];
+      const next = base.includes(iid)
+        ? base.filter((item) => item !== iid)
+        : [...base, iid];
       if (!next.length || next.length === IITs.length) return [];
       return sortReportIitsAlphabetically(next);
     });
   }
 
   function changeReport(reportId) {
-    const next = catalog.find((item) => String(item.reportId) === String(reportId));
+    const next = catalog.find(
+      (item) => String(item.reportId) === String(reportId),
+    );
     if (next) onChangeReport?.(next);
   }
 
   function FilterIcon({ tone = "#ffffff" }) {
     return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        aria-hidden="true"
+      >
         <path d="M4 7h10" stroke={tone} strokeWidth="2" strokeLinecap="round" />
-        <path d="M4 12h16" stroke={tone} strokeWidth="2" strokeLinecap="round" />
+        <path
+          d="M4 12h16"
+          stroke={tone}
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
         <path d="M4 17h7" stroke={tone} strokeWidth="2" strokeLinecap="round" />
       </svg>
-    );
-  }
-
-  function renderDetailVisualOutput() {
-    if (viewMode === "table") {
-      return <UdiseReportTable columns={detailTable.columns} rows={detailTable.rows.slice(0, Math.max(10, Math.min(40, topN)))} footerRow={tableFooterRow} hiddenKeys={["Rank"]} maxHeight={420} />;
-    }
-
-    if (!chartData.length) {
-      return (
-        <div className="grid min-h-[320px] place-items-center bg-white text-sm font-semibold text-slate-500">
-          No visual data available for the selected scope and view.
-        </div>
-      );
-    }
-
-    if (viewMode === "line") {
-      return (
-        <BreakdownLine
-          data={chartData}
-          format={kpi.format}
-          accent={accent}
-          yLabel={kpi.label}
-          height={420}
-          drillHint="Use the detailed numbers table below for source-row counts and availability."
-        />
-      );
-    }
-
-    if (viewMode === "pie") {
-      return (
-        <BreakdownDonut
-          data={chartData.slice(0, 12)}
-          format={kpi.format}
-          accent={accent}
-          soft="#dbeafe"
-          metricLabel={kpi.label}
-          height={420}
-          drillHint="Use the detailed numbers table below for exact values."
-        />
-      );
-    }
-
-    return (
-      <BreakdownBar
-        data={chartData}
-        format={kpi.format}
-        accent={accent}
-        xLabel={activeBreakdown?.id === "__trend" ? "Year" : (activeBreakdown?.label ?? report.breakdownLabel)}
-        yLabel={kpi.label}
-        height={440}
-        forceHorizontal={chartData.length > 7}
-      />
     );
   }
 
@@ -1615,31 +1933,43 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
     const allIitIds = IITs.map((iit) => iit.id);
     const oldKey = REPORT_LEGACY_IITS.join("|");
     const selectedKey = (detailInstituteIds ?? []).join("|");
-    const currentInstituteScope = role === "iit"
-      ? instituteId
-      : !detailInstituteIds.length
-        ? "__all"
-        : selectedKey === oldKey
-          ? "__old"
-          : detailInstituteIds.length === 1
-            ? detailInstituteIds[0]
-            : "__custom";
+    const currentInstituteScope =
+      role === "iit"
+        ? instituteId
+        : !detailInstituteIds.length
+          ? "__all"
+          : selectedKey === oldKey
+            ? "__old"
+            : detailInstituteIds.length === 1
+              ? detailInstituteIds[0]
+              : "__custom";
 
     const instituteScopeOptions = [
       { value: "__all", label: "All IITs" },
       { value: "__old", label: "Old IITs" },
       { value: "__top", label: "Top 10 by selected KPI" },
       { value: "__bottom", label: "Bottom 10 by selected KPI" },
-      { value: "__custom", label: detailInstituteIds.length ? `${detailInstituteIds.length} selected IITs` : "Custom selection" },
-      ...IITs.map((iit) => ({ value: iit.id, label: instituteShortLabel(iit.id) })),
+      {
+        value: "__custom",
+        label: detailInstituteIds.length
+          ? `${detailInstituteIds.length} selected IITs`
+          : "Custom selection",
+      },
+      ...IITs.map((iit) => ({
+        value: iit.id,
+        label: instituteShortLabel(iit.id),
+      })),
     ];
 
     function applyInstituteScope(nextValue) {
       if (role === "iit") return;
       if (nextValue === "__all") setDetailInstituteIds([]);
-      else if (nextValue === "__old") setDetailInstituteIds([...REPORT_LEGACY_IITS]);
-      else if (nextValue === "__top") setDetailInstituteIds(rankedIitsForDetail("top"));
-      else if (nextValue === "__bottom") setDetailInstituteIds(rankedIitsForDetail("bottom"));
+      else if (nextValue === "__old")
+        setDetailInstituteIds([...REPORT_LEGACY_IITS]);
+      else if (nextValue === "__top")
+        setDetailInstituteIds(rankedIitsForDetail("top"));
+      else if (nextValue === "__bottom")
+        setDetailInstituteIds(rankedIitsForDetail("bottom"));
       else if (nextValue !== "__custom") setDetailInstituteIds([nextValue]);
     }
 
@@ -1655,9 +1985,15 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
             />
             <aside
               className="fixed right-4 z-[260] w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-[18px] bg-white shadow-[0_18px_55px_rgba(15,23,42,0.22)]"
-              style={{ top: "11.75rem", border: "1px solid rgba(15,23,42,0.08)" }}
+              style={{
+                top: "11.75rem",
+                border: "1px solid rgba(15,23,42,0.08)",
+              }}
             >
-              <div className="flex items-center justify-between gap-3 px-5 py-4 text-white" style={{ background: "#173f91" }}>
+              <div
+                className="flex items-center justify-between gap-3 px-5 py-4 text-white"
+                style={{ background: "#173f91" }}
+              >
                 <div className="flex items-center gap-3">
                   <FilterIcon />
                   <div className="text-xl font-extrabold">Apply Filters</div>
@@ -1678,7 +2014,12 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
                     label="Select Report"
                     value={String(report.reportId)}
                     onChange={changeReport}
-                    options={reportOptions.slice(0, 200).map((item) => ({ value: String(item.reportId), label: item.name }))}
+                    options={reportOptions
+                      .slice(0, 200)
+                      .map((item) => ({
+                        value: String(item.reportId),
+                        label: item.name,
+                      }))}
                   />
                 </div>
 
@@ -1687,7 +2028,10 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
                     label="Select Year"
                     value={String(year)}
                     onChange={(value) => setYear(Number(value))}
-                    options={yearsInRange.map((item) => ({ value: String(item), label: String(item) }))}
+                    options={yearsInRange.map((item) => ({
+                      value: String(item),
+                      label: String(item),
+                    }))}
                   />
                 </div>
 
@@ -1700,10 +2044,16 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
                     disabled={role === "iit"}
                   />
                   <details className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2">
-                    <summary className="cursor-pointer text-xs font-extrabold text-slate-700">Select multiple IITs</summary>
+                    <summary className="cursor-pointer text-xs font-extrabold text-slate-700">
+                      Select multiple IITs
+                    </summary>
                     <div className="mt-3 grid max-h-44 gap-2 overflow-auto">
                       {IITs.map((iit) => {
-                        const selected = role === "iit" ? iit.id === instituteId : (!detailInstituteIds.length || detailInstituteIds.includes(iit.id));
+                        const selected =
+                          role === "iit"
+                            ? iit.id === instituteId
+                            : !detailInstituteIds.length ||
+                              detailInstituteIds.includes(iit.id);
                         return (
                           <button
                             key={iit.id}
@@ -1713,7 +2063,14 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
                             className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             <span>{instituteShortLabel(iit.id)}</span>
-                            <span className={cx("h-3 w-3 rounded-sm border", selected ? "border-blue-700 bg-blue-700" : "border-slate-300 bg-white")} />
+                            <span
+                              className={cx(
+                                "h-3 w-3 rounded-sm border",
+                                selected
+                                  ? "border-blue-700 bg-blue-700"
+                                  : "border-slate-300 bg-white",
+                              )}
+                            />
                           </button>
                         );
                       })}
@@ -1723,23 +2080,37 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
 
                 <div className="rounded-2xl bg-white p-3 shadow-sm">
                   <Select
-                    label="Breakdown By"
+                    label="View Data By"
                     value={activeBreakdownId}
                     onChange={(value) => {
                       setActiveBreakdownId(value);
-                      setViewMode(value === "__trend" ? "line" : (chartViewOptions[0] ?? "table"));
+                      setViewMode(value === "__trend" ? "chart" : "table");
                     }}
                     options={breakdownOptions.map((option) => ({
                       value: option.id,
-                      label: option.id === "__trend" ? "Year-on-Year Trend" : `${option.label} (${option.variant})`,
+                      label:
+                        option.id === "__trend"
+                          ? "Year-on-Year Trend"
+                          : `${option.label} (${option.variant})`,
                     }))}
                   />
                   {activeBreakdown?.id !== "__trend" && bucketOptions.length ? (
                     <Select
                       label="Filter Visible Value"
-                      value={selectedBucketNames.length === 1 ? selectedBucketNames[0] : "__all"}
-                      onChange={(value) => setSelectedBucketNames(value === "__all" ? [] : [value])}
-                      options={[{ value: "__all", label: "All values" }, ...bucketOptions.slice(0, 100).map((bucket) => ({ value: bucket, label: bucket }))]}
+                      value={
+                        selectedBucketNames.length === 1
+                          ? selectedBucketNames[0]
+                          : "__all"
+                      }
+                      onChange={(value) =>
+                        setSelectedBucketNames(value === "__all" ? [] : [value])
+                      }
+                      options={[
+                        { value: "__all", label: "All values" },
+                        ...bucketOptions
+                          .slice(0, 100)
+                          .map((bucket) => ({ value: bucket, label: bucket })),
+                      ]}
                       className="mt-3"
                     />
                   ) : null}
@@ -1750,7 +2121,10 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
                     label="Rows to Show"
                     value={String(topN)}
                     onChange={(value) => setTopN(Number(value))}
-                    options={[10, 25, 50, 100, 200].map((item) => ({ value: String(item), label: String(item) }))}
+                    options={[10, 25, 50, 100, 200].map((item) => ({
+                      value: String(item),
+                      label: String(item),
+                    }))}
                   />
                 </div>
               </div>
@@ -1803,48 +2177,94 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
   const breadcrumbTrail = selectedHierarchyItem
     ? [
         reportHierarchyMaps.moduleMap[selectedHierarchyItem.moduleId]?.label,
-        reportHierarchyMaps.submoduleMap[selectedHierarchyItem.submoduleId]?.label,
+        reportHierarchyMaps.submoduleMap[selectedHierarchyItem.submoduleId]
+          ?.label,
         reportHierarchyMaps.sheetMap[selectedHierarchyItem.sheetId]?.label,
-      ].filter(Boolean).map(humanizeReportLabel).join(" > ")
+      ]
+        .filter(Boolean)
+        .map(humanizeReportLabel)
+        .join(" > ")
     : report.domain;
 
-  const tableFooterRow = activeBreakdown?.id === "__trend" ? null : (() => {
-    const row = Object.fromEntries((detailTable.columns ?? []).map((column) => [column.key, ""]));
-    if ("Rank" in row) row.Rank = "";
-    if ("Bucket" in row) row.Bucket = "Total";
-    if ("Num" in row) row.Num = fmtPlain(parts?.num);
-    if ("Den" in row) row.Den = fmtPlain(parts?.den);
-    if ("Weight" in row) row.Weight = fmtPlain(parts?.w);
-    if ("Value" in row) row.Value = fmtValue(kpi, value);
-    if ("Share" in row) row.Share = value == null ? "-" : "100%";
-    if ("Availability" in row) row.Availability = missingInstituteIds.length ? "Partial" : rowsYear.length ? "Available" : "Data not available";
-    return row;
-  })();
+  const tableFooterRow =
+    activeBreakdown?.id === "__trend"
+      ? null
+      : (() => {
+          const row = Object.fromEntries(
+            (detailTable.columns ?? []).map((column) => [column.key, ""]),
+          );
+          if ("Rank" in row) row.Rank = "";
+          if ("Bucket" in row) row.Bucket = "Total";
+          if ("Num" in row) row.Num = fmtPlain(parts?.num);
+          if ("Den" in row) row.Den = fmtPlain(parts?.den);
+          if ("Weight" in row) row.Weight = fmtPlain(parts?.w);
+          if ("Value" in row) row.Value = fmtValue(kpi, value);
+          if ("Share" in row) row.Share = value == null ? "-" : "100%";
+          if ("Availability" in row)
+            row.Availability = missingInstituteIds.length
+              ? "Partial"
+              : rowsYear.length
+                ? "Available"
+                : "Data not available";
+          return row;
+        })();
 
-  const insightLead = interpretation.find((line) => line && !line.startsWith("What this report is:")) ?? interpretation[0] ?? "AI insight is generated from the selected report data.";
-  const detailCoverage = getReportCoverage(report, [kpi], selectedHierarchyItem);
+  const insightLead =
+    interpretation.find(
+      (line) => line && !line.startsWith("What this report is:"),
+    ) ??
+    interpretation[0] ??
+    "AI insight is generated from the selected report data.";
+
+  const detailMeta = report.discoveryMeta ?? {};
+  const detailFamilyLabel = detailMeta.familyLabel ?? reportFamilyLabel(reportFamilyForDiscovery(report, kpi, selectedHierarchyItem));
+  const detailSourceTable = detailMeta.sourceTable ?? reportHubSourceLabel(kpi);
+  const detailGranularity = detailMeta.granularity ?? reportHubGranularity(report, kpi);
+  const detailColumnCount = detailMeta.columnsCount ?? reportHubColumnCount(kpi);
+  const detailDefinition = detailMeta.summary ?? reportHubDiscoverySummary(report, kpi, selectedHierarchyItem);
 
   return (
-    <div className="overflow-hidden rounded-[26px] bg-white shadow-sm" style={{ border: "1px solid rgba(15,23,42,0.08)" }}>
-      <div className="border-b border-slate-100 bg-white px-6 py-5" data-export-hide="true">
+    <div
+      className="overflow-hidden rounded-[26px] bg-white shadow-sm"
+      style={{ border: "1px solid rgba(15,23,42,0.08)" }}
+    >
+      <div
+        className="border-b border-slate-100 bg-white px-6 py-5"
+        data-export-hide="true"
+      >
         <div className="flex flex-wrap items-center justify-between gap-5">
           <div className="flex items-center gap-4">
-            <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-slate-100 text-sm font-black" style={{ color: "#173f91", border: "1px solid rgba(23,63,145,0.16)" }}>
+            <div
+              className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-slate-100 text-sm font-black"
+              style={{
+                color: "#173f91",
+                border: "1px solid rgba(23,63,145,0.16)",
+              }}
+            >
               MIS
             </div>
             <div>
-              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Department of Higher Education</div>
-              <div className="text-2xl font-black leading-tight text-slate-950">IITMIS Reports</div>
-              <div className="text-sm font-semibold text-slate-500">Ministry of Education style analytical reporting</div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                Department of Higher Education
+              </div>
+              <div className="text-2xl font-black leading-tight text-slate-950">
+                IITMIS Reports
+              </div>
+              <div className="text-sm font-semibold text-slate-500">
+                Ministry of Education style analytical reporting
+              </div>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <div className="max-w-[720px] rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">
+            <div className="rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">
               Reports <span className="px-1 text-slate-400">›</span>
-              <span>{detailCoverage.label}</span>
-              <span className="px-1 text-slate-400">›</span>
-              <span className="rounded-full px-3 py-1 text-white" style={{ background: "#173f91" }}>{report.name}</span>
+              <span
+                className="rounded-full px-3 py-1 text-white"
+                style={{ background: "#173f91" }}
+              >
+                {report.domain}
+              </span>
             </div>
             <button
               type="button"
@@ -1860,8 +2280,15 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
       <div className="px-6 py-3 text-white" style={{ background: "#173f91" }}>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 flex-wrap items-center gap-4">
-            <span className="rounded-full bg-white/95 px-4 py-1.5 text-xs font-black" style={{ color: "#173f91" }}>Reports ID: {report.reportId}</span>
-            <div className="min-w-0 text-xl font-black leading-tight">{report.name}</div>
+            <span
+              className="rounded-full bg-white/95 px-4 py-1.5 text-xs font-black"
+              style={{ color: "#173f91" }}
+            >
+              Reports ID: {report.reportId}
+            </span>
+            <div className="min-w-0 text-xl font-black leading-tight">
+              {report.name}
+            </div>
           </div>
 
           <div className="relative" data-export-hide="true">
@@ -1870,22 +2297,66 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
               onClick={() => setDownloadMenuOpen((value) => !value)}
               className="min-w-[190px] rounded-full bg-white px-5 py-2 text-left text-sm font-extrabold text-slate-950 shadow-sm transition hover:opacity-95"
             >
-              <span className="flex items-center justify-between gap-3">Download PDF <span>⌄</span></span>
+              <span className="flex items-center justify-between gap-3">
+                Download Report <span>⌄</span>
+              </span>
             </button>
             {downloadMenuOpen ? (
               <div className="absolute right-0 z-40 mt-1 w-[230px] overflow-hidden border border-slate-300 bg-white shadow-xl">
-                <button type="button" onClick={() => doDownload("pdf")} className="block w-full bg-[#1d62c7] px-4 py-2.5 text-left text-sm font-semibold text-white">Download PDF</button>
-                <button type="button" onClick={() => doDownload("xls")} className="block w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50">Download Excel</button>
-                <button type="button" onClick={() => doDownload("csv")} className="block w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50">Download CSV</button>
+                <button
+                  type="button"
+                  onClick={() => doDownload("pdf")}
+                  className="block w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50"
+                >
+                  Download as PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => doDownload("xls")}
+                  className="block w-full bg-[#1d62c7] px-4 py-2.5 text-left text-sm font-semibold text-white"
+                >
+                  Download as Excel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => doDownload("csv")}
+                  className="block w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50"
+                >
+                  Download as CSV
+                </button>
               </div>
             ) : null}
           </div>
         </div>
       </div>
 
+      <div className="border-b border-blue-100 bg-blue-50/60 px-6 py-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          {[
+            { label: "Report family", value: detailFamilyLabel, note: "Discovery grouping" },
+            { label: "Definition", value: detailDefinition, note: "User-facing meaning", wide: true },
+            { label: "Scope", value: scopeText, note: `${year} focus year` },
+            { label: "Source table", value: detailSourceTable, note: `${detailColumnCount} columns indexed` },
+            { label: "Granularity", value: detailGranularity, note: "Lineage kept as provenance" },
+          ].map((item) => (
+            <div
+              key={item.label}
+              className={cx(
+                "rounded-2xl border border-blue-100 bg-white px-4 py-3",
+                item.wide ? "md:col-span-2 xl:col-span-1" : "",
+              )}
+            >
+              <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{item.label}</div>
+              <div className="mt-1 line-clamp-2 text-sm font-black leading-5 text-slate-950">{item.value}</div>
+              <div className="mt-1 text-[11px] font-semibold text-slate-500">{item.note}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="bg-[#f2f0f0] px-6 py-3" data-export-hide="true">
         <div className="flex flex-wrap items-center gap-4">
-          <div className="text-lg font-black text-slate-950">Breakdown By</div>
+          <div className="text-lg font-black text-slate-950">View Data By</div>
           <div className="flex max-w-full flex-wrap gap-2 rounded-full bg-white p-1.5 shadow-sm">
             {breakdownOptions.map((option) => {
               const selected = activeBreakdown?.id === option.id;
@@ -1895,12 +2366,18 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
                   type="button"
                   onClick={() => {
                     setActiveBreakdownId(option.id);
-                    setViewMode(option.id === "__trend" ? "line" : (chartViewOptions[0] ?? "table"));
+                    setViewMode(option.id === "__trend" ? "chart" : "table");
                   }}
                   className="rounded-full px-4 py-2 text-xs font-black transition"
-                  style={selected ? { background: "#e8e6ff", color: "#173f91" } : { background: "#ffffff", color: "#0f172a" }}
+                  style={
+                    selected
+                      ? { background: "#e8e6ff", color: "#173f91" }
+                      : { background: "#ffffff", color: "#0f172a" }
+                  }
                 >
-                  {option.id === "__trend" ? "Year-on-Year Trend" : `${option.label} (${option.variant})`}
+                  {option.id === "__trend"
+                    ? "Year-on-Year Trend"
+                    : `${option.label} (${option.variant})`}
                 </button>
               );
             })}
@@ -1911,530 +2388,153 @@ function ReportDetailPage({ report, catalog = [], facts, config, accent, role, i
       <div className="space-y-5 bg-white px-6 py-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="text-base font-semibold text-slate-950">
-            Showing Results for: <span className="font-black">{scopeText}</span> <span className="px-1">›</span> <span className="font-black">{year}</span>
-            {selectedBucketNames.length ? <span> <span className="px-1">›</span> <span className="font-black">{selectedBucketNames.length} selected value</span></span> : null}
+            Showing Results for: <span className="font-black">{scopeText}</span>{" "}
+            <span className="px-1">›</span>{" "}
+            <span className="font-black">{year}</span>
+            {selectedBucketNames.length ? (
+              <span>
+                {" "}
+                <span className="px-1">›</span>{" "}
+                <span className="font-black">
+                  {selectedBucketNames.length} selected value
+                </span>
+              </span>
+            ) : null}
           </div>
-          <div className="flex items-center gap-2" data-export-hide="true">
-            <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Chart View</div>
-            <div className="flex rounded-full bg-slate-50 p-1 shadow-sm">
-              {chartViewOptions.map((type) => {
-                const meta = chartViewMeta(type);
-                return (
-                  <button
-                    key={meta.id}
-                    type="button"
-                    onClick={() => setViewMode(meta.id)}
-                    className="grid h-10 w-10 place-items-center rounded-full transition"
-                    style={viewMode === meta.id ? { background: "#e8e6ff", color: "#173f91" } : { color: "#64748b" }}
-                    title={meta.label}
-                    aria-label={meta.label}
-                  >
-                    <ReportHubTypeIcon type={meta.iconType} accent="currentColor" />
-                  </button>
-                );
-              })}
-            </div>
+          <div
+            className="flex rounded-full bg-slate-50 p-1 shadow-sm"
+            data-export-hide="true"
+          >
+            {[
+              { id: "table", label: "▦ Table" },
+              { id: "chart", label: "◔ Chart" },
+            ].map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setViewMode(item.id)}
+                className="rounded-full px-4 py-2 text-sm font-black transition"
+                style={
+                  viewMode === item.id
+                    ? { background: "#e8e6ff", color: "#173f91" }
+                    : { color: "#8b8b8b" }
+                }
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
         </div>
 
         <div className="rounded-[18px] border border-slate-200 bg-slate-50/80 px-4 py-3">
-          <div className="text-sm font-black text-slate-950">AI Insight / Summary</div>
-          <div className="mt-1 text-sm font-medium leading-6 text-slate-700">{insightLead}</div>
+          <div className="text-sm font-black text-slate-950">AI Insight</div>
+          <div className="mt-1 text-sm font-medium leading-6 text-slate-700">
+            {insightLead}
+          </div>
         </div>
 
-        {missingInstituteIds.length ? (
-          <details className="rounded-[14px] border border-amber-100 bg-amber-50/60 px-4 py-3 text-sm font-semibold text-slate-700">
-            <summary className="cursor-pointer font-black text-amber-800">Data unavailable for {missingInstituteIds.length} IIT{missingInstituteIds.length === 1 ? "" : "s"} — View list</summary>
-            <div className="mt-2 leading-6 text-slate-600">{missingInstituteIds.map(instituteName).join(", ")}</div>
-          </details>
-        ) : !rowsYear.length ? (
-          <div className="rounded-[14px] border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm font-bold text-slate-600">
-            No source rows are available for the selected scope and year.
+        {missingInstituteIds.length || !rowsYear.length ? (
+          <div
+            className="rounded-[14px] px-4 py-3 text-sm font-bold"
+            style={{
+              background: missingInstituteIds.length
+                ? "rgba(254,242,242,0.85)"
+                : "rgba(248,250,252,0.95)",
+              border: missingInstituteIds.length
+                ? "1px solid rgba(248,113,113,0.38)"
+                : "1px solid rgba(148,163,184,0.28)",
+              color: missingInstituteIds.length ? "#991b1b" : "#475569",
+            }}
+          >
+            {dataQualityCopy}
           </div>
         ) : null}
 
-        <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-            <div>
-              <div className="text-sm font-black text-slate-950">Visual chart section</div>
-              <div className="mt-0.5 text-xs font-semibold text-slate-500">{chartViewMeta(viewMode).label} for {activeBreakdown?.id === "__trend" ? "year-on-year values" : activeBreakdown?.label}</div>
+        <div className="overflow-hidden rounded-[14px] border border-slate-300 bg-white">
+          {viewMode === "table" ? (
+            <UdiseReportTable
+              columns={detailTable.columns}
+              rows={detailTable.rows}
+              footerRow={tableFooterRow}
+              hiddenKeys={["Rank"]}
+              maxHeight={560}
+            />
+          ) : chartData.length ? (
+            <div className="bg-white p-4">
+              {activeBreakdown?.id === "__trend" ? (
+                <BreakdownLine
+                  data={chartData}
+                  format={kpi.format}
+                  accent={accent}
+                  yLabel={kpi.label}
+                  height={520}
+                  drillHint="Switch to table for YoY growth values and source-row counts."
+                />
+              ) : (
+                <BreakdownBar
+                  data={chartData}
+                  format={kpi.format}
+                  accent={accent}
+                  xLabel={activeBreakdown?.label ?? report.breakdownLabel}
+                  yLabel={kpi.label}
+                  height={560}
+                  forceHorizontal={chartData.length > 7}
+                />
+              )}
             </div>
-          </div>
-          <div className="bg-white p-4">
-            {renderDetailVisualOutput()}
-          </div>
-        </section>
-
-        <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
-          <div className="border-b border-slate-100 px-4 py-3">
-            <div className="text-sm font-black text-slate-950">Numbers / detailed table</div>
-            <div className="mt-0.5 text-xs font-semibold text-slate-500">Exact values, source rows, and availability for the selected breakdown.</div>
-          </div>
-          <UdiseReportTable columns={detailTable.columns} rows={detailTable.rows} footerRow={tableFooterRow} hiddenKeys={["Rank"]} maxHeight={520} />
-        </section>
+          ) : (
+            <div className="grid min-h-[320px] place-items-center bg-white text-sm font-semibold text-slate-500">
+              No chart data available for the selected scope and view.
+            </div>
+          )}
+        </div>
 
         <details className="rounded-[18px] border border-sky-100 bg-sky-50/50 p-4">
-          <summary className="cursor-pointer text-sm font-black" style={{ color: "#173f91" }}>Full AI report interpretation and data notes</summary>
-          <div className="mt-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{breadcrumbTrail}</div>
+          <summary
+            className="cursor-pointer text-sm font-black"
+            style={{ color: "#173f91" }}
+          >
+            Full AI report interpretation and data notes
+          </summary>
+          <div className="mt-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+            {breadcrumbTrail}
+          </div>
           <ul className="mt-3 list-disc pl-5 text-sm leading-6 text-slate-700">
             {interpretation.map((text, index) => (
               <li key={index}>{text}</li>
             ))}
           </ul>
           <div className="mt-3 text-xs text-slate-500">
-            Evidence (demo): {EVIDENCE_LINKS.map((item) => item.label).join(" | ")}
+            Evidence (demo):{" "}
+            {EVIDENCE_LINKS.map((item) => item.label).join(" | ")}
           </div>
         </details>
-      </div>
 
-      {renderFloatingFilterPanel()}
-    </div>
-  );
-}
-
-
-function CrossModuleReportDetailPage({ report, catalog = [], facts, config, accent, role, instituteId, initialYear, onBack, onChangeReport }) {
-  const reportKpis = useMemo(() => getReportKpis(report), [report]);
-  const coverage = useMemo(() => getReportCoverage(report, reportKpis), [report, reportKpis]);
-
-  const yrFrom = Math.min(config?.YearRange?.from ?? YEARS[0], config?.YearRange?.to ?? YEARS[YEARS.length - 1]);
-  const yrTo = Math.max(config?.YearRange?.from ?? YEARS[0], config?.YearRange?.to ?? YEARS[YEARS.length - 1]);
-  const yearsInRange = useMemo(() => YEARS.filter((y) => y >= yrFrom && y <= yrTo), [yrFrom, yrTo]);
-
-  const configuredInstituteIds = useMemo(() => {
-    if (role === "iit") return [instituteId].filter(Boolean);
-    return uniqueReportIds(config?.InstituteId ?? []);
-  }, [role, instituteId, config]);
-
-  const [year, setYear] = useState(initialYear ?? yearsInRange[yearsInRange.length - 1] ?? YEARS[YEARS.length - 1]);
-  const [detailInstituteIds, setDetailInstituteIds] = useState(configuredInstituteIds);
-  const [viewMode, setViewMode] = useState(report?.defaultView ?? "table");
-  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
-  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
-
-  useEffect(() => {
-    setYear(initialYear ?? yearsInRange[yearsInRange.length - 1] ?? YEARS[YEARS.length - 1]);
-    setDetailInstituteIds(configuredInstituteIds);
-    setViewMode(report?.defaultView ?? "table");
-    setDownloadMenuOpen(false);
-    setFilterPanelOpen(false);
-  }, [report?.reportId, initialYear, yearsInRange, configuredInstituteIds, report?.defaultView]);
-
-  const scopedIds = useMemo(() => {
-    if (role === "iit") return [instituteId].filter(Boolean);
-    return detailInstituteIds.length ? detailInstituteIds : IITs.map((x) => x.id);
-  }, [role, instituteId, detailInstituteIds]);
-  const scopeText = useMemo(() => instituteLabel(detailInstituteIds), [detailInstituteIds]);
-  const expectedInstituteIds = useMemo(() => {
-    if (role === "iit") return [instituteId].filter(Boolean);
-    return scopedIds.length ? scopedIds : IITs.map((x) => x.id);
-  }, [role, instituteId, scopedIds]);
-
-  const metrics = useMemo(() => {
-    return reportKpis.map((kpi) => {
-      const rows = rowsForKpiYear({ facts, kpi, year, scopedInstituteIds: scopedIds });
-      const prevRows = rowsForKpiYear({ facts, kpi, year: year - 1, scopedInstituteIds: scopedIds });
-      const value = kpiValue(kpi, rows);
-      const prevValue = kpiValue(kpi, prevRows);
-      const dataRows = metricRowsForMissingCheck(kpi, rows);
-      const available = new Set(dataRows.map((r) => r.InstituteId).filter(Boolean));
-      const missing = expectedInstituteIds.filter((id) => !available.has(id));
-      return {
-        kpi,
-        section: kpi.module ?? "Reports",
-        indicator: kpi.label,
-        value,
-        prevValue,
-        formattedValue: fmtValue(kpi, value),
-        yoy: formatYoYForCard(kpi, value, prevValue),
-        sourceRows: rows.length,
-        missing,
-        availability: missing.length ? `Partial (${expectedInstituteIds.length - missing.length}/${expectedInstituteIds.length} IITs)` : rows.length ? "Available" : "Data not available",
-      };
-    });
-  }, [reportKpis, facts, year, scopedIds, expectedInstituteIds]);
-
-  const detailColumns = useMemo(() => [
-    { key: "Section", label: "Section" },
-    { key: "Indicator", label: "Indicator" },
-    { key: "Value", label: "Value" },
-    { key: "YoY", label: "YoY" },
-    { key: "SourceRows", label: "Source Rows" },
-    { key: "Availability", label: "Availability" },
-  ], []);
-
-  const detailRows = useMemo(() => metrics.map((item) => ({
-    Section: item.section,
-    Indicator: item.indicator,
-    Value: item.formattedValue,
-    YoY: item.yoy,
-    SourceRows: item.sourceRows,
-    Availability: item.availability,
-  })), [metrics]);
-
-  const sectionBlocks = useMemo(() => {
-    const map = new Map();
-    for (const row of detailRows) {
-      if (!map.has(row.Section)) map.set(row.Section, []);
-      map.get(row.Section).push(row);
-    }
-    return Array.from(map.entries()).map(([section, rows]) => ({ section, rows }));
-  }, [detailRows]);
-
-  const chartViewOptions = useMemo(() => uniqueChartTypes(report?.chartTypes ?? ["table", "bar"]), [report?.chartTypes]);
-  useEffect(() => {
-    if (!chartViewOptions.includes(viewMode)) setViewMode(chartViewOptions[0] ?? "table");
-  }, [chartViewOptions, viewMode]);
-
-  const chartData = useMemo(() => {
-    const finite = metrics.filter((item) => item.value != null && Number.isFinite(Number(item.value)));
-    const nonPctMax = Math.max(1, ...finite.filter((item) => item.kpi.format !== "pct").map((item) => Math.abs(Number(item.value ?? 0))));
-    return finite.map((item) => ({
-      name: item.indicator.length > 34 ? `${item.indicator.slice(0, 32)}...` : item.indicator,
-      value: item.kpi.format === "pct" ? Number(item.value ?? 0) * 100 : (Math.abs(Number(item.value ?? 0)) / nonPctMax) * 100,
-      actualValue: item.formattedValue,
-    }));
-  }, [metrics]);
-
-  const trendData = useMemo(() => {
-    const maxByKpi = new Map();
-    for (const kpi of reportKpis) {
-      let max = 0;
-      for (const y of yearsInRange) {
-        const rows = rowsForKpiYear({ facts, kpi, year: y, scopedInstituteIds: scopedIds });
-        const value = kpiValue(kpi, rows);
-        if (value != null && Number.isFinite(Number(value))) max = Math.max(max, Math.abs(Number(value)));
-      }
-      maxByKpi.set(kpi.id, Math.max(1, max));
-    }
-
-    return yearsInRange.map((y) => {
-      const values = reportKpis.map((kpi) => {
-        const rows = rowsForKpiYear({ facts, kpi, year: y, scopedInstituteIds: scopedIds });
-        const value = kpiValue(kpi, rows);
-        if (value == null || !Number.isFinite(Number(value))) return null;
-        return kpi.format === "pct" ? Number(value) * 100 : (Math.abs(Number(value)) / (maxByKpi.get(kpi.id) || 1)) * 100;
-      }).filter((value) => value != null);
-      return {
-        name: String(y),
-        value: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null,
-      };
-    }).filter((item) => item.value != null);
-  }, [reportKpis, yearsInRange, facts, scopedIds]);
-
-  const availableCount = metrics.filter((item) => item.value != null).length;
-  const missingMetrics = metrics.filter((item) => item.value == null || item.missing.length);
-  const summaryText = `${report.name} combines ${reportKpis.length} indicators across ${coverage.label.toLowerCase()} coverage. For ${scopeText} in ${year}, ${availableCount} of ${reportKpis.length} indicators have usable data.`;
-
-  const reportOptions = useMemo(() => {
-    const scoped = catalog.filter((item) => item.scopeType === report?.scopeType);
-    const other = catalog.filter((item) => item.scopeType !== report?.scopeType);
-    return [...scoped, ...other];
-  }, [catalog, report?.scopeType]);
-
-  function changeReport(reportId) {
-    const next = catalog.find((item) => String(item.reportId) === String(reportId));
-    if (next) onChangeReport?.(next);
-  }
-
-  function rankedIitsForCross(direction = "top") {
-    const firstKpi = reportKpis[0];
-    if (!firstKpi) return [...REPORT_LEGACY_IITS];
-    const rows = IITs.map((iit) => {
-      const scopedRows = rowsForKpiYear({ facts, kpi: firstKpi, year, scopedInstituteIds: [iit.id] });
-      return { id: iit.id, value: kpiValue(firstKpi, scopedRows) };
-    }).filter((item) => item.value != null && Number.isFinite(Number(item.value)));
-    rows.sort((a, b) => direction === "bottom" ? Number(a.value) - Number(b.value) : Number(b.value) - Number(a.value));
-    return rows.slice(0, 10).map((item) => item.id);
-  }
-
-  function applyInstituteScope(nextValue) {
-    if (role === "iit") return;
-    if (nextValue === "__all") setDetailInstituteIds([]);
-    else if (nextValue === "__old") setDetailInstituteIds([...REPORT_LEGACY_IITS]);
-    else if (nextValue === "__top") setDetailInstituteIds(rankedIitsForCross("top"));
-    else if (nextValue === "__bottom") setDetailInstituteIds(rankedIitsForCross("bottom"));
-    else if (nextValue !== "__custom") setDetailInstituteIds([nextValue]);
-  }
-
-  function toggleInstitute(iid) {
-    if (role === "iit") return;
-    setDetailInstituteIds((prev) => {
-      const base = prev.length ? prev : IITs.map((item) => item.id);
-      const next = base.includes(iid) ? base.filter((item) => item !== iid) : [...base, iid];
-      if (!next.length || next.length === IITs.length) return [];
-      return sortReportIitsAlphabetically(next);
-    });
-  }
-
-  function renderCrossVisual() {
-    if (viewMode === "table") {
-      return <UdiseReportTable columns={detailColumns} rows={detailRows} maxHeight={420} />;
-    }
-    if (viewMode === "line") {
-      return trendData.length ? (
-        <BreakdownLine data={trendData} format="number" accent={accent} yLabel="Normalised score" height={420} drillHint="Line view shows an averaged, normalised multi-KPI trend." />
-      ) : <div className="grid min-h-[320px] place-items-center text-sm font-semibold text-slate-500">No trend data available.</div>;
-    }
-    if (!chartData.length) {
-      return <div className="grid min-h-[320px] place-items-center text-sm font-semibold text-slate-500">No visual data available.</div>;
-    }
-    if (viewMode === "pie") {
-      return <BreakdownDonut data={chartData} format="number" accent={accent} soft="#dbeafe" metricLabel="Normalised value" height={420} drillHint="Numbers below show actual values and units." />;
-    }
-    return <BreakdownBar data={chartData} format="number" accent={accent} xLabel="Indicator" yLabel="Normalised value" height={440} forceHorizontal />;
-  }
-
-  function doDownload(fmt) {
-    setDownloadMenuOpen(false);
-    const filenameBase = `${report.reportId}_${report.name}`.replace(/[^a-z0-9\-_ ]/gi, "").replace(/\s+/g, "_");
-    if (fmt === "csv") {
-      downloadText(`${filenameBase}_${year}.csv`, toCsv(detailRows, detailColumns), "text/csv;charset=utf-8");
-      return;
-    }
-    if (fmt === "xls") {
-      downloadExcelHtml(`${filenameBase}_${year}.xls`, detailColumns, detailRows);
-      return;
-    }
-
-    const metadata = [
-      { Field: "Report", Value: report.name },
-      { Field: "Coverage", Value: [coverage.label, coverage.subLabel].filter(Boolean).join(" - ") },
-      { Field: "Scope", Value: scopeText },
-      { Field: "Year", Value: year },
-      { Field: "Indicators", Value: reportKpis.length },
-    ];
-    const html = `
-      <div style="padding:18px;">
-        <div class="card">
-          <h1 style="font-size:20px;font-weight:900;">${escHtml(report.name)}</h1>
-          <div class="muted" style="font-size:12px;margin-top:4px;">Reports > ${escHtml(coverage.label)} > ${escHtml(report.name)}</div>
-        </div>
-        <div style="height:10px;"></div>
-        <div class="card">
-          <h2 style="font-size:14px;font-weight:900;margin-bottom:8px;">Summary</h2>
-          <p style="font-size:12px;margin-top:0;">${escHtml(summaryText)}</p>
-          ${htmlTable([{ key: "Field", label: "Field" }, { key: "Value", label: "Value" }], metadata)}
-        </div>
-        <div style="height:10px;"></div>
-        <div class="card">
-          <h2 style="font-size:14px;font-weight:900;margin-bottom:8px;">Detailed numbers</h2>
-          ${htmlTable(detailColumns, detailRows)}
-        </div>
-        <div style="height:10px;"></div>
-        <div class="muted" style="font-size:11px;">Evidence (demo): ${EVIDENCE_LINKS.map((x) => escHtml(x.label)).join(" | ")}</div>
-      </div>
-    `;
-    downloadHtmlAsPdf({ title: `${report.name} (${year})`, html, orientation: "landscape", pageSize: "A4" });
-  }
-
-  function renderFloatingFilterPanel() {
-    const allIitIds = IITs.map((iit) => iit.id);
-    const oldKey = REPORT_LEGACY_IITS.join("|");
-    const selectedKey = (detailInstituteIds ?? []).join("|");
-    const currentInstituteScope = role === "iit"
-      ? instituteId
-      : !detailInstituteIds.length
-        ? "__all"
-        : selectedKey === oldKey
-          ? "__old"
-          : detailInstituteIds.length === 1
-            ? detailInstituteIds[0]
-            : "__custom";
-
-    const instituteScopeOptions = [
-      { value: "__all", label: "All IITs" },
-      { value: "__old", label: "Old IITs" },
-      { value: "__top", label: "Top 10 by first indicator" },
-      { value: "__bottom", label: "Bottom 10 by first indicator" },
-      { value: "__custom", label: detailInstituteIds.length ? `${detailInstituteIds.length} selected IITs` : "Custom selection" },
-      ...IITs.map((iit) => ({ value: iit.id, label: instituteShortLabel(iit.id) })),
-    ];
-
-    return (
-      <div data-export-hide="true">
-        {filterPanelOpen ? (
-          <>
-            <button type="button" aria-label="Close report filters backdrop" className="fixed inset-0 z-[250] cursor-default bg-slate-950/10" onClick={() => setFilterPanelOpen(false)} />
-            <aside className="fixed right-4 z-[260] w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-[18px] bg-white shadow-[0_18px_55px_rgba(15,23,42,0.22)]" style={{ top: "11.75rem", border: "1px solid rgba(15,23,42,0.08)" }}>
-              <div className="flex items-center justify-between gap-3 px-5 py-4 text-white" style={{ background: "#173f91" }}>
-                <div className="flex items-center gap-3">
-                  <ReportHubFilterIcon />
-                  <div className="text-xl font-extrabold">Apply Filters</div>
-                </div>
-                <button type="button" onClick={() => setFilterPanelOpen(false)} className="grid h-8 w-8 place-items-center rounded-full bg-white/10 transition hover:bg-white/20" aria-label="Close filters">
-                  <ReportCloseIcon />
+        {relatedReports.length ? (
+          <div className="rounded-[18px] border border-blue-100 bg-blue-50/40 p-4" data-export-hide="true">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-black text-slate-950">Related reports</div>
+                <div className="text-xs font-semibold text-slate-500">Cross-links help users discover nearby reports without going back to the hierarchy.</div>
+              </div>
+              <button type="button" onClick={onBack} className="rounded-full bg-white px-3 py-1.5 text-xs font-black text-blue-700">Back to discovery</button>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {relatedReports.map((item) => (
+                <button
+                  key={item.reportId}
+                  type="button"
+                  onClick={() => onChangeReport?.(item)}
+                  className="rounded-2xl border border-blue-100 bg-white p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md"
+                >
+                  <div className="text-[11px] font-black uppercase tracking-[0.12em] text-blue-700">{item.discoveryMeta?.familyLabel ?? item.domain}</div>
+                  <div className="mt-1 line-clamp-2 text-sm font-black leading-5 text-slate-950">{item.name}</div>
+                  <div className="mt-2 line-clamp-2 text-xs font-semibold leading-5 text-slate-500">{item.discoveryMeta?.summary ?? item.originalName ?? "Open related report"}</div>
                 </button>
-              </div>
-
-              <div className="max-h-[calc(100vh-16rem)] space-y-4 overflow-auto bg-[#f7f7f7] px-5 py-5">
-                <div className="rounded-2xl bg-white p-3 shadow-sm">
-                  <Select label="Select Report" value={String(report.reportId)} onChange={changeReport} options={reportOptions.slice(0, 200).map((item) => ({ value: String(item.reportId), label: item.name }))} />
-                </div>
-                <div className="rounded-2xl bg-white p-3 shadow-sm">
-                  <Select label="Select Year" value={String(year)} onChange={(value) => setYear(Number(value))} options={yearsInRange.map((item) => ({ value: String(item), label: String(item) }))} />
-                </div>
-                <div className="rounded-2xl bg-white p-3 shadow-sm">
-                  <Select label="Select IIT / Group" value={currentInstituteScope} onChange={applyInstituteScope} options={instituteScopeOptions} disabled={role === "iit"} />
-                  <details className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2">
-                    <summary className="cursor-pointer text-xs font-extrabold text-slate-700">Select multiple IITs</summary>
-                    <div className="mt-3 grid max-h-44 gap-2 overflow-auto">
-                      {IITs.map((iit) => {
-                        const selected = role === "iit" ? iit.id === instituteId : (!detailInstituteIds.length || detailInstituteIds.includes(iit.id));
-                        return (
-                          <button key={iit.id} type="button" onClick={() => toggleInstitute(iit.id)} disabled={role === "iit"} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60">
-                            <span>{instituteShortLabel(iit.id)}</span>
-                            <span className={cx("h-3 w-3 rounded-sm border", selected ? "border-blue-700 bg-blue-700" : "border-slate-300 bg-white")} />
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </details>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-center gap-3 bg-[#f7f7f7] px-5 pb-5">
-                <button type="button" onClick={() => { setYear(yearsInRange[yearsInRange.length - 1] ?? YEARS[YEARS.length - 1]); setDetailInstituteIds(configuredInstituteIds); }} className="rounded-full px-7 py-2.5 text-sm font-extrabold text-white shadow-sm transition hover:opacity-95" style={{ background: "#173f91" }}>Reset</button>
-                <button type="button" onClick={() => setFilterPanelOpen(false)} className="rounded-full bg-[#3ac778] px-7 py-2.5 text-sm font-extrabold text-white shadow-sm transition hover:opacity-95">Apply</button>
-              </div>
-            </aside>
-          </>
-        ) : null}
-
-        <div className="fixed bottom-6 right-6 z-[240]">
-          <button type="button" onClick={() => setFilterPanelOpen(true)} className="grid h-14 w-14 place-items-center rounded-full text-white shadow-2xl transition hover:-translate-y-0.5 hover:opacity-95" style={{ background: "#173f91" }} aria-label="Open report filters" title="Apply Filters">
-            <ReportHubFilterIcon />
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="overflow-hidden rounded-[26px] bg-white shadow-sm" style={{ border: "1px solid rgba(15,23,42,0.08)" }}>
-      <div className="border-b border-slate-100 bg-white px-6 py-5" data-export-hide="true">
-        <div className="flex flex-wrap items-center justify-between gap-5">
-          <div className="flex items-center gap-4">
-            <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-slate-100 text-sm font-black" style={{ color: "#173f91", border: "1px solid rgba(23,63,145,0.16)" }}>MIS</div>
-            <div>
-              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Department of Higher Education</div>
-              <div className="text-2xl font-black leading-tight text-slate-950">IITMIS Reports</div>
-              <div className="text-sm font-semibold text-slate-500">Cross-module analytical reporting</div>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="max-w-[720px] rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">
-              Reports <span className="px-1 text-slate-400">›</span>
-              <span>{coverage.label}</span>
-              <span className="px-1 text-slate-400">›</span>
-              <span className="rounded-full px-3 py-1 text-white" style={{ background: "#173f91" }}>{report.name}</span>
-            </div>
-            <button type="button" onClick={onBack} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 shadow-sm transition hover:bg-slate-50">Back to reports</button>
-          </div>
-        </div>
-      </div>
-
-      <div className="px-6 py-3 text-white" style={{ background: "#173f91" }}>
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex min-w-0 flex-wrap items-center gap-4">
-            <span className="rounded-full bg-white/95 px-4 py-1.5 text-xs font-black" style={{ color: "#173f91" }}>Reports ID: {report.reportId}</span>
-            <div className="min-w-0 text-xl font-black leading-tight">{report.name}</div>
-          </div>
-          <div className="relative" data-export-hide="true">
-            <button type="button" onClick={() => setDownloadMenuOpen((value) => !value)} className="min-w-[180px] rounded-full bg-white px-5 py-2 text-left text-sm font-extrabold text-slate-950 shadow-sm transition hover:opacity-95">
-              <span className="flex items-center justify-between gap-3">Download PDF <span>⌄</span></span>
-            </button>
-            {downloadMenuOpen ? (
-              <div className="absolute right-0 z-40 mt-1 w-[220px] overflow-hidden border border-slate-300 bg-white shadow-xl">
-                <button type="button" onClick={() => doDownload("pdf")} className="block w-full bg-[#1d62c7] px-4 py-2.5 text-left text-sm font-semibold text-white">Download PDF</button>
-                <button type="button" onClick={() => doDownload("xls")} className="block w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50">Download Excel</button>
-                <button type="button" onClick={() => doDownload("csv")} className="block w-full px-4 py-2.5 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50">Download CSV</button>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-5 bg-white px-6 py-6">
-        <div className="text-base font-semibold text-slate-950">
-          Showing Results for: <span className="font-black">{scopeText}</span> <span className="px-1">›</span> <span className="font-black">{year}</span>
-        </div>
-
-        <div className="rounded-[18px] border border-slate-200 bg-slate-50/80 px-4 py-3">
-          <div className="text-sm font-black text-slate-950">AI Insight / Summary</div>
-          <div className="mt-1 text-sm font-medium leading-6 text-slate-700">{summaryText}</div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {metrics.slice(0, 4).map((item) => (
-            <div key={item.kpi.id} className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="text-xs font-black uppercase tracking-[0.12em] text-slate-400">{item.section}</div>
-              <div className="mt-2 min-h-[40px] text-sm font-black leading-5 text-slate-950">{item.indicator}</div>
-              <div className="mt-3 text-2xl font-black" style={{ color: "#173f91" }}>{item.formattedValue}</div>
-              <div className="mt-1 text-xs font-semibold text-slate-500">YoY: {item.yoy} · {item.sourceRows} rows</div>
-            </div>
-          ))}
-        </div>
-
-        {missingMetrics.length ? (
-          <details className="rounded-[14px] border border-amber-100 bg-amber-50/60 px-4 py-3 text-sm font-semibold text-slate-700">
-            <summary className="cursor-pointer font-black text-amber-800">Data notes for {missingMetrics.length} indicator{missingMetrics.length === 1 ? "" : "s"} — View list</summary>
-            <div className="mt-2 grid gap-2 text-slate-600">
-              {missingMetrics.map((item) => (
-                <div key={item.kpi.id}><span className="font-black">{item.indicator}:</span> {item.availability}{item.missing.length ? `; missing ${item.missing.map(instituteName).join(", ")}` : ""}</div>
               ))}
             </div>
-          </details>
+          </div>
         ) : null}
-
-        <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-            <div>
-              <div className="text-sm font-black text-slate-950">Visual chart section</div>
-              <div className="mt-0.5 text-xs font-semibold text-slate-500">{chartViewMeta(viewMode).label} for cross-module indicators</div>
-            </div>
-            <div className="flex items-center gap-2" data-export-hide="true">
-              <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Chart View</div>
-              <div className="flex rounded-full bg-slate-50 p-1 shadow-sm">
-                {chartViewOptions.map((type) => {
-                  const meta = chartViewMeta(type);
-                  return (
-                    <button key={meta.id} type="button" onClick={() => setViewMode(meta.id)} className="grid h-10 w-10 place-items-center rounded-full transition" style={viewMode === meta.id ? { background: "#e8e6ff", color: "#173f91" } : { color: "#64748b" }} title={meta.label} aria-label={meta.label}>
-                      <ReportHubTypeIcon type={meta.iconType} accent="currentColor" />
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-          <div className="bg-white p-4">{renderCrossVisual()}</div>
-        </section>
-
-        <section className="grid gap-4 xl:grid-cols-2">
-          {sectionBlocks.map((block) => (
-            <div key={block.section} className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
-              <div className="border-b border-slate-100 px-4 py-3 text-sm font-black text-slate-950">{block.section}</div>
-              <UdiseReportTable columns={detailColumns.filter((column) => column.key !== "Section")} rows={block.rows} maxHeight={320} />
-            </div>
-          ))}
-        </section>
-
-        <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
-          <div className="border-b border-slate-100 px-4 py-3">
-            <div className="text-sm font-black text-slate-950">Numbers / detailed table</div>
-            <div className="mt-0.5 text-xs font-semibold text-slate-500">All indicators, values, YoY movement, source rows, and availability.</div>
-          </div>
-          <UdiseReportTable columns={detailColumns} rows={detailRows} maxHeight={520} />
-        </section>
-
-        <details className="rounded-[18px] border border-sky-100 bg-sky-50/50 p-4">
-          <summary className="cursor-pointer text-sm font-black" style={{ color: "#173f91" }}>Data notes</summary>
-          <ul className="mt-3 list-disc pl-5 text-sm leading-6 text-slate-700">
-            <li>This is a curated {coverage.label.toLowerCase()} report pack, not a single-KPI page.</li>
-            <li>Visuals use normalised values when indicators have different units; the numbers table keeps the original units.</li>
-            <li>Evidence (demo): {EVIDENCE_LINKS.map((item) => item.label).join(" | ")}</li>
-          </ul>
-        </details>
       </div>
 
       {renderFloatingFilterPanel()}
@@ -2442,14 +2542,68 @@ function CrossModuleReportDetailPage({ report, catalog = [], facts, config, acce
   );
 }
 
-
-const REPORTS_PAGE_SIZE = 7;
+const REPORTS_PAGE_SIZE = 6;
 const REPORT_HUB_SORT_OPTIONS = [
-  { value: "coverage", label: "Sort: Coverage" },
+  { value: "relevance", label: "Sort: Relevance" },
   { value: "name", label: "Sort: Report Name" },
-  { value: "dataSource", label: "Sort: Data Source" },
-  { value: "views", label: "Sort: Views" },
+  { value: "module", label: "Sort: Module" },
+  { value: "type", label: "Sort: View Type" },
+  { value: "updated", label: "Sort: Latest Data" },
   { value: "used", label: "Sort: Frequently Used" },
+];
+
+const REPORT_DISCOVERY_FAMILIES = [
+  {
+    id: "all",
+    label: "All",
+    hint: "Search the complete governed report catalogue",
+    tone: "#1d4ed8",
+  },
+  {
+    id: "student",
+    label: "Student Intake & Diversity",
+    hint: "Admissions, enrolment, diversity, and student composition",
+    tone: "#7c3aed",
+  },
+  {
+    id: "faculty",
+    label: "Faculty & Staffing",
+    hint: "Faculty strength, vacancy, staffing, and teaching capacity",
+    tone: "#0f766e",
+  },
+  {
+    id: "research",
+    label: "Research & Innovation",
+    hint: "Publications, patents, grants, and research output",
+    tone: "#16a34a",
+  },
+  {
+    id: "infrastructure",
+    label: "Infrastructure & Finance",
+    hint: "Budget, utilisation, labs, hostels, and capacity",
+    tone: "#b45309",
+  },
+  {
+    id: "governance",
+    label: "Governance & Compliance",
+    hint: "Rankings, accreditation, audit, legal, and grievance reports",
+    tone: "#1d4ed8",
+  },
+  {
+    id: "placement",
+    label: "Placements & Outcomes",
+    hint: "Placement rate, CTC, outcomes, and career trends",
+    tone: "#db2777",
+  },
+];
+
+const REPORT_DISCOVERY_SUGGESTIONS = [
+  "female student trend",
+  "faculty vacancy by institute",
+  "research funding source mix",
+  "ranking trajectory",
+  "hostel capacity",
+  "audit observations open",
 ];
 
 const REPORT_HUB_PRIORITY = [
@@ -2466,22 +2620,314 @@ const REPORT_HUB_PRIORITY = [
 ];
 
 function reportHubPriority(report) {
-  const customPriority = { 9001: 3.1, 9002: 3.2, 9003: 3.3 };
-  if (Object.prototype.hasOwnProperty.call(customPriority, report?.reportId)) return customPriority[report.reportId];
-
   const index = REPORT_HUB_PRIORITY.findIndex((item) => {
     if (item.kpiId && item.kpiId !== report?.kpiId) return false;
     if (item.reportType && item.reportType !== report?.reportType) return false;
-    if (item.breakdownField && item.breakdownField !== report?.breakdownField) return false;
+    if (item.breakdownField && item.breakdownField !== report?.breakdownField)
+      return false;
     return true;
   });
   return index >= 0 ? index : 1000;
 }
 
+function normalizeDiscoveryText(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function reportFamilyForDiscovery(report, kpi, hierarchyItem) {
+  const text = normalizeDiscoveryText(
+    `${report?.name ?? ""} ${report?.domain ?? ""} ${kpi?.label ?? ""} ${kpi?.fact ?? ""} ${hierarchyItem?.sheetLabel ?? ""} ${hierarchyItem?.submoduleLabel ?? ""}`,
+  );
+  if (/placement|ctc|career|outcome|recruit/.test(text)) return "placement";
+  if (/faculty|staff|teaching|vacancy|recruitment/.test(text)) return "faculty";
+  if (
+    /research|publication|patent|grant|innovation|phd|doctoral|startup|ipr/.test(
+      text,
+    )
+  )
+    return "research";
+  if (
+    /budget|finance|fund|expenditure|utilisation|utilization|infrastructure|hostel|lab|capacity|asset|estate/.test(
+      text,
+    )
+  )
+    return "infrastructure";
+  if (
+    /audit|legal|court|grievance|ranking|accreditation|governance|quality|qa|iqac|compliance/.test(
+      text,
+    )
+  )
+    return "governance";
+  if (
+    /student|enrol|enroll|admission|intake|gender|category|diversity|international/.test(
+      text,
+    )
+  )
+    return "student";
+  return "governance";
+}
+
+function reportFamilyLabel(familyId) {
+  return (
+    REPORT_DISCOVERY_FAMILIES.find((item) => item.id === familyId)?.label ??
+    "Institutional Reports"
+  );
+}
+
+function reportFamilyTone(familyId) {
+  return (
+    REPORT_DISCOVERY_FAMILIES.find((item) => item.id === familyId)?.tone ??
+    "#1d4ed8"
+  );
+}
+
+function shortKpiLabel(label) {
+  return humanizeReportLabel(label ?? "Metric")
+    .replace(/\s*\(Legacy\)\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function reportHubDiscoveryTitle(report, kpi, hierarchyItem) {
+  const base = shortKpiLabel(kpi?.label ?? report?.name ?? "Report");
+  const breakdown = humanizeReportLabel(report?.breakdownLabel ?? "");
+  const sheet = humanizeReportLabel(hierarchyItem?.sheetLabel ?? "");
+  const text = normalizeDiscoveryText(
+    `${base} ${breakdown} ${sheet} ${kpi?.fact ?? ""}`,
+  );
+
+  if (/audit/.test(text) && /status/.test(text))
+    return "Audit Observations by Current Status";
+  if (/ranking/.test(text))
+    return report?.reportType === "trend"
+      ? "Institutional Ranking Trajectory"
+      : `Institutional Rankings by ${breakdown || "Scheme"}`;
+  if (/accreditation/.test(text))
+    return report?.reportType === "trend"
+      ? "Accreditation Status Over Time"
+      : `Accreditation Records by ${breakdown || "Status"}`;
+  if (/grievance/.test(text))
+    return report?.reportType === "trend"
+      ? "Grievance Resolution Trend"
+      : `Grievance Resolution by ${breakdown || "Status"}`;
+  if (/female|gender|diversity/.test(text))
+    return report?.reportType === "trend"
+      ? "Student Diversity Trend"
+      : `Student Diversity by ${breakdown || "Group"}`;
+  if (/total students|enrol|enroll|intake/.test(text))
+    return report?.reportType === "trend"
+      ? "Student Intake and Enrolment Trend"
+      : `Student Intake by ${breakdown || "Institute"}`;
+  if (/international students/.test(text))
+    return report?.reportType === "trend"
+      ? "International Student Trend"
+      : `International Students by ${breakdown || "Level"}`;
+  if (/faculty|staff/.test(text))
+    return report?.reportType === "trend"
+      ? "Faculty and Staffing Trend"
+      : `Faculty and Staffing by ${breakdown || "Institute"}`;
+  if (/publication/.test(text))
+    return report?.reportType === "trend"
+      ? "Research Publications Over Time"
+      : `Research Publications by ${breakdown || "Discipline"}`;
+  if (/patent/.test(text))
+    return report?.reportType === "trend"
+      ? "Patent and IPR Trend"
+      : `Patent and IPR by ${breakdown || "Status"}`;
+  if (/budget|finance|fund|expenditure/.test(text))
+    return report?.reportType === "trend"
+      ? "Finance and Budget Utilisation Trend"
+      : `Finance and Budget by ${breakdown || "Head"}`;
+  if (/hostel|infrastructure|lab|capacity/.test(text))
+    return report?.reportType === "trend"
+      ? "Infrastructure Capacity Trend"
+      : `Infrastructure Capacity by ${breakdown || "Institute"}`;
+  if (/placement rate/.test(text))
+    return report?.reportType === "trend"
+      ? "Placement Rate Trend"
+      : `Placement Rate by ${breakdown || "Program"}`;
+  if (/placement/.test(text))
+    return report?.reportType === "trend"
+      ? "Placement Statistics Trend"
+      : `Placement Statistics by ${breakdown || "Institute"}`;
+  if (
+    /academic program|degree portfolio|program portfolio/.test(text) &&
+    /mode/.test(text)
+  )
+    return "Academic Programme Delivery Mode";
+  if (
+    /academic program|degree portfolio|program portfolio/.test(text) &&
+    /department|discipline/.test(text)
+  )
+    return "Academic Programmes by Department";
+  if (/academic program|degree portfolio|program portfolio/.test(text))
+    return report?.reportType === "trend"
+      ? "Academic Programme Portfolio Over Time"
+      : `Academic Programme Portfolio by ${breakdown || "Institute"}`;
+  if (/institutional snapshot/.test(text))
+    return report?.reportType === "trend"
+      ? "Institutional Snapshot Over Time"
+      : `Institutional Snapshot by ${breakdown || "Institute"}`;
+
+  if (report?.reportType === "trend") return `${base} Over Time`;
+  if (breakdown && !/^institute$/i.test(breakdown))
+    return `${base} by ${breakdown}`;
+  return `${base} by Institute`;
+}
+
+function reportHubDiscoverySummary(report, kpi, hierarchyItem) {
+  const family = reportFamilyForDiscovery(report, kpi, hierarchyItem);
+  const title = reportHubDiscoveryTitle(report, kpi, hierarchyItem);
+  const breakdown = humanizeReportLabel(report?.breakdownLabel ?? "Institute");
+  if (family === "student")
+    return "Find student intake, composition, diversity, and enrolment movement across institutes, years, and groups.";
+  if (family === "faculty")
+    return "Review staffing capacity, faculty strength, vacancy patterns, and institute-wise workforce signals.";
+  if (family === "research")
+    return "Track research output, grants, patents, publications, and innovation indicators with drill-down evidence.";
+  if (family === "infrastructure")
+    return "Monitor financial utilisation, infrastructure capacity, source rows, and availability across IITs.";
+  if (family === "placement")
+    return "Compare placement outcomes, rates, salary indicators, and programme-level movement across years.";
+  if (family === "governance" && /audit/i.test(title))
+    return "See which observations are open, closed, or in progress and who needs to act next.";
+  if (family === "governance")
+    return "Review governance, compliance, ranking, accreditation, audit, and quality signals with source metadata.";
+  return `Explore ${shortKpiLabel(kpi?.label)} by ${breakdown} with report-ready table, chart, and download options.`;
+}
+
+function reportHubOutputTypes(report, type) {
+  const visual =
+    report?.reportType === "trend"
+      ? "Trend chart"
+      : type?.label === "Distribution"
+        ? "Distribution chart"
+        : "Breakdown chart";
+  return ["Table", visual, "CSV", "PDF-ready"];
+}
+
+function reportHubGranularity(report, kpi) {
+  const bits = ["Institute", "Year"];
+  const breakdown = humanizeReportLabel(report?.breakdownLabel ?? "");
+  if (breakdown && !/^year|institute$/i.test(breakdown)) bits.push(breakdown);
+  if (/state|location|geograph/i.test(`${breakdown} ${kpi?.label ?? ""}`))
+    bits.push("Location");
+  return Array.from(new Set(bits)).join(" / ");
+}
+
+function reportHubSourceLabel(kpi) {
+  return humanizeReportLabel(kpi?.fact ?? "source table");
+}
+
+function reportHubColumnCount(kpi) {
+  return buildTemplateForFact(kpi?.fact).cols.length;
+}
+
+function reportHubAliases(report, kpi, hierarchyItem) {
+  const family = reportFamilyForDiscovery(report, kpi, hierarchyItem);
+  const common = [
+    report?.name,
+    kpi?.label,
+    kpi?.fact,
+    hierarchyItem?.sheetLabel,
+    hierarchyItem?.submoduleLabel,
+    hierarchyItem?.moduleLabel,
+    report?.breakdownLabel,
+  ];
+  const familyAliases = {
+    student: [
+      "admission",
+      "admissions",
+      "enrolment",
+      "enrollment",
+      "student mix",
+      "diversity",
+      "gender",
+      "category",
+      "intake",
+    ],
+    faculty: [
+      "faculty vacancy",
+      "staffing",
+      "teachers",
+      "workforce",
+      "teaching load",
+      "faculty strength",
+    ],
+    research: [
+      "research funding",
+      "publications",
+      "patents",
+      "innovation",
+      "ipr",
+      "grants",
+      "doctoral",
+    ],
+    infrastructure: [
+      "hostel",
+      "capacity",
+      "budget",
+      "finance",
+      "expenditure",
+      "utilisation",
+      "labs",
+    ],
+    governance: [
+      "ranking",
+      "accreditation",
+      "audit",
+      "legal",
+      "grievance",
+      "compliance",
+      "quality",
+    ],
+    placement: ["placement", "ctc", "career", "outcomes", "salary", "placed"],
+  };
+  return [...common, ...(familyAliases[family] ?? [])]
+    .filter(Boolean)
+    .map(String);
+}
+
+function scoreDiscoverySearch(row, query) {
+  const q = normalizeDiscoveryText(query);
+  if (!q) return 1;
+  const tokens = tokenize(q);
+  const title = normalizeDiscoveryText(row.name);
+  const summary = normalizeDiscoveryText(row.description);
+  const aliases = normalizeDiscoveryText((row.aliases ?? []).join(" "));
+  const metadata = normalizeDiscoveryText(
+    `${row.familyLabel} ${row.moduleLabel} ${row.domainLabel} ${row.sheetPrimary} ${row.sheetSecondary} ${row.sourceTable} ${row.granularity} ${row.outputTypes?.join(" ")}`,
+  );
+  let score = 0;
+  if (title.includes(q)) score += 80;
+  if (summary.includes(q)) score += 28;
+  if (aliases.includes(q)) score += 34;
+  if (metadata.includes(q)) score += 18;
+  for (const token of tokens) {
+    if (title.includes(token)) score += 16;
+    if (aliases.includes(token)) score += 10;
+    if (summary.includes(token)) score += 7;
+    if (metadata.includes(token)) score += 5;
+  }
+  if (String(row.report?.reportId ?? "").includes(q)) score += 100;
+  return score;
+}
+
 function reportHubDisplayModule(report, hierarchyItem, kpi) {
-  const submodule = humanizeReportLabel(hierarchyItem?.submoduleLabel ?? hierarchyItem?.submodule ?? "");
-  const sheet = humanizeReportLabel(hierarchyItem?.sheetLabel ?? hierarchyItem?.sheet ?? "");
-  const domain = humanizeReportLabel(kpi?.module ?? report?.domain ?? "Reports");
+  const submodule = humanizeReportLabel(
+    hierarchyItem?.submoduleLabel ?? hierarchyItem?.submodule ?? "",
+  );
+  const sheet = humanizeReportLabel(
+    hierarchyItem?.sheetLabel ?? hierarchyItem?.sheet ?? "",
+  );
+  const domain = humanizeReportLabel(
+    kpi?.module ?? report?.domain ?? "Reports",
+  );
 
   if (/academic programs/i.test(sheet)) return "Academic Programs";
   if (submodule) return submodule;
@@ -2489,66 +2935,95 @@ function reportHubDisplayModule(report, hierarchyItem, kpi) {
 }
 
 function reportHubSheetParts(report, hierarchyItem, kpi) {
-  const sheet = humanizeReportLabel(hierarchyItem?.sheetLabel ?? hierarchyItem?.sheet ?? "");
+  const sheet = humanizeReportLabel(
+    hierarchyItem?.sheetLabel ?? hierarchyItem?.sheet ?? "",
+  );
   const kpiLabel = humanizeReportLabel(kpi?.label ?? report?.name ?? "KPI");
   const breakdown = humanizeReportLabel(report?.breakdownLabel ?? "");
 
   if (report?.reportType === "trend") {
-    return { primary: sheet || kpiLabel, secondary: kpiLabel && kpiLabel !== sheet ? kpiLabel : "", multi: false };
+    return {
+      primary: sheet || kpiLabel,
+      secondary: kpiLabel && kpiLabel !== sheet ? kpiLabel : "",
+      multi: false,
+    };
   }
 
   if (breakdown && !/^institute$/i.test(breakdown) && breakdown !== sheet) {
     return { primary: sheet || kpiLabel, secondary: breakdown, multi: true };
   }
 
-  return { primary: sheet || kpiLabel, secondary: /^institute$/i.test(breakdown) ? "Institute breakdown" : "", multi: false };
+  return {
+    primary: sheet || kpiLabel,
+    secondary: /^institute$/i.test(breakdown) ? "Institute breakdown" : "",
+    multi: false,
+  };
 }
 
 function reportHubDescription(report, kpi, hierarchyItem) {
-  if (report?.description) return report.description;
-
   const breakdown = humanizeReportLabel(report?.breakdownLabel ?? "");
   const helper = humanizeReportLabel(hierarchyItem?.helper ?? "");
   const label = humanizeReportLabel(kpi?.label ?? "metric");
-  const subject = label || "selected indicator";
 
   if (report?.reportType === "trend") {
-    return `Shows ${subject} values across years with visual trend and summary table.`;
+    return "Trend visual and summary metrics over time";
   }
   if (/^institute$/i.test(breakdown)) {
-    return `Compares ${subject} across IITs with chart and tabular data.`;
+    return "Institute-wise breakdown with visuals and numbers";
   }
-  if (/degree/i.test(breakdown)) return `Shows how ${subject} is distributed by degree category with chart and numbers.`;
-  if (/discipline|department/i.test(breakdown)) return `Breaks down ${subject} across disciplines or departments with visual comparison and table.`;
-  if (/mode/i.test(breakdown)) return `Compares ${subject} by delivery mode so online and on-campus patterns are clear.`;
-  if (/state|ut|geograph/i.test(breakdown)) return `Summarises geographic coverage for ${subject} with counts and tabular detail.`;
-  if (helper) return helper.length > 96 ? `${helper.slice(0, 94).trim()}...` : helper;
-  return `Shows ${breakdown || subject} distribution with visual output, numbers, and export-ready notes.`;
+  if (/degree/i.test(breakdown)) return "Degree category distribution";
+  if (/discipline|department/i.test(breakdown))
+    return "Distribution across disciplines";
+  if (/mode/i.test(breakdown)) return "Comparison by delivery mode";
+  if (/state|ut|geograph/i.test(breakdown))
+    return "Geographic coverage summary";
+  if (helper)
+    return helper.length > 78 ? `${helper.slice(0, 76).trim()}...` : helper;
+  return `${breakdown || label} distribution and report-ready summary`;
 }
 
 function reportHubType(report) {
-  const breakdown = String(report?.breakdownLabel ?? report?.breakdownField ?? "").toLowerCase();
+  const breakdown = String(
+    report?.breakdownLabel ?? report?.breakdownField ?? "",
+  ).toLowerCase();
   if (report?.reportType === "trend") return { id: "trend", label: "Trend" };
-  if (/degree|category|share|status|gender|mode/.test(breakdown)) return { id: "donut", label: "Distribution" };
-  if (/state|ut|records|observation|case/.test(breakdown)) return { id: "table", label: "Table" };
+  if (/degree|category|share|status|gender|mode/.test(breakdown))
+    return { id: "donut", label: "Distribution" };
+  if (/state|ut|records|observation|case/.test(breakdown))
+    return { id: "table", label: "Table" };
   return { id: "bar", label: "Breakdown" };
 }
 
 function reportHubModuleTone(moduleLabel, domain) {
   const text = `${moduleLabel ?? ""} ${domain ?? ""}`.toLowerCase();
-  if (/people|student|placement|alumni/.test(text)) return { accent: "#7c3aed", soft: "#f1eaff", kind: "people" };
-  if (/academic|degree|program|discipline/.test(text)) return { accent: "#1252a0", soft: "#eaf5ff", kind: "academic" };
-  if (/outreach|collaboration|admission|event|international/.test(text)) return { accent: "#ec4899", soft: "#fdf2f8", kind: "outreach" };
-  if (/research|innovation|patent|publication/.test(text)) return { accent: "#16a34a", soft: "#ecfdf5", kind: "research" };
-  if (/finance|infrastructure|budget|fund/.test(text)) return { accent: "#7c3aed", soft: "#f5f3ff", kind: "finance" };
+  if (/people|student|placement|alumni/.test(text))
+    return { accent: "#7c3aed", soft: "#f1eaff", kind: "people" };
+  if (/academic|degree|program|discipline/.test(text))
+    return { accent: "#1252a0", soft: "#eaf5ff", kind: "academic" };
+  if (/outreach|collaboration|admission|event|international/.test(text))
+    return { accent: "#ec4899", soft: "#fdf2f8", kind: "outreach" };
+  if (/research|innovation|patent|publication/.test(text))
+    return { accent: "#16a34a", soft: "#ecfdf5", kind: "research" };
+  if (/finance|infrastructure|budget|fund/.test(text))
+    return { accent: "#7c3aed", soft: "#f5f3ff", kind: "finance" };
   return { accent: "#1252a0", soft: "#eaf5ff", kind: "institution" };
 }
 
 function ReportHubModuleIcon({ tone }) {
-  const common = { stroke: tone.accent, strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round" };
+  const common = {
+    stroke: tone.accent,
+    strokeWidth: 1.9,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
   if (tone.kind === "people") {
     return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        aria-hidden="true"
+      >
         <circle {...common} cx="9" cy="8" r="3" />
         <path {...common} d="M3.5 19c.9-3.4 2.8-5.1 5.5-5.1s4.6 1.7 5.5 5.1" />
         <path {...common} d="M15.5 11.2a2.7 2.7 0 1 0-.2-5.2" />
@@ -2558,7 +3033,12 @@ function ReportHubModuleIcon({ tone }) {
   }
   if (tone.kind === "academic") {
     return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        aria-hidden="true"
+      >
         <path {...common} d="M3 8.5 12 4l9 4.5-9 4.5L3 8.5Z" />
         <path {...common} d="M7 11v4.2c1.4 1.5 3.1 2.3 5 2.3s3.6-.8 5-2.3V11" />
         <path {...common} d="M20 9v5" />
@@ -2567,7 +3047,12 @@ function ReportHubModuleIcon({ tone }) {
   }
   if (tone.kind === "outreach") {
     return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        aria-hidden="true"
+      >
         <path {...common} d="M5 13h3l8 4V7l-8 4H5v2Z" />
         <path {...common} d="M8 13l1.5 5" />
         <path {...common} d="M19 9.5c.8.6 1.2 1.5 1.2 2.5s-.4 1.9-1.2 2.5" />
@@ -2576,16 +3061,29 @@ function ReportHubModuleIcon({ tone }) {
   }
   if (tone.kind === "research") {
     return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        aria-hidden="true"
+      >
         <path {...common} d="M9 3h6" />
-        <path {...common} d="M10 3v5.5l-4.5 8A3 3 0 0 0 8.1 21h7.8a3 3 0 0 0 2.6-4.5l-4.5-8V3" />
+        <path
+          {...common}
+          d="M10 3v5.5l-4.5 8A3 3 0 0 0 8.1 21h7.8a3 3 0 0 0 2.6-4.5l-4.5-8V3"
+        />
         <path {...common} d="M8 15h8" />
       </svg>
     );
   }
   if (tone.kind === "finance") {
     return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        aria-hidden="true"
+      >
         <path {...common} d="M4 19V9" />
         <path {...common} d="M10 19V5" />
         <path {...common} d="M16 19v-8" />
@@ -2604,19 +3102,34 @@ function ReportHubModuleIcon({ tone }) {
 }
 
 function ReportHubTypeIcon({ type, accent = "#1d4ed8" }) {
-  const common = { stroke: accent, strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
-  if (type === "trend" || type === "line") {
+  const common = {
+    stroke: accent,
+    strokeWidth: 1.8,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
+  if (type === "trend") {
     return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        aria-hidden="true"
+      >
         <path {...common} d="M4 18V6" />
         <path {...common} d="M4 18h16" />
         <path {...common} d="M7 15l3.5-4 3 2.4L18 8" />
       </svg>
     );
   }
-  if (type === "donut" || type === "pie") {
+  if (type === "donut") {
     return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        aria-hidden="true"
+      >
         <path {...common} d="M12 3a9 9 0 1 0 9 9h-9V3Z" />
         <path {...common} d="M14 3.25A9 9 0 0 1 20.75 10H14V3.25Z" />
       </svg>
@@ -2624,7 +3137,12 @@ function ReportHubTypeIcon({ type, accent = "#1d4ed8" }) {
   }
   if (type === "table") {
     return (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        aria-hidden="true"
+      >
         <rect x="4" y="5" width="16" height="14" rx="2" {...common} />
         <path {...common} d="M4 10h16M4 15h16M10 5v14" />
       </svg>
@@ -2643,7 +3161,12 @@ function ReportHubSearchIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
       <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
-      <path d="m16.2 16.2 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="m16.2 16.2 4 4"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -2651,7 +3174,12 @@ function ReportHubSearchIcon() {
 function ReportHubFilterIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <path d="M4 6h16l-6.2 7.1V19l-3.6 1.5v-7.4L4 6Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
+      <path
+        d="M4 6h16l-6.2 7.1V19l-3.6 1.5v-7.4L4 6Z"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -2659,9 +3187,24 @@ function ReportHubFilterIcon() {
 function ReportHubSparkIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" aria-hidden="true">
-      <path d="M12 3l1.3 4.2L17.5 8l-4.2 1.3L12 13.5l-1.3-4.2L6.5 8l4.2-1.3L12 3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-      <path d="M18.5 13l.8 2.3 2.2.7-2.2.7-.8 2.3-.8-2.3-2.2-.7 2.2-.7.8-2.3Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M5.5 13l.7 1.8L8 15.5l-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path
+        d="M12 3l1.3 4.2L17.5 8l-4.2 1.3L12 13.5l-1.3-4.2L6.5 8l4.2-1.3L12 3Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M18.5 13l.8 2.3 2.2.7-2.2.7-.8 2.3-.8-2.3-2.2-.7 2.2-.7.8-2.3Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5.5 13l.7 1.8L8 15.5l-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -2669,7 +3212,12 @@ function ReportHubSparkIcon() {
 function ReportHubEyeIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-      <path d="M3.5 12s3-5 8.5-5 8.5 5 8.5 5-3 5-8.5 5-8.5-5-8.5-5Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
+      <path
+        d="M3.5 12s3-5 8.5-5 8.5 5 8.5 5-3 5-8.5 5-8.5-5-8.5-5Z"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinejoin="round"
+      />
       <circle cx="12" cy="12" r="2.3" stroke="currentColor" strokeWidth="1.9" />
     </svg>
   );
@@ -2678,15 +3226,35 @@ function ReportHubEyeIcon() {
 function ReportHubDownloadIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <path d="M12 4v10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="m8 10 4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M5 20h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M12 4v10"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="m8 10 4 4 4-4"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5 20h14"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
 
 function SortGlyph() {
-  return <span className="ml-1 align-middle text-[10px] font-black text-[#85a1c7]">↕</span>;
+  return (
+    <span className="ml-1 align-middle text-[10px] font-black text-[#85a1c7]">
+      ↕
+    </span>
+  );
 }
 
 function slugFileName(value) {
@@ -2697,60 +3265,125 @@ function slugFileName(value) {
     .slice(0, 90);
   return slug || "report";
 }
-export default function ReportsHubPage({ facts, config, accent: dashboardAccent, role, instituteId, onOpenFilters, onOpenSource, onOpenInstructions, onBack, focusKpiId, autoOpenKey = 0 }) {
+export default function ReportsHubPage({
+  facts,
+  config,
+  accent: dashboardAccent,
+  role,
+  instituteId,
+  onOpenFilters,
+  onOpenSource,
+  onOpenInstructions,
+  onBack,
+  focusKpiId,
+  autoOpenKey = 0,
+}) {
   const accent = dashboardAccent || "#1d4ed8";
   const [searchTerm, setSearchTerm] = useState("");
+  const [familyFilter, setFamilyFilter] = useState("all");
   const [moduleFilter, setModuleFilter] = useState("All");
-  const [sortMode, setSortMode] = useState("coverage");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [sortMode, setSortMode] = useState("relevance");
+  const [resultLayout, setResultLayout] = useState("cards");
   const [nlDraft, setNlDraft] = useState("");
   const [nlStatus, setNlStatus] = useState("");
   const [askPanelOpen, setAskPanelOpen] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
 
-  const reportHierarchyMaps = useMemo(() => buildReportHierarchyMaps(COMPARE_HIERARCHY), []);
-  const allReportItems = useMemo(() => Object.values(reportHierarchyMaps.itemMap), [reportHierarchyMaps]);
-  const [reportSelection, setReportSelection] = useState(() => makeReportSelectionFromConfig({ config, role, instituteId, allItems: allReportItems }));
+  const reportHierarchyMaps = useMemo(
+    () => buildReportHierarchyMaps(COMPARE_HIERARCHY),
+    [],
+  );
+  const allReportItems = useMemo(
+    () => Object.values(reportHierarchyMaps.itemMap),
+    [reportHierarchyMaps],
+  );
+  const [reportSelection, setReportSelection] = useState(() =>
+    makeReportSelectionFromConfig({
+      config,
+      role,
+      instituteId,
+      allItems: allReportItems,
+    }),
+  );
   const [reportFilterModalOpen, setReportFilterModalOpen] = useState(false);
 
   useEffect(() => {
-    setReportSelection(makeReportSelectionFromConfig({ config, role, instituteId, allItems: allReportItems }));
+    setReportSelection(
+      makeReportSelectionFromConfig({
+        config,
+        role,
+        instituteId,
+        allItems: allReportItems,
+      }),
+    );
   }, [config, role, instituteId, allReportItems]);
 
   function updateReportSelectionSource(updater) {
-    setReportSelection((prev) => normalizeReportSelection(typeof updater === "function" ? updater(prev) : updater, role, instituteId));
+    setReportSelection((prev) =>
+      normalizeReportSelection(
+        typeof updater === "function" ? updater(prev) : updater,
+        role,
+        instituteId,
+      ),
+    );
   }
 
   function applyReportItemSelection(itemId) {
     const item = reportHierarchyMaps.itemMap[itemId];
     if (!item) return;
-    setReportSelection((prev) => reportSelectionFromItem(item, prev, role, instituteId));
+    setReportSelection((prev) =>
+      reportSelectionFromItem(item, prev, role, instituteId),
+    );
   }
 
   function toggleReportModule(moduleId) {
-    const item = firstReportItemFromModuleEntity(reportHierarchyMaps.moduleMap[moduleId]);
+    const item = firstReportItemFromModuleEntity(
+      reportHierarchyMaps.moduleMap[moduleId],
+    );
     if (item?.id) applyReportItemSelection(item.id);
   }
 
   function toggleReportSubmodule(submoduleId) {
-    const item = firstReportItemFromSubmoduleEntity(reportHierarchyMaps.submoduleMap[submoduleId]);
+    const item = firstReportItemFromSubmoduleEntity(
+      reportHierarchyMaps.submoduleMap[submoduleId],
+    );
     if (item?.id) applyReportItemSelection(item.id);
   }
 
   function toggleReportSheet(sheetId) {
-    const item = firstReportItemFromSheetEntity(reportHierarchyMaps.sheetMap[sheetId]);
+    const item = firstReportItemFromSheetEntity(
+      reportHierarchyMaps.sheetMap[sheetId],
+    );
     if (item?.id) applyReportItemSelection(item.id);
   }
 
   function rankedIitsForReportSelection(direction = "top") {
-    const selectedKpiId = reportSelection.kpiIds?.[0] ?? reportHierarchyMaps.itemMap[reportSelection.items?.[0]]?.kpiId;
-    const selectedKpi = KPI_DEFS.find((item) => item.id === selectedKpiId) ?? KPI_DEFS[0];
+    const selectedKpiId =
+      reportSelection.kpiIds?.[0] ??
+      reportHierarchyMaps.itemMap[reportSelection.items?.[0]]?.kpiId;
+    const selectedKpi =
+      KPI_DEFS.find((item) => item.id === selectedKpiId) ?? KPI_DEFS[0];
     if (!selectedKpi) return [...REPORT_LEGACY_IITS];
-    const rankingYear = Number(reportSelection.focusYear ?? reportSelection.yearTo ?? YEARS[YEARS.length - 1]);
+    const rankingYear = Number(
+      reportSelection.focusYear ??
+        reportSelection.yearTo ??
+        YEARS[YEARS.length - 1],
+    );
     const rows = IITs.map((iit) => {
-      const scopedRows = (facts?.[selectedKpi.fact] ?? []).filter((row) => row.InstituteId === iit.id && Number(row.Year ?? 0) === rankingYear);
+      const scopedRows = (facts?.[selectedKpi.fact] ?? []).filter(
+        (row) =>
+          row.InstituteId === iit.id && Number(row.Year ?? 0) === rankingYear,
+      );
       return { id: iit.id, value: kpiValue(selectedKpi, scopedRows) };
-    }).filter((item) => item.value != null && Number.isFinite(Number(item.value)));
-    rows.sort((a, b) => direction === "bottom" ? Number(a.value) - Number(b.value) : Number(b.value) - Number(a.value));
+    }).filter(
+      (item) => item.value != null && Number.isFinite(Number(item.value)),
+    );
+    rows.sort((a, b) =>
+      direction === "bottom"
+        ? Number(a.value) - Number(b.value)
+        : Number(b.value) - Number(a.value),
+    );
     return rows.slice(0, 10).map((item) => item.id);
   }
 
@@ -2759,11 +3392,29 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
     if (reportSelection.iits?.length) return reportSelection.iits;
     return getScopeInstituteIds({ role, instituteId, config });
   }, [role, instituteId, reportSelection.iits, config]);
-  const scopeText = useMemo(() => instituteLabel(scopedInstituteIds), [scopedInstituteIds]);
+  const scopeText = useMemo(
+    () => instituteLabel(scopedInstituteIds),
+    [scopedInstituteIds],
+  );
 
-  const yrFrom = Number(reportSelection.yearFrom ?? Math.min(config?.YearRange?.from ?? YEARS[0], config?.YearRange?.to ?? YEARS[YEARS.length - 1]));
-  const yrTo = Number(reportSelection.yearTo ?? Math.max(config?.YearRange?.from ?? YEARS[0], config?.YearRange?.to ?? YEARS[YEARS.length - 1]));
-  const yearsInRange = useMemo(() => YEARS.filter((y) => y >= yrFrom && y <= yrTo), [yrFrom, yrTo]);
+  const yrFrom = Number(
+    reportSelection.yearFrom ??
+      Math.min(
+        config?.YearRange?.from ?? YEARS[0],
+        config?.YearRange?.to ?? YEARS[YEARS.length - 1],
+      ),
+  );
+  const yrTo = Number(
+    reportSelection.yearTo ??
+      Math.max(
+        config?.YearRange?.from ?? YEARS[0],
+        config?.YearRange?.to ?? YEARS[YEARS.length - 1],
+      ),
+  );
+  const yearsInRange = useMemo(
+    () => YEARS.filter((y) => y >= yrFrom && y <= yrTo),
+    [yrFrom, yrTo],
+  );
 
   const activeKpiSet = useMemo(() => {
     const configIds = config?.KpiIds ?? [];
@@ -2773,10 +3424,12 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
     return selectionSet ?? configSet;
   }, [config, reportSelection?.kpiIds]);
 
-  const catalog = useMemo(() => [
-    ...buildReportCatalog(KPI_DEFS),
-    ...CUSTOM_REPORTS,
-  ], []);
+  const catalog = useMemo(() => {
+    const kpis = activeKpiSet
+      ? KPI_DEFS.filter((k) => activeKpiSet.has(k.id))
+      : KPI_DEFS;
+    return buildReportCatalog(kpis);
+  }, [activeKpiSet]);
 
   const [usage, setUsage] = useState(() => safeGetUsage());
   function bumpUsage(reportId) {
@@ -2792,7 +3445,10 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
 
   useEffect(() => {
     if (!focusKpiId) return;
-    const first = catalog.find((item) => item.kpiId === focusKpiId && item.reportType !== "trend") ?? catalog.find((item) => item.kpiId === focusKpiId);
+    const first =
+      catalog.find(
+        (item) => item.kpiId === focusKpiId && item.reportType !== "trend",
+      ) ?? catalog.find((item) => item.kpiId === focusKpiId);
     if (first) {
       setReportInitialYear(null);
       setActiveReport(first);
@@ -2813,50 +3469,66 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
   }
 
   function runNaturalLanguageReport() {
-    const resolved = resolveNaturalLanguageReport({ text: nlDraft, catalog, yearsInRange });
+    const discoveryCatalog = hubRows.length
+      ? hubRows.map((row) => row.report)
+      : catalog;
+    const resolved = resolveNaturalLanguageReport({
+      text: nlDraft,
+      catalog: discoveryCatalog,
+      yearsInRange,
+    });
     setNlStatus(resolved.reason ?? "");
     if (resolved.report) openReport(resolved.report, resolved.year);
   }
 
   const reportCarouselCategoryItems = useMemo(
-    () => COMPARE_HIERARCHY.map((module) => ({
-      id: module.id,
-      label: humanizeReportLabel(module.label ?? module.id),
-      tooltip: humanizeReportLabel(module.description ?? module.label ?? module.id),
-    })),
-    []
+    () =>
+      COMPARE_HIERARCHY.map((module) => ({
+        id: module.id,
+        label: humanizeReportLabel(module.label ?? module.id),
+        tooltip: humanizeReportLabel(
+          module.description ?? module.label ?? module.id,
+        ),
+      })),
+    [],
   );
 
   const reportCarouselModuleItems = useMemo(() => {
-    const sourceModules = (reportSelection.modules ?? []).map((id) => reportHierarchyMaps.moduleMap[id]).filter(Boolean);
+    const sourceModules = (reportSelection.modules ?? [])
+      .map((id) => reportHierarchyMaps.moduleMap[id])
+      .filter(Boolean);
     return sourceModules.flatMap((module) =>
       (module.submodules ?? []).map((submodule) => ({
         id: submodule.id,
         label: humanizeReportLabel(submodule.label ?? submodule.id),
         tooltip: `${humanizeReportLabel(module.label ?? module.id)} > ${humanizeReportLabel(submodule.label ?? submodule.id)}`,
-      }))
+      })),
     );
   }, [reportSelection.modules, reportHierarchyMaps]);
 
   const reportCarouselSheetItems = useMemo(() => {
-    const sourceSubmodules = (reportSelection.submodules ?? []).map((id) => reportHierarchyMaps.submoduleMap[id]).filter(Boolean);
+    const sourceSubmodules = (reportSelection.submodules ?? [])
+      .map((id) => reportHierarchyMaps.submoduleMap[id])
+      .filter(Boolean);
     return sourceSubmodules.flatMap((submodule) =>
       (submodule.sheets ?? []).map((sheet) => ({
         id: sheet.id,
         label: humanizeReportLabel(sheet.label ?? sheet.id),
         tooltip: `${humanizeReportLabel(reportHierarchyMaps.moduleMap[submodule.moduleId]?.label ?? submodule.moduleId)} > ${humanizeReportLabel(submodule.label ?? submodule.id)} > ${humanizeReportLabel(sheet.label ?? sheet.id)}`,
-      }))
+      })),
     );
   }, [reportSelection.submodules, reportHierarchyMaps]);
 
   const reportCarouselKpiItems = useMemo(() => {
-    const sourceSheets = (reportSelection.sheets ?? []).map((id) => reportHierarchyMaps.sheetMap[id]).filter(Boolean);
+    const sourceSheets = (reportSelection.sheets ?? [])
+      .map((id) => reportHierarchyMaps.sheetMap[id])
+      .filter(Boolean);
     return sourceSheets.flatMap((sheet) =>
       (sheet.kpis ?? []).map((item) => ({
         id: item.id,
         label: reportItemLabel(item),
         tooltip: `${humanizeReportLabel(reportHierarchyMaps.moduleMap[sheet.moduleId]?.label ?? sheet.moduleId)} > ${humanizeReportLabel(reportHierarchyMaps.submoduleMap[sheet.submoduleId]?.label ?? sheet.submoduleId)} > ${humanizeReportLabel(sheet.label ?? sheet.id)} > ${reportItemLabel(item)}`,
-      }))
+      })),
     );
   }, [reportSelection.sheets, reportHierarchyMaps]);
 
@@ -2871,95 +3543,178 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
 
   const hubRows = useMemo(() => {
     return catalog.map((report) => {
-      const reportKpis = getReportKpis(report);
-      const kpi = reportKpis[0] ?? null;
-      const hierarchyItem = hierarchyItemsByKpi.get(report.kpiId ?? reportKpis[0]?.id) ?? null;
-      const coverage = getReportCoverage(report, reportKpis, hierarchyItem);
-      const dataSource = getReportDataSource(report, reportKpis, hierarchyItem);
-      const chartTypes = chartTypesForReport(report, kpi);
-      const tone = reportHubModuleTone(coverage.label, coverage.subLabel || report.domain);
+      const kpi = KPI_DEFS.find((item) => item.id === report.kpiId);
+      const hierarchyItem = hierarchyItemsByKpi.get(report.kpiId) ?? null;
+      const moduleLabel = reportHubDisplayModule(report, hierarchyItem, kpi);
+      const sheetParts = reportHubSheetParts(report, hierarchyItem, kpi);
+      const type = reportHubType(report);
+      const familyId = reportFamilyForDiscovery(report, kpi, hierarchyItem);
+      const familyLabel = reportFamilyLabel(familyId);
+      const title = reportHubDiscoveryTitle(report, kpi, hierarchyItem);
+      const summary = reportHubDiscoverySummary(report, kpi, hierarchyItem);
+      const tone = reportHubModuleTone(moduleLabel, report.domain);
+      const sourceTable = reportHubSourceLabel(kpi);
+      const aliases = reportHubAliases(report, kpi, hierarchyItem);
+      const columnsCount = reportHubColumnCount(kpi);
+      const outputTypes = reportHubOutputTypes(report, type);
+      const displayReport = {
+        ...report,
+        name: title,
+        originalName: report.name,
+        discoveryMeta: {
+          title,
+          summary,
+          familyId,
+          familyLabel,
+          familyTone: reportFamilyTone(familyId),
+          sourceTable,
+          outputTypes,
+          granularity: reportHubGranularity(report, kpi),
+          updateFrequency: "Annual",
+          columnsCount,
+        },
+      };
       return {
-        report,
+        report: displayReport,
         kpi,
-        reportKpis,
         hierarchyItem,
-        name: report.name,
-        description: reportHubDescription(report, kpi, hierarchyItem),
-        coverageLabel: coverage.label,
-        coverageSubLabel: coverage.subLabel,
-        coverageModules: coverage.modules,
-        isCrossModule: coverage.isCrossModule,
-        dataSourcePrimary: dataSource.primary,
-        dataSourceSecondary: dataSource.secondary,
-        dataSourceMulti: dataSource.multi,
-        chartTypes,
-        viewsLabel: chartTypes.map((type) => chartViewMeta(type).shortLabel).join(", "),
-        moduleLabel: coverage.label,
-        domainLabel: coverage.subLabel || humanizeReportLabel(report.domain),
-        sheetPrimary: dataSource.primary,
-        sheetSecondary: dataSource.secondary,
-        sheetMulti: dataSource.multi,
-        type: { id: chartTypes[0] ?? "table", label: chartTypes.map((type) => chartViewMeta(type).shortLabel).join(", ") },
+        name: title,
+        originalName: report.name,
+        description: summary,
+        moduleLabel,
+        domainLabel: humanizeReportLabel(report.domain),
+        sheetPrimary: sheetParts.primary,
+        sheetSecondary: sheetParts.secondary,
+        sheetMulti: sheetParts.multi,
+        familyId,
+        familyLabel,
+        familyTone: reportFamilyTone(familyId),
+        type,
         tone,
+        sourceTable,
+        columnsCount,
+        updateFrequency: "Annual",
+        lastUpdated: `Data through ${yrTo}`,
+        availableYears: `${yrFrom}-${yrTo}`,
+        iitCoverage: `${scopedInstituteIds.length || IITs.length}/${IITs.length} IITs`,
+        granularity: reportHubGranularity(report, kpi),
+        outputTypes,
+        aliases,
         priority: reportHubPriority(report),
-        searchText: `${report.name} ${report.description ?? ""} ${report.domain ?? ""} ${(report.modules ?? []).join(" ")} ${coverage.label} ${coverage.subLabel} ${dataSource.primary} ${dataSource.secondary} ${report.breakdownLabel ?? ""} ${reportKpis.map((item) => item.label).join(" ")}`.toLowerCase(),
+        searchText:
+          `${title} ${summary} ${aliases.join(" ")} ${report.domain} ${moduleLabel} ${sheetParts.primary} ${sheetParts.secondary} ${report.breakdownLabel ?? ""} ${kpi?.label ?? ""} ${sourceTable}`.toLowerCase(),
       };
     });
-  }, [catalog, hierarchyItemsByKpi]);
+  }, [catalog, hierarchyItemsByKpi, yrFrom, yrTo, scopedInstituteIds]);
 
   const moduleOptions = useMemo(() => {
-    const labels = new Set();
-    for (const row of hubRows) {
-      if (row.coverageLabel) labels.add(row.coverageLabel);
-      for (const moduleName of row.coverageModules ?? []) {
-        if (moduleName && moduleName !== "All modules") labels.add(moduleName);
-      }
-    }
-    const preferred = ["Institution & Governance", "People & Student Life", "Research & Innovation", "Infrastructure & Finance", "Collaboration & Outreach", "Cross-module", "All modules"];
-    const sorted = Array.from(labels).sort((a, b) => {
-      const ai = preferred.indexOf(a);
-      const bi = preferred.indexOf(b);
-      if (ai >= 0 || bi >= 0) return (ai >= 0 ? ai : 999) - (bi >= 0 ? bi : 999) || a.localeCompare(b);
-      return a.localeCompare(b);
-    });
-    return ["All", ...sorted];
+    const labels = Array.from(
+      new Set(hubRows.map((row) => row.moduleLabel).filter(Boolean)),
+    ).sort((a, b) => a.localeCompare(b));
+    return ["All", ...labels];
+  }, [hubRows]);
+
+  const typeOptions = useMemo(() => {
+    const labels = Array.from(
+      new Map(hubRows.map((row) => [row.type.id, row.type.label])).entries(),
+    );
+    return [
+      { value: "all", label: "All views" },
+      ...labels.map(([value, label]) => ({ value, label })),
+    ];
+  }, [hubRows]);
+
+  const familyCounts = useMemo(() => {
+    const counts = Object.fromEntries(
+      REPORT_DISCOVERY_FAMILIES.map((item) => [item.id, 0]),
+    );
+    counts.all = hubRows.length;
+    for (const row of hubRows)
+      counts[row.familyId] = Number(counts[row.familyId] ?? 0) + 1;
+    return counts;
   }, [hubRows]);
 
   const visibleRows = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-    const rows = hubRows.filter((row) => {
-      const okCoverage =
-        moduleFilter === "All" ||
-        row.coverageLabel === moduleFilter ||
-        row.coverageModules?.includes(moduleFilter) ||
-        (moduleFilter === "Cross-module" && row.isCrossModule);
-      const okKpi = reportMatchesKpiFilter(row.report, activeKpiSet);
-      const okSearch = !query || row.searchText.includes(query) || String(row.report.reportId).includes(query);
-      return okCoverage && okKpi && okSearch;
-    });
+    const rows = hubRows
+      .map((row) => ({ ...row, searchScore: scoreDiscoverySearch(row, query) }))
+      .filter((row) => {
+        const okFamily =
+          familyFilter === "all" || row.familyId === familyFilter;
+        const okModule =
+          moduleFilter === "All" || row.moduleLabel === moduleFilter;
+        const okType = typeFilter === "all" || row.type.id === typeFilter;
+        const okSearch =
+          !query ||
+          row.searchScore > 0 ||
+          String(row.report.reportId).includes(query);
+        return okFamily && okModule && okType && okSearch;
+      });
 
     const sorted = [...rows].sort((left, right) => {
+      if (searchTerm.trim()) {
+        const searchDelta =
+          Number(right.searchScore ?? 0) - Number(left.searchScore ?? 0);
+        if (searchDelta) return searchDelta;
+      }
       if (sortMode === "used") {
-        const usedDelta = Number(usage?.[right.report.reportId] ?? 0) - Number(usage?.[left.report.reportId] ?? 0);
+        const usedDelta =
+          Number(usage?.[right.report.reportId] ?? 0) -
+          Number(usage?.[left.report.reportId] ?? 0);
         if (usedDelta) return usedDelta;
       }
       if (sortMode === "name") return left.name.localeCompare(right.name);
-      if (sortMode === "dataSource") return `${left.dataSourcePrimary} ${left.dataSourceSecondary}`.localeCompare(`${right.dataSourcePrimary} ${right.dataSourceSecondary}`);
-      if (sortMode === "views") return left.viewsLabel.localeCompare(right.viewsLabel) || left.name.localeCompare(right.name);
+      if (sortMode === "module")
+        return (
+          left.moduleLabel.localeCompare(right.moduleLabel) ||
+          left.name.localeCompare(right.name)
+        );
+      if (sortMode === "type")
+        return (
+          left.type.label.localeCompare(right.type.label) ||
+          left.name.localeCompare(right.name)
+        );
+      if (sortMode === "updated")
+        return (
+          String(right.lastUpdated).localeCompare(String(left.lastUpdated)) ||
+          left.name.localeCompare(right.name)
+        );
 
       const priorityDelta = left.priority - right.priority;
       if (priorityDelta) return priorityDelta;
-      return left.coverageLabel.localeCompare(right.coverageLabel) || left.name.localeCompare(right.name);
+      return (
+        left.familyLabel.localeCompare(right.familyLabel) ||
+        left.name.localeCompare(right.name)
+      );
     });
     return sorted;
-  }, [hubRows, searchTerm, moduleFilter, sortMode, usage, activeKpiSet]);
+  }, [
+    hubRows,
+    searchTerm,
+    familyFilter,
+    moduleFilter,
+    typeFilter,
+    sortMode,
+    usage,
+  ]);
 
   const selectionSignature = reportSelectionSignature(reportSelection);
   useEffect(() => {
     setPageIndex(0);
-  }, [searchTerm, moduleFilter, sortMode, selectionSignature]);
+  }, [
+    searchTerm,
+    familyFilter,
+    moduleFilter,
+    typeFilter,
+    sortMode,
+    resultLayout,
+    selectionSignature,
+  ]);
 
-  const totalPages = Math.max(1, Math.ceil(visibleRows.length / REPORTS_PAGE_SIZE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(visibleRows.length / REPORTS_PAGE_SIZE),
+  );
   useEffect(() => {
     if (pageIndex > totalPages - 1) setPageIndex(totalPages - 1);
   }, [pageIndex, totalPages]);
@@ -2970,41 +3725,20 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
   const showingTo = visibleRows.length ? pageStart + pageRows.length : 0;
 
   function buildHubExportData(report) {
-    const reportKpis = getReportKpis(report);
-    const kpi = reportKpis[0] ?? null;
-    const exportYear = Number(reportSelection.focusYear ?? yrTo ?? YEARS[YEARS.length - 1]);
-    if (!report) return { columns: [], rows: [] };
-
-    if (report.scopeType === "cross_module" || report.scopeType === "all_modules") {
-      const columns = [
-        { key: "Section", label: "Section" },
-        { key: "Indicator", label: "Indicator" },
-        { key: "Value", label: "Value" },
-        { key: "YoY", label: "YoY" },
-        { key: "SourceRows", label: "Source rows" },
-        { key: "Year", label: "Year" },
-      ];
-      const rows = reportKpis.map((item) => {
-        const currentRows = rowsForKpiYear({ facts, kpi: item, year: exportYear, scopedInstituteIds });
-        const previousRows = rowsForKpiYear({ facts, kpi: item, year: exportYear - 1, scopedInstituteIds });
-        const currentValue = kpiValue(item, currentRows);
-        const previousValue = kpiValue(item, previousRows);
-        return {
-          Section: item.module ?? "Reports",
-          Indicator: item.label,
-          Value: fmtValue(item, currentValue),
-          YoY: formatYoYForCard(item, currentValue, previousValue),
-          SourceRows: currentRows.length,
-          Year: exportYear,
-        };
-      });
-      return { columns, rows };
-    }
-
-    if (!kpi) return { columns: [], rows: [] };
+    const kpi = KPI_DEFS.find((item) => item.id === report?.kpiId);
+    const exportYear = Number(
+      reportSelection.focusYear ?? yrTo ?? YEARS[YEARS.length - 1],
+    );
+    if (!report || !kpi) return { columns: [], rows: [] };
 
     if (report.reportType === "trend") {
-      const trendRows = trendDataForReport({ facts, report, kpi, yearsInRange, scopedInstituteIds });
+      const trendRows = trendDataForReport({
+        facts,
+        report,
+        kpi,
+        yearsInRange,
+        scopedInstituteIds,
+      });
       return {
         columns: [
           { key: "Year", label: "Year" },
@@ -3021,8 +3755,15 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
       };
     }
 
-    const rows = rowsForYear({ facts, report, year: exportYear, scopedInstituteIds });
-    const groups = computeGroupMetrics(kpi, rows, [report.breakdownField ?? "Institute"]).slice(0, Number(config?.MaxRows ?? 1000));
+    const rows = rowsForYear({
+      facts,
+      report,
+      year: exportYear,
+      scopedInstituteIds,
+    });
+    const groups = computeGroupMetrics(kpi, rows, [
+      report.breakdownField ?? "Institute",
+    ]).slice(0, Number(config?.MaxRows ?? 1000));
     return {
       columns: [
         { key: "Rank", label: "Rank" },
@@ -3045,58 +3786,85 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
     const { columns, rows } = buildHubExportData(row.report);
     const metadata = [
       { Field: "Report", Value: row.name },
-      { Field: "Coverage", Value: [row.coverageLabel, row.coverageSubLabel].filter(Boolean).join(" - ") },
-      { Field: "Data Source", Value: [row.dataSourcePrimary, row.dataSourceSecondary].filter(Boolean).join(" / ") },
+      { Field: "Module", Value: row.moduleLabel },
+      {
+        Field: "Sheet / KPI",
+        Value: [row.sheetPrimary, row.sheetSecondary]
+          .filter(Boolean)
+          .join(" / "),
+      },
       { Field: "Scope", Value: scopeText },
       { Field: "Years", Value: `${yrFrom}-${yrTo}` },
-      { Field: "Views", Value: row.viewsLabel },
+      { Field: "Type", Value: row.type.label },
+      { Field: "", Value: "" },
     ];
-    const html = `
-      <div style="padding:18px;">
-        <div class="card">
-          <h1 style="font-size:20px;font-weight:900;">${escHtml(row.name)}</h1>
-          <div class="muted" style="font-size:12px;margin-top:5px;">IITMIS report export | PDF primary export</div>
-        </div>
-        <div style="height:10px;"></div>
-        <div class="card">
-          <h2 style="font-size:14px;font-weight:900;margin-bottom:8px;">Report summary</h2>
-          ${htmlTable([{ key: "Field", label: "Field" }, { key: "Value", label: "Value" }], metadata)}
-        </div>
-        <div style="height:10px;"></div>
-        <div class="card">
-          <h2 style="font-size:14px;font-weight:900;margin-bottom:8px;">Numbers table</h2>
-          ${rows.length ? htmlTable(columns, rows) : `<div class="muted">No rows available for the selected filters.</div>`}
-        </div>
-      </div>
-    `;
-    downloadHtmlAsPdf({
-      title: `${row.name} PDF`,
-      html,
-      orientation: "landscape",
-      pageSize: "A4",
-    });
+    const metadataCsv = toCsv(metadata, [
+      { key: "Field", label: "Field" },
+      { key: "Value", label: "Value" },
+    ]);
+    const tableCsv = rows.length
+      ? toCsv(rows, columns)
+      : "No rows available for the selected filters.";
+    downloadText(
+      `${slugFileName(row.name)}.csv`,
+      `${metadataCsv}\n\n${tableCsv}`,
+      "text/csv;charset=utf-8",
+    );
   }
 
   function renderReportAdvancedFilterModal() {
     if (!reportFilterModalOpen) return null;
 
-    const activeCategoryId = reportSelection.modules?.[0] ?? reportCarouselCategoryItems[0]?.id ?? "";
-    const activeModuleId = reportSelection.submodules?.[0] ?? reportHierarchyMaps.moduleMap[activeCategoryId]?.submodules?.[0]?.id ?? "";
-    const activeSheetId = reportSelection.sheets?.[0] ?? reportHierarchyMaps.submoduleMap[activeModuleId]?.sheets?.[0]?.id ?? "";
-    const activeItemId = reportSelection.items?.[0] ?? reportHierarchyMaps.sheetMap[activeSheetId]?.kpis?.[0]?.id ?? "";
-    const categoryOptions = reportCarouselCategoryItems.map((item) => ({ value: item.id, label: item.label }));
-    const moduleOptionsInner = (reportHierarchyMaps.moduleMap[activeCategoryId]?.submodules ?? []).map((item) => ({ value: item.id, label: humanizeReportLabel(item.label ?? item.id) }));
-    const sheetOptions = (reportHierarchyMaps.submoduleMap[activeModuleId]?.sheets ?? []).map((item) => ({ value: item.id, label: humanizeReportLabel(item.label ?? item.id) }));
-    const kpiOptions = (reportHierarchyMaps.sheetMap[activeSheetId]?.kpis ?? []).map((item) => ({ value: item.id, label: reportItemLabel(item) }));
+    const activeCategoryId =
+      reportSelection.modules?.[0] ?? reportCarouselCategoryItems[0]?.id ?? "";
+    const activeModuleId =
+      reportSelection.submodules?.[0] ??
+      reportHierarchyMaps.moduleMap[activeCategoryId]?.submodules?.[0]?.id ??
+      "";
+    const activeSheetId =
+      reportSelection.sheets?.[0] ??
+      reportHierarchyMaps.submoduleMap[activeModuleId]?.sheets?.[0]?.id ??
+      "";
+    const activeItemId =
+      reportSelection.items?.[0] ??
+      reportHierarchyMaps.sheetMap[activeSheetId]?.kpis?.[0]?.id ??
+      "";
+    const categoryOptions = reportCarouselCategoryItems.map((item) => ({
+      value: item.id,
+      label: item.label,
+    }));
+    const moduleOptionsInner = (
+      reportHierarchyMaps.moduleMap[activeCategoryId]?.submodules ?? []
+    ).map((item) => ({
+      value: item.id,
+      label: humanizeReportLabel(item.label ?? item.id),
+    }));
+    const sheetOptions = (
+      reportHierarchyMaps.submoduleMap[activeModuleId]?.sheets ?? []
+    ).map((item) => ({
+      value: item.id,
+      label: humanizeReportLabel(item.label ?? item.id),
+    }));
+    const kpiOptions = (
+      reportHierarchyMaps.sheetMap[activeSheetId]?.kpis ?? []
+    ).map((item) => ({ value: item.id, label: reportItemLabel(item) }));
     const allIitIds = IITs.map((iit) => iit.id);
-    const selectedIitCount = reportSelection.iits.filter((iid) => allIitIds.includes(iid)).length;
-    const allIitsSelected = selectedIitCount === allIitIds.length && allIitIds.length > 0;
+    const selectedIitCount = reportSelection.iits.filter((iid) =>
+      allIitIds.includes(iid),
+    ).length;
+    const allIitsSelected =
+      selectedIitCount === allIitIds.length && allIitIds.length > 0;
     const someIitsSelected = selectedIitCount > 0 && !allIitsSelected;
 
     const SelectAllIitsButton = () => (
       <button
         type="button"
-        onClick={() => updateReportSelectionSource((prev) => ({ ...prev, iits: allIitsSelected ? [] : allIitIds }))}
+        onClick={() =>
+          updateReportSelectionSource((prev) => ({
+            ...prev,
+            iits: allIitsSelected ? [] : allIitIds,
+          }))
+        }
         disabled={role === "iit"}
         className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-4 py-2 text-sm font-extrabold text-sky-700 transition hover:border-sky-200 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
         aria-checked={someIitsSelected ? "mixed" : allIitsSelected}
@@ -3105,9 +3873,12 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
         <span
           className="grid h-4 w-4 place-items-center rounded border text-[11px] leading-none"
           style={{
-            borderColor: allIitsSelected || someIitsSelected ? "#1d4ed8" : "#94a3b8",
-            background: allIitsSelected || someIitsSelected ? "#1d4ed8" : "#ffffff",
-            color: allIitsSelected || someIitsSelected ? "#ffffff" : "transparent",
+            borderColor:
+              allIitsSelected || someIitsSelected ? "#1d4ed8" : "#94a3b8",
+            background:
+              allIitsSelected || someIitsSelected ? "#1d4ed8" : "#ffffff",
+            color:
+              allIitsSelected || someIitsSelected ? "#ffffff" : "transparent",
           }}
         >
           {allIitsSelected ? "✓" : someIitsSelected ? "-" : "✓"}
@@ -3121,8 +3892,13 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
         <div className="mx-auto flex h-full w-full max-w-[1040px] flex-col overflow-hidden rounded-[30px] border border-slate-200 bg-[#f3f4f6] shadow-[0_30px_90px_rgba(15,23,42,0.18)]">
           <div className="flex items-start justify-between gap-4 px-6 py-5">
             <div>
-              <div className="text-[1.25rem] font-extrabold text-slate-900">Advanced report filters</div>
-              <div className="mt-1 text-sm font-semibold text-slate-500">Choose KPI, reporting period, and IIT coverage for the report table.</div>
+              <div className="text-[1.25rem] font-extrabold text-slate-900">
+                Advanced report filters
+              </div>
+              <div className="mt-1 text-sm font-semibold text-slate-500">
+                Choose KPI, reporting period, and IIT coverage for the report
+                table.
+              </div>
             </div>
             <button
               type="button"
@@ -3138,43 +3914,145 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
             <div className="space-y-4">
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="mb-4 flex items-center justify-between gap-3">
-                  <div className="text-[1.02rem] font-extrabold text-slate-900">Select KPI</div>
+                  <div className="text-[1.02rem] font-extrabold text-slate-900">
+                    Select KPI
+                  </div>
                   <button
                     type="button"
-                    onClick={() => updateReportSelectionSource({ modules: [], submodules: [], sheets: [], items: [], kpiIds: [], iits: reportSelection.iits, yearFrom: reportSelection.yearFrom, yearTo: reportSelection.yearTo, focusYear: reportSelection.focusYear })}
+                    onClick={() =>
+                      updateReportSelectionSource({
+                        modules: [],
+                        submodules: [],
+                        sheets: [],
+                        items: [],
+                        kpiIds: [],
+                        iits: reportSelection.iits,
+                        yearFrom: reportSelection.yearFrom,
+                        yearTo: reportSelection.yearTo,
+                        focusYear: reportSelection.focusYear,
+                      })
+                    }
                     className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50"
                   >
                     Clear all
                   </button>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  <Select label="Category" value={activeCategoryId} onChange={toggleReportModule} options={categoryOptions.length ? categoryOptions : [{ value: "", label: "No category available" }]} disabled={!categoryOptions.length} />
-                  <Select label="Module" value={activeModuleId} onChange={toggleReportSubmodule} options={moduleOptionsInner.length ? moduleOptionsInner : [{ value: "", label: "Select category first" }]} disabled={!moduleOptionsInner.length} />
-                  <Select label="Sheet" value={activeSheetId} onChange={toggleReportSheet} options={sheetOptions.length ? sheetOptions : [{ value: "", label: "Select module first" }]} disabled={!sheetOptions.length} />
-                  <Select label="KPI" value={activeItemId} onChange={applyReportItemSelection} options={kpiOptions.length ? kpiOptions : [{ value: "", label: "Select sheet first" }]} disabled={!kpiOptions.length} />
+                  <Select
+                    label="Category"
+                    value={activeCategoryId}
+                    onChange={toggleReportModule}
+                    options={
+                      categoryOptions.length
+                        ? categoryOptions
+                        : [{ value: "", label: "No category available" }]
+                    }
+                    disabled={!categoryOptions.length}
+                  />
+                  <Select
+                    label="Module"
+                    value={activeModuleId}
+                    onChange={toggleReportSubmodule}
+                    options={
+                      moduleOptionsInner.length
+                        ? moduleOptionsInner
+                        : [{ value: "", label: "Select category first" }]
+                    }
+                    disabled={!moduleOptionsInner.length}
+                  />
+                  <Select
+                    label="Sheet"
+                    value={activeSheetId}
+                    onChange={toggleReportSheet}
+                    options={
+                      sheetOptions.length
+                        ? sheetOptions
+                        : [{ value: "", label: "Select module first" }]
+                    }
+                    disabled={!sheetOptions.length}
+                  />
+                  <Select
+                    label="KPI"
+                    value={activeItemId}
+                    onChange={applyReportItemSelection}
+                    options={
+                      kpiOptions.length
+                        ? kpiOptions
+                        : [{ value: "", label: "Select sheet first" }]
+                    }
+                    disabled={!kpiOptions.length}
+                  />
                 </div>
               </div>
 
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Select Date</div>
-                  <ReportDateSelector source={reportSelection} updateSource={updateReportSelectionSource} years={YEARS} accent={accent} />
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">
+                    Select Date
+                  </div>
+                  <ReportDateSelector
+                    source={reportSelection}
+                    updateSource={updateReportSelectionSource}
+                    years={YEARS}
+                    accent={accent}
+                  />
                 </div>
               </div>
 
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Select IITs</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">
+                    Select IITs
+                  </div>
                   <div>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <SelectAllIitsButton />
-                        <button type="button" onClick={() => updateReportSelectionSource((prev) => ({ ...prev, iits: [] }))} disabled={role === "iit"} className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50">Clear all</button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateReportSelectionSource((prev) => ({
+                              ...prev,
+                              iits: [],
+                            }))
+                          }
+                          disabled={role === "iit"}
+                          className="rounded-full px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Clear all
+                        </button>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <ReportSelectionActionButton label="OLD IITs" onClick={() => updateReportSelectionSource((prev) => ({ ...prev, iits: [...REPORT_LEGACY_IITS] }))} disabled={role === "iit"} />
-                        <ReportSelectionActionButton label="Top 10 by KPI" onClick={() => updateReportSelectionSource((prev) => ({ ...prev, iits: rankedIitsForReportSelection("top") }))} disabled={role === "iit"} />
-                        <ReportSelectionActionButton label="Bottom 10 by KPI" onClick={() => updateReportSelectionSource((prev) => ({ ...prev, iits: rankedIitsForReportSelection("bottom") }))} disabled={role === "iit"} />
+                        <ReportSelectionActionButton
+                          label="OLD IITs"
+                          onClick={() =>
+                            updateReportSelectionSource((prev) => ({
+                              ...prev,
+                              iits: [...REPORT_LEGACY_IITS],
+                            }))
+                          }
+                          disabled={role === "iit"}
+                        />
+                        <ReportSelectionActionButton
+                          label="Top 10 by KPI"
+                          onClick={() =>
+                            updateReportSelectionSource((prev) => ({
+                              ...prev,
+                              iits: rankedIitsForReportSelection("top"),
+                            }))
+                          }
+                          disabled={role === "iit"}
+                        />
+                        <ReportSelectionActionButton
+                          label="Bottom 10 by KPI"
+                          onClick={() =>
+                            updateReportSelectionSource((prev) => ({
+                              ...prev,
+                              iits: rankedIitsForReportSelection("bottom"),
+                            }))
+                          }
+                          disabled={role === "iit"}
+                        />
                       </div>
                     </div>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -3183,12 +4061,17 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
                           key={iit.id}
                           label={instituteShortLabel(iit.id)}
                           active={reportSelection.iits.includes(iit.id)}
-                          onClick={() => updateReportSelectionSource((prev) => ({
-                            ...prev,
-                            iits: prev.iits.includes(iit.id)
-                              ? prev.iits.filter((item) => item !== iit.id)
-                              : sortReportIitsAlphabetically([...prev.iits, iit.id]),
-                          }))}
+                          onClick={() =>
+                            updateReportSelectionSource((prev) => ({
+                              ...prev,
+                              iits: prev.iits.includes(iit.id)
+                                ? prev.iits.filter((item) => item !== iit.id)
+                                : sortReportIitsAlphabetically([
+                                    ...prev.iits,
+                                    iit.id,
+                                  ]),
+                            }))
+                          }
                           title={iit.name}
                         />
                       ))}
@@ -3200,8 +4083,18 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
           </div>
 
           <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-[#f3f4f6] px-6 py-4">
-            <button type="button" onClick={() => setReportFilterModalOpen(false)} className="rounded-2xl px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-white">Cancel</button>
-            <button type="button" onClick={() => setReportFilterModalOpen(false)} className="rounded-2xl bg-[#3ac778] px-5 py-2.5 text-sm font-bold text-white shadow-sm">
+            <button
+              type="button"
+              onClick={() => setReportFilterModalOpen(false)}
+              className="rounded-2xl px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-white"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportFilterModalOpen(false)}
+              className="rounded-2xl bg-[#3ac778] px-5 py-2.5 text-sm font-bold text-white shadow-sm"
+            >
               Apply filters
             </button>
           </div>
@@ -3211,42 +4104,55 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
   }
 
   if (activeReport) {
-    const detailProps = {
-      report: activeReport,
-      catalog,
-      facts,
-      config: { ...config, InstituteId: scopedInstituteIds, YearRange: { from: yrFrom, to: yrTo } },
-      accent,
-      role,
-      instituteId,
-      initialYear: reportInitialYear,
-      onChangeReport: changeActiveReport,
-      onBack: () => {
-        setActiveReport(null);
-        setReportInitialYear(null);
-      },
-    };
-
-    if (activeReport.scopeType === "cross_module" || activeReport.scopeType === "all_modules") {
-      return <CrossModuleReportDetailPage {...detailProps} />;
-    }
-
-    return <ReportDetailPage {...detailProps} />;
+    return (
+      <ReportDetailPage
+        report={activeReport}
+        catalog={hubRows.map((row) => row.report)}
+        facts={facts}
+        config={{
+          ...config,
+          InstituteId: scopedInstituteIds,
+          YearRange: { from: yrFrom, to: yrTo },
+        }}
+        accent={accent}
+        role={role}
+        instituteId={instituteId}
+        initialYear={reportInitialYear}
+        onChangeReport={changeActiveReport}
+        onBack={() => {
+          setActiveReport(null);
+          setReportInitialYear(null);
+        }}
+      />
+    );
   }
 
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h2 className="text-[2rem] font-black leading-tight tracking-[-0.03em] text-slate-950">Reports</h2>
-          <p className="mt-2 text-sm font-semibold text-slate-500">Browse, search, preview, and export reports across all modules.</p>
+          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+            NDAP-style discovery layer
+          </div>
+          <h2 className="text-[2rem] font-black leading-tight tracking-[-0.03em] text-slate-950">
+            IITMIS Report Discovery
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
+            Search reports, topics, sheets, KPIs, and source tables first. The
+            existing Category → Module → Sheet → KPI hierarchy stays inside
+            advanced filters and provenance.
+          </p>
         </div>
         {onBack ? (
           <button
             type="button"
             onClick={onBack}
             className="self-start rounded-2xl px-4 py-2 text-sm font-extrabold transition hover:-translate-y-0.5 hover:opacity-90 md:self-auto"
-            style={{ background: "rgba(255,255,255,0.92)", border: "1px solid rgba(59,130,246,0.18)", color: "#1252a0" }}
+            style={{
+              background: "rgba(255,255,255,0.92)",
+              border: "1px solid rgba(59,130,246,0.18)",
+              color: "#1252a0",
+            }}
           >
             ← Back
           </button>
@@ -3254,65 +4160,232 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
       </div>
 
       <div
-        className="rounded-[18px] border bg-white/90 p-4 shadow-[0_12px_34px_rgba(37,99,235,0.08)]"
+        className="overflow-hidden rounded-[26px] border bg-white shadow-[0_18px_42px_rgba(37,99,235,0.08)]"
         style={{ borderColor: "rgba(59,130,246,0.16)" }}
       >
-        <div className="grid gap-3 xl:grid-cols-[minmax(280px,1fr)_180px_190px_170px_190px]">
-          <label className="relative block">
-            <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
-              <ReportHubSearchIcon />
-            </span>
-            <input
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Search reports by name, description, coverage, data source, or KPI"
-              className="h-14 w-full rounded-xl border bg-white pl-12 pr-4 text-sm font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
-              style={{ borderColor: "rgba(59,130,246,0.18)" }}
-            />
-          </label>
+        <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_480px]">
+          <div className="space-y-4">
+            <div>
+              <div className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">
+                Search → report family → view
+              </div>
+              <div className="mt-1 text-lg font-black text-slate-950">
+                Find the right analytical report without knowing the backend
+                hierarchy
+              </div>
+            </div>
+            <label className="relative block">
+              <span className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-slate-500">
+                <ReportHubSearchIcon />
+              </span>
+              <input
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search all reports, sheets, KPIs, source tables, and topics"
+                className="h-16 w-full rounded-2xl border bg-white pl-14 pr-4 text-[15px] font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                style={{ borderColor: "rgba(59,130,246,0.22)" }}
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">
+                Try
+              </span>
+              {REPORT_DISCOVERY_SUGGESTIONS.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setSearchTerm(item)}
+                  className="rounded-full border border-blue-100 bg-blue-50/70 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:-translate-y-0.5 hover:bg-blue-100"
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+          </div>
 
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              {
+                label: "Reports indexed",
+                value: catalog.length,
+                note: "from registry + KPI catalogue",
+              },
+              {
+                label: "Report families",
+                value: REPORT_DISCOVERY_FAMILIES.length - 1,
+                note: "topic-led discovery",
+              },
+              { label: "Latest data", value: yrTo, note: "visible report set" },
+              {
+                label: "Source tables",
+                value: new Set(hubRows.map((row) => row.sourceTable)).size,
+                note: "machine-readable backbone",
+              },
+            ].map((card) => (
+              <div
+                key={card.label}
+                className="rounded-2xl border border-blue-100 bg-blue-50/50 px-4 py-3"
+              >
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                  {card.label}
+                </div>
+                <div className="mt-1 text-2xl font-black text-slate-950">
+                  {card.value}
+                </div>
+                <div className="mt-0.5 text-xs font-semibold text-slate-500">
+                  {card.note}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="border-t border-blue-100 bg-slate-50/70 px-5 py-4">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-black text-slate-950">
+                Explore report families
+              </div>
+              <div className="text-xs font-semibold text-slate-500">
+                Families are discovery filters; module, sheet, and KPI lineage
+                remains available as provenance.
+              </div>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+            {REPORT_DISCOVERY_FAMILIES.map((family) => {
+              const active = familyFilter === family.id;
+              const count = familyCounts[family.id] ?? 0;
+              return (
+                <button
+                  key={family.id}
+                  type="button"
+                  onClick={() => setFamilyFilter(family.id)}
+                  className="min-h-[88px] rounded-2xl border bg-white px-4 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-md"
+                  style={{
+                    borderColor: active ? family.tone : "rgba(59,130,246,0.16)",
+                    boxShadow: active
+                      ? "0 12px 28px rgba(37,99,235,0.10)"
+                      : "none",
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="text-sm font-black leading-4 text-slate-950">
+                      {family.label}
+                    </div>
+                    <div
+                      className="rounded-full bg-slate-50 px-2 py-0.5 text-xs font-black"
+                      style={{ color: family.tone }}
+                    >
+                      {count}
+                    </div>
+                  </div>
+                  <div className="mt-2 line-clamp-2 text-[11px] font-semibold leading-4 text-slate-500">
+                    {family.hint}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="rounded-[22px] border bg-white/95 p-4 shadow-[0_12px_34px_rgba(37,99,235,0.06)]"
+        style={{ borderColor: "rgba(59,130,246,0.14)" }}
+      >
+        <div className="grid gap-3 xl:grid-cols-[minmax(180px,1fr)_180px_170px_170px_170px_220px]">
           <select
             value={moduleFilter}
             onChange={(event) => setModuleFilter(event.target.value)}
-            className="h-14 rounded-xl border bg-white px-4 text-sm font-extrabold text-slate-950 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+            className="h-12 rounded-xl border bg-white px-4 text-sm font-extrabold text-slate-950 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
             style={{ borderColor: "rgba(59,130,246,0.18)" }}
-            aria-label="Filter reports by coverage"
+            aria-label="Filter reports by module"
           >
             {moduleOptions.map((item) => (
-              <option key={item} value={item}>{item === "All" ? "All Coverage" : item}</option>
+              <option key={item} value={item}>
+                {item === "All" ? "All modules" : item}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={typeFilter}
+            onChange={(event) => setTypeFilter(event.target.value)}
+            className="h-12 rounded-xl border bg-white px-4 text-sm font-extrabold text-slate-950 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+            style={{ borderColor: "rgba(59,130,246,0.18)" }}
+            aria-label="Filter reports by output view"
+          >
+            {typeOptions.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
             ))}
           </select>
 
           <select
             value={sortMode}
             onChange={(event) => setSortMode(event.target.value)}
-            className="h-14 rounded-xl border bg-white px-4 text-sm font-extrabold text-slate-950 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+            className="h-12 rounded-xl border bg-white px-4 text-sm font-extrabold text-slate-950 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
             style={{ borderColor: "rgba(59,130,246,0.18)" }}
             aria-label="Sort reports"
           >
             {REPORT_HUB_SORT_OPTIONS.map((item) => (
-              <option key={item.value} value={item.value}>{item.label}</option>
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
             ))}
           </select>
+
+          <div className="flex h-12 rounded-xl border border-blue-100 bg-slate-50 p-1">
+            {[
+              { id: "cards", label: "Cards" },
+              { id: "table", label: "Table" },
+            ].map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setResultLayout(item.id)}
+                className="flex-1 rounded-lg text-xs font-black transition"
+                style={
+                  resultLayout === item.id
+                    ? { background: "#1d4ed8", color: "#ffffff" }
+                    : { color: "#475569" }
+                }
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
 
           <button
             type="button"
             onClick={() => setReportFilterModalOpen(true)}
-            className="inline-flex h-14 items-center justify-center gap-3 rounded-xl border bg-white px-4 text-sm font-extrabold text-[#1252a0] transition hover:-translate-y-0.5 hover:bg-blue-50"
+            className="inline-flex h-12 items-center justify-center gap-3 rounded-xl border bg-white px-4 text-sm font-extrabold text-[#1252a0] transition hover:-translate-y-0.5 hover:bg-blue-50"
             style={{ borderColor: "rgba(59,130,246,0.18)" }}
           >
             <ReportHubFilterIcon />
-            Advanced Filters
+            More filters
           </button>
 
           <button
             type="button"
             onClick={() => setAskPanelOpen((value) => !value)}
-            className="inline-flex h-14 items-center justify-center gap-3 rounded-xl border px-4 text-left text-sm font-extrabold text-slate-950 transition hover:-translate-y-0.5 hover:bg-blue-50"
-            style={{ borderColor: "rgba(59,130,246,0.18)", background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(239,246,255,0.92))" }}
+            className="inline-flex h-12 items-center justify-center gap-3 rounded-xl border px-4 text-left text-sm font-extrabold text-slate-950 transition hover:-translate-y-0.5 hover:bg-blue-50"
+            style={{
+              borderColor: "rgba(59,130,246,0.18)",
+              background:
+                "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(239,246,255,0.92))",
+            }}
           >
-            <span className="text-[#1d4ed8]"><ReportHubSparkIcon /></span>
-            <span className="leading-tight">Can&apos;t find a report?<br /><span className="text-[#1d4ed8]">Ask AI</span></span>
+            <span className="text-[#1d4ed8]">
+              <ReportHubSparkIcon />
+            </span>
+            <span className="leading-tight">
+              Can’t find a report?
+              <br />
+              <span className="text-[#1d4ed8]">Ask AI to suggest one</span>
+            </span>
           </button>
         </div>
 
@@ -3320,14 +4393,16 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
           <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-3">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-extrabold text-slate-950">Ask for the report you need</div>
+                <div className="text-sm font-extrabold text-slate-950">
+                  Ask for a report in plain language
+                </div>
                 <input
                   value={nlDraft}
                   onChange={(event) => setNlDraft(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") runNaturalLanguageReport();
                   }}
-                  placeholder="Example: show placement trend for the last 5 years"
+                  placeholder="Example: show faculty vacancy by institute or research funding trend"
                   className="mt-2 h-11 w-full rounded-xl border border-blue-100 bg-white px-4 text-sm font-semibold text-slate-700 outline-none focus:ring-4 focus:ring-blue-100"
                 />
               </div>
@@ -3337,10 +4412,14 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
                 className="h-11 rounded-xl px-5 text-sm font-extrabold text-white shadow-sm transition hover:-translate-y-0.5 hover:opacity-95"
                 style={{ background: accent }}
               >
-                Generate report
+                Suggest report
               </button>
             </div>
-            {nlStatus ? <div className="mt-2 text-xs font-semibold text-slate-500">{nlStatus}</div> : null}
+            {nlStatus ? (
+              <div className="mt-2 text-xs font-semibold text-slate-500">
+                {nlStatus}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -3348,112 +4427,300 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
       {renderReportAdvancedFilterModal()}
 
       <div
-        className="overflow-hidden rounded-[18px] border bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.05)]"
+        className="overflow-hidden rounded-[22px] border bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.05)]"
         style={{ borderColor: "rgba(59,130,246,0.14)" }}
       >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1180px] border-collapse text-sm">
-            <thead>
-              <tr className="border-b" style={{ borderColor: "rgba(148,163,184,0.28)" }}>
-                <th className="w-[72px] px-5 py-5 text-left text-xs font-black text-slate-950">S.No <SortGlyph /></th>
-                <th className="px-5 py-5 text-left text-xs font-black text-slate-950">Report Name <SortGlyph /></th>
-                <th className="px-5 py-5 text-left text-xs font-black text-slate-950">Description <SortGlyph /></th>
-                <th className="px-5 py-5 text-left text-xs font-black text-slate-950">Coverage <SortGlyph /></th>
-                <th className="px-5 py-5 text-left text-xs font-black text-slate-950">Data Source <SortGlyph /></th>
-                <th className="w-[160px] px-5 py-5 text-left text-xs font-black text-slate-950">Views <SortGlyph /></th>
-                <th className="w-[210px] px-5 py-5 text-center text-xs font-black text-slate-950">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pageRows.length ? pageRows.map((row, index) => (
-                <tr
+        <div
+          className="flex flex-col gap-2 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+          style={{ borderColor: "rgba(226,232,240,0.95)" }}
+        >
+          <div>
+            <div className="text-sm font-black text-slate-950">
+              Search results
+            </div>
+            <div className="text-xs font-semibold text-slate-500">
+              Showing {showingFrom} to {showingTo} of {visibleRows.length}{" "}
+              reports · {scopeText}, {yrFrom}-{yrTo}
+            </div>
+          </div>
+          <div className="text-xs font-semibold text-slate-500">
+            Lineage is shown as provenance, not as the main navigation path.
+          </div>
+        </div>
+
+        {resultLayout === "cards" ? (
+          <div className="grid gap-4 p-5 lg:grid-cols-2 2xl:grid-cols-3">
+            {pageRows.length ? (
+              pageRows.map((row) => (
+                <article
                   key={row.report.reportId}
-                  className="border-b transition hover:bg-blue-50/50"
-                  style={{ borderColor: "rgba(226,232,240,0.9)", background: index % 2 === 1 ? "rgba(248,250,252,0.74)" : "rgba(255,255,255,0.98)" }}
+                  className="flex min-h-[300px] flex-col rounded-[22px] border border-blue-100 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
                 >
-                  <td className="px-5 py-5 text-center font-semibold text-slate-800">{pageStart + index + 1}</td>
-                  <td className="px-5 py-5 align-middle">
-                    <button
-                      type="button"
-                      onClick={() => openReport(row.report)}
-                      className="max-w-[260px] text-left text-[13px] font-black leading-5 text-slate-950 transition hover:text-blue-700"
+                  <div className="flex items-start justify-between gap-3">
+                    <span
+                      className="rounded-full px-3 py-1 text-[11px] font-black"
+                      style={{
+                        color: row.familyTone,
+                        background: `${row.familyTone}14`,
+                      }}
                     >
-                      {row.name}
-                    </button>
-                  </td>
-                  <td className="px-5 py-5 align-middle text-[13px] font-semibold leading-5 text-slate-700">
-                    <div className="max-w-[260px]">{row.description}</div>
-                  </td>
-                  <td className="px-5 py-5 align-middle">
-                    <div className="flex items-center gap-3">
-                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[14px]" style={{ background: row.tone.soft }}>
-                        <ReportHubModuleIcon tone={row.tone} />
+                      {row.familyLabel}
+                    </span>
+                    <span className="rounded-full bg-slate-50 px-3 py-1 text-[11px] font-black text-slate-500">
+                      ID {row.report.reportId}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openReport(row.report)}
+                    className="mt-3 text-left text-lg font-black leading-6 text-slate-950 transition hover:text-blue-700"
+                  >
+                    {row.name}
+                  </button>
+                  <p className="mt-2 line-clamp-3 text-sm font-semibold leading-6 text-slate-600">
+                    {row.description}
+                  </p>
+
+                  <div className="mt-4 grid gap-2 text-xs font-semibold text-slate-600">
+                    <div className="flex items-start gap-2">
+                      <span className="mt-1 h-2 w-2 rounded-full bg-blue-500" />
+                      <span>
+                        <b className="text-slate-900">Collection:</b>{" "}
+                        {row.domainLabel} · {row.moduleLabel}
                       </span>
-                      <div className="min-w-0">
-                        <div className="truncate text-[13px] font-semibold text-slate-800">{row.coverageLabel}</div>
-                        <div className="mt-0.5 truncate text-[11px] font-semibold text-slate-400">{row.coverageSubLabel}</div>
-                      </div>
                     </div>
-                  </td>
-                  <td className="px-5 py-5 align-middle text-[13px] font-semibold text-slate-800">
-                    <div className="max-w-[260px] leading-5">
-                      <span>{row.dataSourcePrimary}</span>
-                      {row.dataSourceSecondary ? <><span className="px-1 text-slate-400">/</span><span>{row.dataSourceSecondary}</span></> : null}
-                      {row.dataSourceMulti ? <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">Multiple</span> : null}
+                    <div className="flex items-start gap-2">
+                      <span className="mt-1 h-2 w-2 rounded-full bg-blue-500" />
+                      <span>
+                        <b className="text-slate-900">Matching indicators:</b>{" "}
+                        {row.sheetPrimary}
+                        {row.sheetSecondary ? ` / ${row.sheetSecondary}` : ""}
+                      </span>
                     </div>
-                  </td>
-                  <td className="px-5 py-5 align-middle">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {row.chartTypes.map((type) => {
-                        const meta = chartViewMeta(type);
-                        return (
-                          <span key={meta.id} className="inline-grid h-10 w-10 place-items-center rounded-[14px] bg-blue-50 text-[#1d4ed8]" title={meta.label} aria-label={meta.label}>
-                            <ReportHubTypeIcon type={meta.iconType} accent="#1d4ed8" />
-                          </span>
-                        );
-                      })}
+                    <div className="flex items-start gap-2">
+                      <span className="mt-1 h-2 w-2 rounded-full bg-blue-500" />
+                      <span>
+                        <b className="text-slate-900">Granularity:</b>{" "}
+                        {row.granularity}
+                      </span>
                     </div>
-                  </td>
-                  <td className="px-5 py-5 align-middle">
-                    <div className="flex items-center justify-center gap-4">
+                    <div className="flex items-start gap-2">
+                      <span className="mt-1 h-2 w-2 rounded-full bg-blue-500" />
+                      <span>
+                        <b className="text-slate-900">Source:</b>{" "}
+                        {row.sourceTable} · {row.columnsCount} columns ·{" "}
+                        {row.updateFrequency}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {row.outputTypes.map((item) => (
+                      <span
+                        key={item}
+                        className="rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-600"
+                      >
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                    <div className="text-xs font-semibold text-slate-500">
+                      {row.availableYears} · {row.iitCoverage}
+                    </div>
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => openReport(row.report)}
-                        className="inline-flex h-9 min-w-[116px] items-center justify-center gap-2 rounded-lg border bg-white px-4 text-xs font-black text-[#1d4ed8] transition hover:-translate-y-0.5 hover:bg-blue-50"
+                        className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border bg-white px-4 text-xs font-black text-[#1d4ed8] transition hover:-translate-y-0.5 hover:bg-blue-50"
                         style={{ borderColor: "rgba(37,99,235,0.35)" }}
                       >
                         <ReportHubEyeIcon />
-                        Preview
+                        Open report
                       </button>
                       <button
                         type="button"
                         onClick={() => downloadHubReport(row)}
                         className="grid h-9 w-9 place-items-center rounded-lg border bg-white text-[#1d4ed8] transition hover:-translate-y-0.5 hover:bg-blue-50"
                         style={{ borderColor: "rgba(37,99,235,0.35)" }}
-                        title="Download PDF"
-                        aria-label={`Download PDF for ${row.name}`}
+                        title="Download CSV"
+                        aria-label={`Download ${row.name}`}
                       >
                         <ReportHubDownloadIcon />
                       </button>
                     </div>
-                  </td>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="col-span-full px-6 py-16 text-center">
+                <div className="text-base font-black text-slate-800">
+                  No reports match your filters.
+                </div>
+                <div className="mt-2 text-sm font-semibold text-slate-500">
+                  Try a broader search term, switch to All, or use Ask AI to
+                  suggest a report.
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1280px] border-collapse text-sm">
+              <thead>
+                <tr
+                  className="border-b bg-slate-50"
+                  style={{ borderColor: "rgba(148,163,184,0.28)" }}
+                >
+                  <th className="w-[72px] px-5 py-5 text-left text-xs font-black text-slate-950">
+                    S.No
+                  </th>
+                  <th className="px-5 py-5 text-left text-xs font-black text-slate-950">
+                    Report
+                  </th>
+                  <th className="px-5 py-5 text-left text-xs font-black text-slate-950">
+                    What it answers
+                  </th>
+                  <th className="px-5 py-5 text-left text-xs font-black text-slate-950">
+                    Family
+                  </th>
+                  <th className="px-5 py-5 text-left text-xs font-black text-slate-950">
+                    Metadata
+                  </th>
+                  <th className="px-5 py-5 text-left text-xs font-black text-slate-950">
+                    Lineage
+                  </th>
+                  <th className="w-[210px] px-5 py-5 text-center text-xs font-black text-slate-950">
+                    Action
+                  </th>
                 </tr>
-              )) : (
-                <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center">
-                    <div className="text-base font-black text-slate-800">No reports match your filters.</div>
-                    <div className="mt-2 text-sm font-semibold text-slate-500">Try a broader search term, switch to All Coverage, or use Ask AI.</div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {pageRows.length ? (
+                  pageRows.map((row, index) => (
+                    <tr
+                      key={row.report.reportId}
+                      className="border-b transition hover:bg-blue-50/50"
+                      style={{
+                        borderColor: "rgba(226,232,240,0.9)",
+                        background:
+                          index % 2 === 1
+                            ? "rgba(248,250,252,0.74)"
+                            : "rgba(255,255,255,0.98)",
+                      }}
+                    >
+                      <td className="px-5 py-5 text-center font-semibold text-slate-800">
+                        {pageStart + index + 1}
+                      </td>
+                      <td className="px-5 py-5 align-middle">
+                        <button
+                          type="button"
+                          onClick={() => openReport(row.report)}
+                          className="max-w-[270px] text-left text-[13px] font-black leading-5 text-slate-950 transition hover:text-blue-700"
+                        >
+                          {row.name}
+                        </button>
+                        <div className="mt-1 text-[11px] font-semibold text-slate-400">
+                          Original KPI view: {row.originalName}
+                        </div>
+                      </td>
+                      <td className="px-5 py-5 align-middle text-[13px] font-semibold leading-5 text-slate-700">
+                        <div className="max-w-[300px]">{row.description}</div>
+                      </td>
+                      <td className="px-5 py-5 align-middle">
+                        <span
+                          className="rounded-full px-3 py-1 text-[11px] font-black"
+                          style={{
+                            color: row.familyTone,
+                            background: `${row.familyTone}14`,
+                          }}
+                        >
+                          {row.familyLabel}
+                        </span>
+                      </td>
+                      <td className="px-5 py-5 align-middle text-[12px] font-semibold leading-5 text-slate-600">
+                        <div>
+                          {row.lastUpdated} · {row.updateFrequency}
+                        </div>
+                        <div>
+                          {row.iitCoverage} · {row.granularity}
+                        </div>
+                        <div>
+                          {row.sourceTable} · {row.columnsCount} columns
+                        </div>
+                      </td>
+                      <td className="px-5 py-5 align-middle text-[13px] font-semibold text-slate-800">
+                        <div className="max-w-[260px] leading-5">
+                          <span>
+                            {row.domainLabel} / {row.moduleLabel}
+                          </span>
+                          <br />
+                          <span>{row.sheetPrimary}</span>
+                          {row.sheetSecondary ? (
+                            <>
+                              <span className="px-1 text-slate-400">/</span>
+                              <span>{row.sheetSecondary}</span>
+                            </>
+                          ) : null}
+                          {row.sheetMulti ? (
+                            <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">
+                              Multiple
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-5 py-5 align-middle">
+                        <div className="flex items-center justify-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => openReport(row.report)}
+                            className="inline-flex h-9 min-w-[116px] items-center justify-center gap-2 rounded-lg border bg-white px-4 text-xs font-black text-[#1d4ed8] transition hover:-translate-y-0.5 hover:bg-blue-50"
+                            style={{ borderColor: "rgba(37,99,235,0.35)" }}
+                          >
+                            <ReportHubEyeIcon />
+                            Preview
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadHubReport(row)}
+                            className="grid h-9 w-9 place-items-center rounded-lg border bg-white text-[#1d4ed8] transition hover:-translate-y-0.5 hover:bg-blue-50"
+                            style={{ borderColor: "rgba(37,99,235,0.35)" }}
+                            title="Download CSV"
+                            aria-label={`Download ${row.name}`}
+                          >
+                            <ReportHubDownloadIcon />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-16 text-center">
+                      <div className="text-base font-black text-slate-800">
+                        No reports match your filters.
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-slate-500">
+                        Try a broader search term, switch to All, or use Ask AI.
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-        <div className="flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "rgba(226,232,240,0.95)" }}>
+        <div
+          className="flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+          style={{ borderColor: "rgba(226,232,240,0.95)" }}
+        >
           <div className="text-sm font-semibold text-slate-500">
             Showing {showingFrom} to {showingTo} of {visibleRows.length} reports
-            <span className="ml-2 text-xs text-slate-400">({scopeText}, {yrFrom}-{yrTo})</span>
+            <span className="ml-2 text-xs text-slate-400">
+              ({scopeText}, {yrFrom}-{yrTo})
+            </span>
           </div>
           <div className="flex items-center justify-end gap-3">
             <button
@@ -3470,7 +4737,9 @@ export default function ReportsHubPage({ facts, config, accent: dashboardAccent,
             </div>
             <button
               type="button"
-              onClick={() => setPageIndex((value) => Math.min(totalPages - 1, value + 1))}
+              onClick={() =>
+                setPageIndex((value) => Math.min(totalPages - 1, value + 1))
+              }
               disabled={pageIndex >= totalPages - 1}
               className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100 text-xl font-black text-slate-400 transition hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-45"
               aria-label="Next page"
