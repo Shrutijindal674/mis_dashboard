@@ -1779,7 +1779,7 @@ function ReportDetailPage({
   function doDownload(fmt) {
     if (!kpi || !report) return;
     setDownloadMenuOpen(false);
-    const filenameBase = `${report.reportId}_${report.name}`
+    const filenameBase = `${report.name}`
       .replace(/[^a-z0-9\-_ ]/gi, "")
       .replace(/\s+/g, "_");
 
@@ -1814,7 +1814,7 @@ function ReportDetailPage({
           <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
             <div>
               <h1 style="font-size:18px;font-weight:900;">${escHtml(report.name)}</h1>
-              <div class="muted" style="font-size:12px;margin-top:4px;">Report ID: ${escHtml(report.reportId)} | Tag: ${escHtml(report.domain)} | Year: ${escHtml(year)}</div>
+              <div class="muted" style="font-size:12px;margin-top:4px;">Category: ${escHtml(report.domain)} | Year: ${escHtml(year)}</div>
               <div class="muted" style="font-size:12px;margin-top:2px;">Scope: ${escHtml(scopeText)} | View: ${escHtml(activeBreakdown?.label)} ${escHtml(activeBreakdown?.variant)}</div>
             </div>
             <div class="pill">IITMIS Export</div>
@@ -2280,12 +2280,6 @@ function ReportDetailPage({
       <div className="px-6 py-3 text-white" style={{ background: "#173f91" }}>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 flex-wrap items-center gap-4">
-            <span
-              className="rounded-full bg-white/95 px-4 py-1.5 text-xs font-black"
-              style={{ color: "#173f91" }}
-            >
-              Reports ID: {report.reportId}
-            </span>
             <div className="min-w-0 text-xl font-black leading-tight">
               {report.name}
             </div>
@@ -2333,7 +2327,7 @@ function ReportDetailPage({
       <div className="border-b border-blue-100 bg-blue-50/60 px-6 py-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           {[
-            { label: "Report family", value: detailFamilyLabel, note: "Discovery grouping" },
+            { label: "Report category", value: detailFamilyLabel, note: "Discovery category" },
             { label: "Definition", value: detailDefinition, note: "User-facing meaning", wide: true },
             { label: "Scope", value: scopeText, note: `${year} focus year` },
             { label: "Source table", value: detailSourceTable, note: `${detailColumnCount} columns indexed` },
@@ -3284,7 +3278,7 @@ export default function ReportsHubPage({
   const [moduleFilter, setModuleFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState("all");
   const [sortMode, setSortMode] = useState("relevance");
-  const [resultLayout, setResultLayout] = useState("cards");
+  const [resultLayout, setResultLayout] = useState("table");
   const [nlDraft, setNlDraft] = useState("");
   const [nlStatus, setNlStatus] = useState("");
   const [askPanelOpen, setAskPanelOpen] = useState(false);
@@ -3444,7 +3438,7 @@ export default function ReportsHubPage({
   const [reportInitialYear, setReportInitialYear] = useState(null);
 
   useEffect(() => {
-    if (!focusKpiId) return;
+    if (!focusKpiId || !autoOpenKey) return;
     const first =
       catalog.find(
         (item) => item.kpiId === focusKpiId && item.reportType !== "trend",
@@ -4131,16 +4125,10 @@ export default function ReportsHubPage({
     <div className="space-y-5">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
-            NDAP-style discovery layer
-          </div>
           <h2 className="text-[2rem] font-black leading-tight tracking-[-0.03em] text-slate-950">
             IITMIS Report Discovery
           </h2>
           <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
-            Search reports, topics, sheets, KPIs, and source tables first. The
-            existing Category → Module → Sheet → KPI hierarchy stays inside
-            advanced filters and provenance.
           </p>
         </div>
         {onBack ? (
@@ -4167,11 +4155,10 @@ export default function ReportsHubPage({
           <div className="space-y-4">
             <div>
               <div className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">
-                Search → report family → view
+                Search → report category → view
               </div>
               <div className="mt-1 text-lg font-black text-slate-950">
-                Find the right analytical report without knowing the backend
-                hierarchy
+                Find the report you need by topic, KPI, module or keyword
               </div>
             </div>
             <label className="relative block">
@@ -4181,7 +4168,7 @@ export default function ReportsHubPage({
               <input
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search all reports, sheets, KPIs, source tables, and topics"
+                placeholder="Search all reports, sheets, KPIs, modules, source tables, and keywords"
                 className="h-16 w-full rounded-2xl border bg-white pl-14 pr-4 text-[15px] font-semibold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
                 style={{ borderColor: "rgba(59,130,246,0.22)" }}
               />
@@ -4211,7 +4198,7 @@ export default function ReportsHubPage({
                 note: "from registry + KPI catalogue",
               },
               {
-                label: "Report families",
+                label: "Report categories",
                 value: REPORT_DISCOVERY_FAMILIES.length - 1,
                 note: "topic-led discovery",
               },
@@ -4244,11 +4231,10 @@ export default function ReportsHubPage({
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
               <div className="text-sm font-black text-slate-950">
-                Explore report families
+                Explore by topic
               </div>
               <div className="text-xs font-semibold text-slate-500">
-                Families are discovery filters; module, sheet, and KPI lineage
-                remains available as provenance.
+                Browse popular analytical themes
               </div>
             </div>
           </div>
@@ -4466,9 +4452,6 @@ export default function ReportsHubPage({
                     >
                       {row.familyLabel}
                     </span>
-                    <span className="rounded-full bg-slate-50 px-3 py-1 text-[11px] font-black text-slate-500">
-                      ID {row.report.reportId}
-                    </span>
                   </div>
                   <button
                     type="button"
@@ -4583,7 +4566,7 @@ export default function ReportsHubPage({
                     What it answers
                   </th>
                   <th className="px-5 py-5 text-left text-xs font-black text-slate-950">
-                    Family
+                    Category
                   </th>
                   <th className="px-5 py-5 text-left text-xs font-black text-slate-950">
                     Metadata

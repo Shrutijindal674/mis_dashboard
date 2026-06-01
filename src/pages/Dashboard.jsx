@@ -5282,4 +5282,3 @@ ${String(dashboardInterpretation).replace(/<[^>]+>/g, " ")}`,
     </div>
   );
 }
-
