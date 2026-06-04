@@ -1,6 +1,38 @@
 import { useEffect, useRef, useState } from "react";
 import { cx } from "../../utils/helpers";
 
+function UnavailableIcon({ className = "h-3.5 w-3.5" }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="10" cy="10" r="7" />
+      <path d="M5.5 14.5 14.5 5.5" />
+    </svg>
+  );
+}
+
+function DisabledHoverTooltip({ message, children }) {
+  if (!message) return children;
+
+  return (
+    <span className="group relative inline-flex">
+      {children}
+      <span className="pointer-events-none absolute bottom-full left-1/2 z-[170] mb-2 hidden -translate-x-1/2 items-center gap-1.5 whitespace-nowrap border border-slate-950 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-900 shadow-sm group-hover:inline-flex group-focus-within:inline-flex">
+        <UnavailableIcon className="h-3.5 w-3.5 text-rose-500" />
+        <span>{message}</span>
+      </span>
+    </span>
+  );
+}
+
 function PillScrollRow({
   items,
   activeId,
@@ -11,6 +43,8 @@ function PillScrollRow({
   soft,
   rowLabel,
   onRightAction,
+  disabled = false,
+  disabledMessage = "",
 }) {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -65,6 +99,7 @@ function PillScrollRow({
   }, [items, activeId]);
 
   const nudgeRow = (direction) => {
+    if (disabled) return;
     const node = scrollRef.current;
     if (!node) return;
     node.scrollBy({
@@ -81,16 +116,16 @@ function PillScrollRow({
       <button
         type="button"
         onClick={() => nudgeRow(-1)}
-        disabled={!canScrollLeft}
+        disabled={disabled || !canScrollLeft}
         className={arrowClass}
         style={{
-          color: canScrollLeft ? accent : "#64748b",
-          borderColor: canScrollLeft ? `${accent}55` : "rgba(100,116,139,0.34)",
-          background: canScrollLeft ? soft : "rgba(255,255,255,0.82)",
-          opacity: canScrollLeft ? 1 : 0.72,
+          color: disabled ? "#94a3b8" : canScrollLeft ? accent : "#64748b",
+          borderColor: disabled ? "rgba(148,163,184,0.24)" : canScrollLeft ? `${accent}55` : "rgba(100,116,139,0.34)",
+          background: disabled ? "rgba(148,163,184,0.08)" : canScrollLeft ? soft : "rgba(255,255,255,0.82)",
+          opacity: disabled ? 0.72 : canScrollLeft ? 1 : 0.72,
         }}
         aria-label={`Scroll ${rowLabel} left`}
-        title="Scroll left"
+        title={disabled ? disabledMessage : "Scroll left"}
       >
         {"<"}
       </button>
@@ -106,40 +141,52 @@ function PillScrollRow({
       >
         <div className="flex w-max items-center gap-2 pr-1">
           {items.map((item) => {
-            const active = item.id === activeId || activeIds.includes(item.id);
+            const itemDisabled = disabled || Boolean(item.disabled);
+            const itemDisabledMessage = item.disabledMessage || disabledMessage;
+            const active = !itemDisabled && (item.id === activeId || activeIds.includes(item.id));
             const isMappedDrill = item.variant === "mapped-drill";
             const isNestedParentToggle = item.variant === "nested-parent-toggle";
             const parentExpanded = Boolean(item.expanded);
             const showTrailingAction =
-              isNestedParentToggle && (active || hoveredItemId === item.id || parentExpanded);
+              !itemDisabled && isNestedParentToggle && (active || hoveredItemId === item.id || parentExpanded);
             const itemAccent = item.accent || accent;
             const itemSoft = item.soft || soft;
 
-            return (
+            const button = (
               <button
-                key={item.id}
                 ref={(node) => {
                   if (node) itemRefs.current.set(item.id, node);
                   else itemRefs.current.delete(item.id);
                 }}
                 type="button"
-                onClick={() => onPick(item.id)}
-                onMouseEnter={() => setHoveredItemId(item.id)}
+                onClick={(event) => {
+                  if (itemDisabled) {
+                    event.preventDefault();
+                    return;
+                  }
+                  onPick(item.id);
+                }}
+                onMouseEnter={() => !itemDisabled && setHoveredItemId(item.id)}
                 onMouseLeave={() => setHoveredItemId((value) => (value === item.id ? null : value))}
-                onFocus={() => setHoveredItemId(item.id)}
+                onFocus={() => !itemDisabled && setHoveredItemId(item.id)}
                 onBlur={() => setHoveredItemId((value) => (value === item.id ? null : value))}
-                aria-expanded={isNestedParentToggle ? parentExpanded : undefined}
+                aria-disabled={itemDisabled}
+                tabIndex={itemDisabled ? -1 : 0}
+                aria-expanded={!itemDisabled && isNestedParentToggle ? parentExpanded : undefined}
                 aria-label={
-                  isNestedParentToggle
+                  !itemDisabled && isNestedParentToggle
                     ? `${item.label}. ${parentExpanded ? "Collapse sub-categories" : "Expand sub-categories"}`
                     : undefined
                 }
                 className={cx(
                   "flex h-9 min-w-[124px] max-w-[240px] items-center rounded-full border px-3 text-[12.5px] font-semibold transition",
+                  itemDisabled ? "cursor-not-allowed grayscale" : "",
                   isNestedParentToggle ? "justify-between gap-2 text-left" : "justify-center text-center",
                 )}
                 style={{
-                  background: isNestedParentToggle
+                  background: itemDisabled
+                    ? "rgba(148,163,184,0.08)"
+                    : isNestedParentToggle
                     ? parentExpanded || active
                       ? itemSoft
                       : "rgba(255,255,255,0.96)"
@@ -148,14 +195,18 @@ function PillScrollRow({
                       : isMappedDrill
                         ? itemSoft
                         : "rgba(255,255,255,0.96)",
-                  color: isNestedParentToggle
+                  color: itemDisabled
+                    ? "#94a3b8"
+                    : isNestedParentToggle
                     ? itemAccent
                     : active
                       ? "white"
                       : isMappedDrill
                         ? itemAccent
                         : "#334155",
-                  borderColor: isNestedParentToggle
+                  borderColor: itemDisabled
+                    ? "rgba(148,163,184,0.22)"
+                    : isNestedParentToggle
                     ? parentExpanded || active
                       ? `${itemAccent}45`
                       : "rgba(148,163,184,0.18)"
@@ -164,14 +215,17 @@ function PillScrollRow({
                       : isMappedDrill
                         ? `${itemAccent}30`
                         : "rgba(148,163,184,0.18)",
-                  boxShadow: active || parentExpanded
+                  boxShadow: itemDisabled
+                    ? "none"
+                    : active || parentExpanded
                     ? `0 8px 18px ${itemAccent}1f`
                     : "0 1px 2px rgba(15,23,42,0.04)",
+                  opacity: itemDisabled ? 0.74 : 1,
                 }}
-                title={item.tooltip || item.label}
+                title={itemDisabled ? itemDisabledMessage : item.tooltip || item.label}
               >
                 <span className="truncate">{item.label}</span>
-                {isNestedParentToggle ? (
+                {!itemDisabled && isNestedParentToggle ? (
                   <span
                     className="grid h-6 w-6 shrink-0 place-items-center rounded-full border transition duration-200"
                     style={{
@@ -200,23 +254,37 @@ function PillScrollRow({
                 ) : null}
               </button>
             );
+
+            return itemDisabled ? (
+              <DisabledHoverTooltip key={item.id} message={itemDisabledMessage}>
+                {button}
+              </DisabledHoverTooltip>
+            ) : (
+              <span key={item.id} className="inline-flex">
+                {button}
+              </span>
+            );
           })}
         </div>
       </div>
 
       <button
         type="button"
-        onClick={() => (onRightAction ? onRightAction() : nudgeRow(1))}
-        disabled={!onRightAction && !canScrollRight}
+        onClick={() => {
+          if (disabled) return;
+          if (onRightAction) onRightAction();
+          else nudgeRow(1);
+        }}
+        disabled={disabled || (!onRightAction && !canScrollRight)}
         className={arrowClass}
         style={{
-          color: onRightAction || canScrollRight ? accent : "#64748b",
-          borderColor: onRightAction || canScrollRight ? `${accent}55` : "rgba(100,116,139,0.34)",
-          background: onRightAction || canScrollRight ? soft : "rgba(255,255,255,0.82)",
-          opacity: onRightAction || canScrollRight ? 1 : 0.72,
+          color: disabled ? "#94a3b8" : onRightAction || canScrollRight ? accent : "#64748b",
+          borderColor: disabled ? "rgba(148,163,184,0.24)" : onRightAction || canScrollRight ? `${accent}55` : "rgba(100,116,139,0.34)",
+          background: disabled ? "rgba(148,163,184,0.08)" : onRightAction || canScrollRight ? soft : "rgba(255,255,255,0.82)",
+          opacity: disabled ? 0.72 : onRightAction || canScrollRight ? 1 : 0.72,
         }}
         aria-label={onRightAction ? `Open ${rowLabel} filters` : `Scroll ${rowLabel} right`}
-        title={onRightAction ? "Open filters" : "Scroll right"}
+        title={disabled ? disabledMessage : onRightAction ? "Open filters" : "Scroll right"}
       >
         {">"}
       </button>
@@ -230,7 +298,7 @@ export default function CombinedKpiSelector({ title, helper, rows, accent, soft 
 
   return (
     <div
-      className="overflow-hidden rounded-[24px] shadow-sm"
+      className="h-full overflow-visible rounded-[24px] shadow-sm"
       style={{
         background: "rgba(255,255,255,0.94)",
         border: "1px solid rgba(59,130,246,0.15)",
@@ -273,6 +341,8 @@ export default function CombinedKpiSelector({ title, helper, rows, accent, soft 
                 soft={row.soft || soft}
                 rowLabel={row.label}
                 onRightAction={row.onRightAction}
+                disabled={Boolean(row.disabled)}
+                disabledMessage={row.disabledMessage}
               />
             </div>
           </div>

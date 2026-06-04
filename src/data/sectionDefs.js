@@ -51,7 +51,6 @@ export const DOMAIN_DEFS = [
 ];
 
 export const ADVANCED_ITEMS = [
-  { id: "Compare", label: "Compare", icon: "compare" },
   { id: "Reports", label: "Reports", icon: "reports" },
   { id: "Data & Admin", label: "Data & Admin", icon: "admin" },
 ];

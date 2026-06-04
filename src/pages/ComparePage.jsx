@@ -348,8 +348,6 @@ function compareSwatchStyle(item = {}) {
 const TOP_TABS = ["Compare View", "Filters", "Compare Mode", "Saved Sets"];
 const VIEW_OPTIONS = [
   { id: "grouped", label: "Bar graph", help: "Compare selected values year-wise across IITs." },
-  { id: "smallBars", label: "Small bars", help: "Show year-wise small multiple bar cards." },
-  { id: "smallLines", label: "Small lines", help: "Show year-wise small multiple line cards." },
   { id: "table", label: "Table", help: "Show the broadest structurally valid comparison in tabular form." },
 ];
 const TOTAL_COMPARISON_KEY = "__total__";
@@ -2115,7 +2113,7 @@ function InteractiveCompareLegend({
             </button>
           );
         })}
-        {hiddenCount > 0 || onMore ? (
+        {onMore ? (
           <button
             type="button"
             onClick={onMore}
@@ -2347,11 +2345,13 @@ function BuilderFooter({ onBack, onClear, onApply, applyDisabled, applyLabel = "
 
 function normalizeCompareView(viewId) {
   const aliases = {
-    smallMultiples: "smallBars",
-    smallMultipleBars: "smallBars",
-    smallMultipleLines: "smallLines",
-    smallBarMultiples: "smallBars",
-    smallLineMultiples: "smallLines",
+    smallMultiples: "grouped",
+    smallBars: "grouped",
+    smallLines: "grouped",
+    smallMultipleBars: "grouped",
+    smallMultipleLines: "grouped",
+    smallBarMultiples: "grouped",
+    smallLineMultiples: "grouped",
   };
   const normalized = aliases[viewId] ?? viewId;
   return VIEW_OPTIONS.some((option) => option.id === normalized) ? normalized : "grouped";
@@ -2533,6 +2533,9 @@ export default function ComparePage({
   accent,
   role,
   onConfigChange,
+  hideInlineFilters = false,
+  externalOpenFiltersKey = null,
+  onEmbeddedLegendControlsChange = null,
 }) {
   const hierarchy = COMPARE_HIERARCHY;
   const moduleMap = useMemo(() => Object.fromEntries(hierarchy.map((module) => [module.id, module])), [hierarchy]);
@@ -2622,6 +2625,7 @@ export default function ComparePage({
   const chartRef = useRef(null);
   const fullscreenRef = useRef(null);
   const lastConfigRequestRef = useRef(null);
+  const lastExternalOpenFiltersKeyRef = useRef(null);
 
   useEffect(() => {
     if (!notice) return;
@@ -2725,6 +2729,12 @@ export default function ComparePage({
       setApplied(nextDraft);
     }
   }, [config, moduleMap, submoduleMap, sheetMap, worksheetMap]);
+
+  useEffect(() => {
+    if (externalOpenFiltersKey == null || lastExternalOpenFiltersKeyRef.current === externalOpenFiltersKey) return;
+    lastExternalOpenFiltersKeyRef.current = externalOpenFiltersKey;
+    setOpenPopover("filters");
+  }, [externalOpenFiltersKey]);
 
   if (role !== "ministry") {
     return (
@@ -3614,6 +3624,30 @@ export default function ComparePage({
       return [...validPrev, itemId];
     });
   }
+
+  const embeddedLegendControlsSignature = useMemo(
+    () => JSON.stringify({
+      view: applied?.view ?? null,
+      items: comparisonLegendItems.map((item) => ({ id: item.id, label: item.label, title: item.title, color: item.color, patternType: item.patternType })),
+      activeIds: activeComparisonLegendIds,
+    }),
+    [applied?.view, comparisonLegendItems, activeComparisonLegendIds],
+  );
+
+  useEffect(() => {
+    if (!onEmbeddedLegendControlsChange) return;
+    if (!applied || applied.view === "table") {
+      onEmbeddedLegendControlsChange(null);
+      return;
+    }
+
+    onEmbeddedLegendControlsChange({
+      items: comparisonLegendItems,
+      activeIds: activeComparisonLegendIds,
+      onToggle: toggleComparisonLegendItem,
+      onMore: openCompareByFilters,
+    });
+  }, [embeddedLegendControlsSignature]);
 
   function closeBuilder() {
     setBuilderOpen(false);
@@ -4538,7 +4572,7 @@ export default function ComparePage({
 
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Select IITs</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Compare IITs</div>
                   <div>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex flex-wrap items-center gap-2">
@@ -4709,8 +4743,6 @@ export default function ComparePage({
     const compareAccent = "#2563eb";
     const compactToolbarOptions = [
       { id: "grouped", label: "Bar graph" },
-      { id: "smallBars", label: "Small multiple bars" },
-      { id: "smallLines", label: "Small multiple lines" },
       { id: "table", label: "Table" },
     ];
     const visualToolbarItems = [
@@ -4860,17 +4892,19 @@ export default function ComparePage({
 
             {applied.view === "grouped" && appliedModeValidity.grouped.valid ? (
               <>
-                <div className="mb-3">
-                  <InteractiveCompareLegend
-                    items={comparisonLegendItems}
-                    activeIds={activeComparisonLegendIds}
-                    title={compareLegendTitle}
-                    helper=""
-                    maxVisible={fullscreen ? 16 : 10}
-                    onToggle={toggleComparisonLegendItem}
-                    onMore={openCompareByFilters}
-                  />
-                </div>
+                {!onEmbeddedLegendControlsChange || fullscreen || hideInlineFilters ? (
+                  <div className="mb-3">
+                    <InteractiveCompareLegend
+                      items={comparisonLegendItems}
+                      activeIds={activeComparisonLegendIds}
+                      title={compareLegendTitle}
+                      helper=""
+                      maxVisible={fullscreen ? 16 : 10}
+                      onToggle={toggleComparisonLegendItem}
+                      onMore={hideInlineFilters ? undefined : openCompareByFilters}
+                    />
+                  </div>
+                ) : null}
                 {useYearPanelLayout ? (
                   <YearPanelCompareChart
                     panels={yearPanelData}
@@ -4956,18 +4990,20 @@ export default function ComparePage({
 
             {applied.view === "smallBars" && appliedModeValidity.smallBars.valid ? (
               <>
-                <div className="mb-4">
-                  <InteractiveCompareLegend
-                    items={comparisonLegendItems}
-                    activeIds={activeComparisonLegendIds}
-                    title={compareLegendTitle}
-                    helper=""
-                    maxVisible={fullscreen ? 16 : 10}
-                    swatchVariant="plainPill"
-                    onToggle={toggleComparisonLegendItem}
-                    onMore={openCompareByFilters}
-                  />
-                </div>
+                {!onEmbeddedLegendControlsChange || fullscreen || hideInlineFilters ? (
+                  <div className="mb-4">
+                    <InteractiveCompareLegend
+                      items={comparisonLegendItems}
+                      activeIds={activeComparisonLegendIds}
+                      title={compareLegendTitle}
+                      helper=""
+                      maxVisible={fullscreen ? 16 : 10}
+                      swatchVariant="plainPill"
+                      onToggle={toggleComparisonLegendItem}
+                      onMore={hideInlineFilters ? undefined : openCompareByFilters}
+                    />
+                  </div>
+                ) : null}
                 {activeGroupedStackSeries.length > smallMultipleBarSeries.length ? (
                   <div className="mb-3 rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800">
                     Showing {smallMultipleBarSeries.length} small-multiple cards for responsiveness. Use legend filters to narrow the series shown.
@@ -4994,18 +5030,20 @@ export default function ComparePage({
 
             {applied.view === "smallLines" && appliedModeValidity.smallLines.valid ? (
               <>
-                <div className="mb-4">
-                  <InteractiveCompareLegend
-                    items={comparisonLegendItems}
-                    activeIds={activeComparisonLegendIds}
-                    title={compareLegendTitle}
-                    helper=""
-                    maxVisible={fullscreen ? 16 : 10}
-                    swatchVariant="plainPill"
-                    onToggle={toggleComparisonLegendItem}
-                    onMore={openCompareByFilters}
-                  />
-                </div>
+                {!onEmbeddedLegendControlsChange || fullscreen || hideInlineFilters ? (
+                  <div className="mb-4">
+                    <InteractiveCompareLegend
+                      items={comparisonLegendItems}
+                      activeIds={activeComparisonLegendIds}
+                      title={compareLegendTitle}
+                      helper=""
+                      maxVisible={fullscreen ? 16 : 10}
+                      swatchVariant="plainPill"
+                      onToggle={toggleComparisonLegendItem}
+                      onMore={hideInlineFilters ? undefined : openCompareByFilters}
+                    />
+                  </div>
+                ) : null}
                 {activeGroupedStackSeries.length > smallMultipleLineSeries.length ? (
                   <div className="mb-3 rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800">
                     Showing {smallMultipleLineSeries.length} small-multiple cards for responsiveness. Use legend filters to narrow the series shown.
@@ -5084,43 +5122,45 @@ export default function ComparePage({
         </div>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.95fr]">
-        <div className="min-w-0">
-          {renderCompareCarouselSelector()}
-        </div>
-
-        <div
-          className="rounded-[28px] border p-3 shadow-sm"
-          style={{
-            borderColor: 'rgba(59,130,246,0.15)',
-            background: 'rgba(255,255,255,0.94)',
-          }}
-        >
-          <div className="text-sm font-bold" style={{ color: '#1d4ed8' }}>Select Date</div>
-          <div className="mt-3">
-            <CompareDateSelector
-              source={selectionSource}
-              updateSource={updateSelectionSummarySource}
-              years={YEARS}
-              accent={uiAccent}
-            />
+      {!hideInlineFilters ? (
+        <div className="grid gap-4 xl:grid-cols-[1.2fr_0.95fr]">
+          <div className="min-w-0">
+            {renderCompareCarouselSelector()}
           </div>
 
-          <div className="mt-5 text-sm font-bold" style={{ color: '#1d4ed8' }}>Select IITs</div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <SelectionActionButton label="OLD IITs" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))} title="Select old IITs" />
-            <SelectionActionButton label="ALL" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))} title="Select all IITs" />
-            <SelectionActionButton label="Top 10 by KPI" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "top") }))} title="Select top 10 IITs for the selected KPI and ranking year" />
-            <SelectionActionButton label="Bottom 10 by KPI" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "bottom") }))} title="Select bottom 10 IITs for the selected KPI and ranking year" />
-            <SelectionActionButton
-              label="Advanced filters"
-              onClick={() => openBuilder(1)}
-              title="Open advanced filters"
-            />
+          <div
+            className="rounded-[28px] border p-3 shadow-sm"
+            style={{
+              borderColor: 'rgba(59,130,246,0.15)',
+              background: 'rgba(255,255,255,0.94)',
+            }}
+          >
+            <div className="text-sm font-bold" style={{ color: '#1d4ed8' }}>Select Date</div>
+            <div className="mt-3">
+              <CompareDateSelector
+                source={selectionSource}
+                updateSource={updateSelectionSummarySource}
+                years={YEARS}
+                accent={uiAccent}
+              />
+            </div>
+
+            <div className="mt-5 text-sm font-bold" style={{ color: '#1d4ed8' }}>Compare IITs</div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <SelectionActionButton label="OLD IITs" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))} title="Select old IITs" />
+              <SelectionActionButton label="ALL" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))} title="Select all IITs" />
+              <SelectionActionButton label="Top 10 by KPI" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "top") }))} title="Select top 10 IITs for the selected KPI and ranking year" />
+              <SelectionActionButton label="Bottom 10 by KPI" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: rankedIitsForDraft(prev, 10, "bottom") }))} title="Select bottom 10 IITs for the selected KPI and ranking year" />
+              <SelectionActionButton
+                label="Advanced filters"
+                onClick={() => openBuilder(1)}
+                title="Open advanced filters"
+              />
+            </div>
+            <div className="mt-3 text-xs font-semibold text-slate-500"></div>
           </div>
-          <div className="mt-3 text-xs font-semibold text-slate-500"></div>
         </div>
-      </div>
+      ) : null}
 
       {renderFilterPopover()}
 

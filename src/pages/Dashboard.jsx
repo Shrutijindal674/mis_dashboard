@@ -139,6 +139,7 @@ const VISUAL_VIEW_ORDER = ["bar", "donut", "trend", "table", "empty"];
 const VISUAL_VIEW_ORDER_RANK = Object.fromEntries(
   VISUAL_VIEW_ORDER.map((viewId, index) => [viewId, index]),
 );
+const COMPARE_LOCKED_MESSAGE = "Turn on Compare IITs in Select Date to use this control.";
 
 function orderVisualViewIds(viewIds = []) {
   const unique = viewIds.filter(
@@ -581,6 +582,38 @@ function DrillStatusIcon({ available }) {
       <path d="M10 8v4" />
       <path d="M10 15h.01" />
     </svg>
+  );
+}
+
+function UnavailableIcon({ className = "h-3.5 w-3.5" }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="10" cy="10" r="7" />
+      <path d="M5.5 14.5 14.5 5.5" />
+    </svg>
+  );
+}
+
+function DisabledHoverTooltip({ message, children, className = "" }) {
+  if (!message) return children;
+
+  return (
+    <span className={`group relative inline-flex ${className}`}>
+      {children}
+      <span className="pointer-events-none absolute left-1/2 top-full z-[170] mt-2 hidden -translate-x-1/2 items-center gap-1.5 whitespace-nowrap border border-slate-950 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-900 shadow-sm group-hover:inline-flex group-focus-within:inline-flex">
+        <UnavailableIcon className="h-3.5 w-3.5 text-rose-500" />
+        <span>{message}</span>
+      </span>
+    </span>
   );
 }
 
@@ -1227,7 +1260,7 @@ export default function Dashboard({
       initialChild.kpiId,
       ...(SUBSECTION_VIEW_OPTIONS[initialChild.id] ?? []).slice(1, 3).map((item) => item.kpiId),
     ]),
-    CompareView: "smallMultiples",
+    CompareView: "grouped",
     CompareScale: "raw",
     ActiveYear: YEARS[YEARS.length - 1],
     InstituteId: [...LEGACY_COMPARE_IITS],
@@ -1238,6 +1271,10 @@ export default function Dashboard({
     CompareAutoApply: true,
     CompareRequestKey: 1,
   });
+
+  const [dashboardCompareMode, setDashboardCompareMode] = useState(false);
+  const [compareAdvancedFilterKey, setCompareAdvancedFilterKey] = useState(null);
+  const [dashboardCompareLegendControls, setDashboardCompareLegendControls] = useState(null);
 
   const [reportsCfg, setReportsCfg] = useState({
     KpiIds: [],
@@ -1420,7 +1457,7 @@ export default function Dashboard({
       CompareSourceCategoryLabel: compareSourceCategoryLabel,
       CompareViewId: currentIgViewId,
       CompareMetricIds: [...compareSeedMetricIds],
-      CompareView: "smallMultiples",
+      CompareView: "grouped",
       CompareScale: "raw",
       ActiveYear: YEARS[YEARS.length - 1],
       InstituteId: [...compareSeedInstituteIds],
@@ -1432,6 +1469,145 @@ export default function Dashboard({
       CompareRequestKey: Date.now(),
     };
   }
+
+  function rankedDashboardCompareInstituteIds(direction = "top") {
+    const kpi = selectedKpi;
+    if (!kpi?.fact) return [];
+
+    const rankingYear = Number(yearRange.to ?? LATEST_YEAR);
+    const rows = facts?.[kpi.fact] ?? [];
+    return IITs.map((iit) => {
+      const value = kpiValue(
+        kpi,
+        rows.filter((row) =>
+          row.InstituteId === iit.id &&
+          Number(row.Year ?? rankingYear) === rankingYear
+        ),
+      );
+      return { id: iit.id, label: iit.name, value };
+    })
+      .filter((item) => item.value != null && Number.isFinite(Number(item.value)))
+      .sort((left, right) => {
+        const delta = direction === "bottom"
+          ? Number(left.value) - Number(right.value)
+          : Number(right.value) - Number(left.value);
+        return delta || left.label.localeCompare(right.label);
+      })
+      .slice(0, 10)
+      .map((item) => item.id);
+  }
+
+  function activateDashboardCompareIitPreset(preset = "old") {
+    const presetIits = preset === "all"
+      ? IITs.map((iit) => iit.id)
+      : preset === "top"
+        ? rankedDashboardCompareInstituteIds("top")
+        : preset === "bottom"
+          ? rankedDashboardCompareInstituteIds("bottom")
+          : [...LEGACY_COMPARE_IITS];
+
+    if (!presetIits.length) {
+      setNotice("No ranked IITs available for the selected KPI and year.");
+      return;
+    }
+
+    if (isFullscreen) setIsFullscreen(false);
+    setDashboardCompareMode(true);
+    setCompareCfg({
+      ...buildCompareDefaults({ autoApply: true }),
+      CompareView: "grouped",
+      ActiveYear: yearRange.to,
+      InstituteId: presetIits,
+      YearRange: { ...yearRange },
+      CompareRequestKey: Date.now(),
+    });
+  }
+
+  function openDashboardCompareAdvancedFilters() {
+    if (isFullscreen) setIsFullscreen(false);
+    setDashboardCompareMode(true);
+    setCompareCfg((prev) => ({
+      ...buildCompareDefaults({ autoApply: true }),
+      CompareScale: prev.CompareScale ?? "raw",
+      CompareView: prev.CompareView === "table" ? "table" : "grouped",
+      ActiveYear: yearRange.to,
+      InstituteId: prev.InstituteId?.length ? [...prev.InstituteId] : [...compareSeedInstituteIds],
+      YearRange: { ...yearRange },
+      CompareRequestKey: Date.now(),
+    }));
+    setCompareAdvancedFilterKey(Date.now());
+  }
+
+  function exitDashboardCompareMode() {
+    setDashboardCompareMode(false);
+  }
+
+  const dashboardCompareViewByRow = useMemo(() => {
+    const controls = dashboardCompareLegendControls;
+    const items = controls?.items ?? [];
+    if (!items.length) return null;
+    const locked = !dashboardCompareMode;
+
+    return {
+      id: "dashboard-compare-view-by",
+      label: "View by",
+      items: items.map((item) => ({
+        id: item.id,
+        label: item.label,
+        tooltip: item.title ?? item.fullLabel ?? item.label,
+        accent: item.color || THEME_COLORS.Compare.accent,
+        soft: "#eff6ff",
+      })),
+      activeId: null,
+      activeIds: controls?.activeIds?.length ? controls.activeIds : items.map((item) => item.id),
+      autoScrollTargetId: controls?.activeIds?.[0] ?? items[0]?.id ?? null,
+      onPick: (itemId) => controls?.onToggle?.(itemId),
+      accent: THEME_COLORS.Compare.accent,
+      soft: "#eff6ff",
+      disabled: locked,
+      disabledMessage: COMPARE_LOCKED_MESSAGE,
+    };
+  }, [dashboardCompareMode, dashboardCompareLegendControls]);
+
+  function renderDashboardCompareLegendControls() {
+    const row = dashboardCompareViewByRow;
+    if (!row) return null;
+
+    return (
+      <div className="mt-3">
+        <CombinedKpiSelector
+          title="Comparison breakdown"
+          helper="Select the breakdowns visible in the comparison chart."
+          accent={THEME_COLORS.Compare.accent}
+          soft="#eff6ff"
+          rows={[row]}
+        />
+      </div>
+    );
+  }
+
+  useEffect(() => {
+    if (!dashboardCompareMode) return;
+    setCompareCfg((prev) => ({
+      ...buildCompareDefaults({ autoApply: true }),
+      CompareScale: prev.CompareScale ?? "raw",
+      CompareView: prev.CompareView === "table" ? "table" : "grouped",
+      ActiveYear: yearRange.to,
+      InstituteId: prev.InstituteId?.length ? [...prev.InstituteId] : [...compareSeedInstituteIds],
+      YearRange: { ...yearRange },
+      CompareRequestKey: Date.now(),
+    }));
+  }, [
+    dashboardCompareMode,
+    activeDomain,
+    selectedSubsectionId,
+    selectedKpiId,
+    compareSourceCategoryId,
+    compareSourceCategoryLabel,
+    currentIgViewId,
+    yearRange.from,
+    yearRange.to,
+  ]);
 
   useEffect(() => {
     setRecent((prev) => {
@@ -3092,13 +3268,11 @@ export default function Dashboard({
     },
     {
       id: "compare",
-      label: "Compare",
+      label: "Compare IITs",
       icon: "compare",
       action: () => {
         setSpeedDialOpen(false);
-        if (isFullscreen) setIsFullscreen(false);
-        setCompareCfg(buildCompareDefaults({ autoApply: true }));
-        setSection("Compare");
+        activateDashboardCompareIitPreset("old");
       },
     },
     {
@@ -3402,6 +3576,7 @@ export default function Dashboard({
     showFacultyStaffCategoryCarousel ||
     showInstitutionGovernanceCategoryCarousel ||
     showGenericCategoryCarousel;
+  const showDashboardCompareSurface = dashboardCompareMode;
   const categorySelectorAccent = accent;
   const categorySelectorSoft = soft;
 
@@ -4041,7 +4216,7 @@ export default function Dashboard({
         <main className="min-w-0 space-y-2">
           {MODULES.includes(section) ? (
             <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              <div className="min-w-0">
+              <div className="h-full min-w-0">
                 {hasCombinedKpiSelector ? (
                   <CombinedKpiSelector
                     title={showGenericCategoryCarousel ? activeDomain : currentSubsection.label}
@@ -4129,6 +4304,7 @@ export default function Dashboard({
                             },
                           ]
                         : []),
+                      ...(dashboardCompareViewByRow ? [dashboardCompareViewByRow] : []),
                     ]}
                   />
                 ) : (
@@ -4148,6 +4324,7 @@ export default function Dashboard({
                     }
                   />
                 )}
+                {dashboardCompareViewByRow && !hasCombinedKpiSelector ? renderDashboardCompareLegendControls() : null}
               </div>
               <div
                 className="flex h-full flex-col rounded-[28px] p-3 shadow-sm xl:max-w-none"
@@ -4156,8 +4333,8 @@ export default function Dashboard({
                   border: "1px solid rgba(59,130,246,0.15)",
                 }}
               >
-                <div className="text-sm font-bold" style={{ color: "#0f172a" }}>
-                  Filters
+                <div className="text-sm font-bold" style={{ color: THEME_COLORS.Compare.accent }}>
+                  Select Date
                 </div>
                 <div className="mt-3 grid flex-1 content-start gap-3">
                   <div
@@ -4176,8 +4353,8 @@ export default function Dashboard({
                           onClick={() => chooseYearFilterMode(mode.id)}
                           className="min-h-9 rounded-xl px-2 text-[11px] font-extrabold leading-tight transition"
                           style={{
-                            background: active ? accent : "transparent",
-                            color: active ? "white" : "#475569",
+                            background: active ? THEME_COLORS.Compare.accent : "transparent",
+                            color: active ? "white" : "#0f2a5e",
                           }}
                         >
                           {mode.label}
@@ -4229,6 +4406,85 @@ export default function Dashboard({
                     </div>
                   )}
 
+                  <div className="mt-1 flex items-center justify-between gap-3">
+                    <div className="text-sm font-bold" style={{ color: THEME_COLORS.Compare.accent }}>
+                      Compare IITs
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={dashboardCompareMode}
+                      onClick={() => (dashboardCompareMode ? exitDashboardCompareMode() : activateDashboardCompareIitPreset("old"))}
+                      className="inline-flex h-8 w-[76px] items-center rounded-full border p-1 transition"
+                      style={{
+                        justifyContent: dashboardCompareMode ? "flex-end" : "flex-start",
+                        background: dashboardCompareMode ? THEME_COLORS.Compare.accent : "rgba(241,245,249,0.92)",
+                        borderColor: dashboardCompareMode ? `${THEME_COLORS.Compare.accent}55` : "rgba(148,163,184,0.35)",
+                        boxShadow: dashboardCompareMode ? "0 8px 18px rgba(37,99,235,0.18)" : "inset 0 1px 2px rgba(15,23,42,0.04)",
+                      }}
+                      title={dashboardCompareMode ? "Switch off IIT comparison" : "Switch on IIT comparison"}
+                    >
+                      <span
+                        className="grid h-6 w-6 place-items-center rounded-full bg-white text-[9px] font-black shadow-sm transition"
+                        style={{ color: dashboardCompareMode ? THEME_COLORS.Compare.accent : "#64748b" }}
+                      >
+                        {dashboardCompareMode ? "ON" : "OFF"}
+                      </span>
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {[
+                      { id: "old", label: "OLD IITs", title: "Compare with old IITs" },
+                      { id: "all", label: "ALL", title: "Compare with all IITs" },
+                      { id: "top", label: "Top 10 by KPI", title: "Compare top 10 IITs for the selected KPI and year" },
+                      { id: "bottom", label: "Bottom 10 by KPI", title: "Compare bottom 10 IITs for the selected KPI and year" },
+                    ].map((item) => {
+                      const locked = !dashboardCompareMode;
+                      return (
+                        <DisabledHoverTooltip key={item.id} message={locked ? COMPARE_LOCKED_MESSAGE : ""}>
+                          <button
+                            type="button"
+                            disabled={locked}
+                            aria-disabled={locked}
+                            onClick={() => {
+                              if (!locked) activateDashboardCompareIitPreset(item.id);
+                            }}
+                            title={locked ? undefined : item.title}
+                            className={`rounded-full px-4 py-2 text-[12px] font-extrabold transition ${locked ? "cursor-not-allowed" : "hover:-translate-y-0.5"}`}
+                            style={{
+                              background: locked ? "rgba(148,163,184,0.08)" : "#e0f2fe",
+                              color: locked ? "#94a3b8" : "#075985",
+                              border: `1px solid ${locked ? "rgba(148,163,184,0.22)" : "rgba(14,165,233,0.18)"}`,
+                              boxShadow: locked ? "none" : "0 8px 18px rgba(14,165,233,0.08)",
+                              opacity: locked ? 0.76 : 1,
+                            }}
+                          >
+                            {item.label}
+                          </button>
+                        </DisabledHoverTooltip>
+                      );
+                    })}
+                    <DisabledHoverTooltip message={!dashboardCompareMode ? COMPARE_LOCKED_MESSAGE : ""}>
+                      <button
+                        type="button"
+                        disabled={!dashboardCompareMode}
+                        aria-disabled={!dashboardCompareMode}
+                        onClick={() => {
+                          if (dashboardCompareMode) openDashboardCompareAdvancedFilters();
+                        }}
+                        className={`rounded-full px-4 py-2 text-[12px] font-extrabold transition ${dashboardCompareMode ? "hover:-translate-y-0.5" : "cursor-not-allowed"}`}
+                        style={{
+                          background: dashboardCompareMode ? "#e0f2fe" : "rgba(148,163,184,0.08)",
+                          color: dashboardCompareMode ? "#075985" : "#94a3b8",
+                          border: `1px solid ${dashboardCompareMode ? "rgba(14,165,233,0.18)" : "rgba(148,163,184,0.22)"}`,
+                          boxShadow: dashboardCompareMode ? "0 8px 18px rgba(14,165,233,0.08)" : "none",
+                          opacity: dashboardCompareMode ? 1 : 0.76,
+                        }}
+                      >
+                        Advanced filters
+                      </button>
+                    </DisabledHoverTooltip>
+                  </div>
                 </div>
               </div>
             </div>
@@ -4623,6 +4879,18 @@ export default function Dashboard({
           ) : null}
 
           {MODULES.includes(section) ? (
+            showDashboardCompareSurface ? (
+              <ComparePage
+                facts={facts}
+                config={compareCfg}
+                accent={THEME_COLORS.Compare.accent}
+                role={role}
+                onConfigChange={setCompareCfg}
+                hideInlineFilters
+                externalOpenFiltersKey={compareAdvancedFilterKey}
+                onEmbeddedLegendControlsChange={setDashboardCompareLegendControls}
+              />
+            ) : (
             <div
               className="rounded-[30px] p-4 shadow-sm"
               style={{
@@ -4940,6 +5208,7 @@ export default function Dashboard({
               </div>
 
             </div>
+            )
           ) : null}
 
           {notice ? (
