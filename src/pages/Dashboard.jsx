@@ -1544,9 +1544,18 @@ export default function Dashboard({
 
   const dashboardCompareViewByRow = useMemo(() => {
     const controls = dashboardCompareLegendControls;
-    const items = controls?.items ?? [];
-    if (!items.length) return null;
-    const locked = !dashboardCompareMode;
+    const hasCompareViewByControls = Boolean(controls?.items?.length);
+    const items = hasCompareViewByControls
+      ? controls.items
+      : [
+          {
+            id: "compare-breakdown-placeholder",
+            label: "Compare breakdown",
+            title: `Turn on Compare IITs to choose view-by breakdowns for ${currentViewLabel}.`,
+            color: THEME_COLORS.Compare.accent,
+          },
+        ];
+    const locked = !dashboardCompareMode || !hasCompareViewByControls;
 
     return {
       id: "dashboard-compare-view-by",
@@ -1559,15 +1568,17 @@ export default function Dashboard({
         soft: "#eff6ff",
       })),
       activeId: null,
-      activeIds: controls?.activeIds?.length ? controls.activeIds : items.map((item) => item.id),
+      activeIds: controls?.activeIds?.length && dashboardCompareMode ? controls.activeIds : [],
       autoScrollTargetId: controls?.activeIds?.[0] ?? items[0]?.id ?? null,
       onPick: (itemId) => controls?.onToggle?.(itemId),
       accent: THEME_COLORS.Compare.accent,
       soft: "#eff6ff",
       disabled: locked,
-      disabledMessage: COMPARE_LOCKED_MESSAGE,
+      disabledMessage: dashboardCompareMode
+        ? "Compare view-by options are loading."
+        : COMPARE_LOCKED_MESSAGE,
     };
-  }, [dashboardCompareMode, dashboardCompareLegendControls]);
+  }, [currentViewLabel, dashboardCompareMode, dashboardCompareLegendControls]);
 
   function renderDashboardCompareLegendControls() {
     const row = dashboardCompareViewByRow;
