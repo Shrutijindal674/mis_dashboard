@@ -139,7 +139,7 @@ const VISUAL_VIEW_ORDER = ["bar", "donut", "trend", "table", "empty"];
 const VISUAL_VIEW_ORDER_RANK = Object.fromEntries(
   VISUAL_VIEW_ORDER.map((viewId, index) => [viewId, index]),
 );
-const COMPARE_LOCKED_MESSAGE = "Turn on Compare IITs in Select Date to use this control.";
+const COMPARE_SCOPE_HINT = "Select two or more IITs for a multi-institute view.";
 
 function orderVisualViewIds(viewIds = []) {
   const unique = viewIds.filter(
@@ -327,6 +327,34 @@ function findFacultyStaffCategoryForPathway(pathwayNo) {
 
 function dedupeList(values) {
   return Array.from(new Set((values ?? []).filter(Boolean)));
+}
+
+function normalizeDashboardIitScope(ids = [], fallbackId = IITs[0]?.id, requiredId = null) {
+  const validIds = new Set(IITs.map((iit) => iit.id));
+  const required = requiredId && validIds.has(requiredId) ? requiredId : null;
+  const fallback = fallbackId && validIds.has(fallbackId) ? fallbackId : IITs[0]?.id;
+  const normalized = dedupeList([...(required ? [required] : []), ...(ids ?? [])]).filter((id) => validIds.has(id));
+  return normalized.length ? normalized : [fallback].filter(Boolean);
+}
+
+function sameIitScope(left = [], right = []) {
+  const a = normalizeDashboardIitScope(left).slice().sort();
+  const b = normalizeDashboardIitScope(right).slice().sort();
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+function dashboardIitScopeLabel(ids = []) {
+  const normalized = normalizeDashboardIitScope(ids);
+  if (normalized.length === 1) {
+    return IITs.find((iit) => iit.id === normalized[0])?.name ?? normalized[0];
+  }
+  const oldSet = new Set(LEGACY_COMPARE_IITS);
+  const hasAllOldIits = LEGACY_COMPARE_IITS.every((id) => normalized.includes(id));
+  const extraCount = normalized.filter((id) => !oldSet.has(id)).length;
+  if (sameIitScope(normalized, LEGACY_COMPARE_IITS)) return "OLD IITs";
+  if (hasAllOldIits && extraCount > 0) return `OLD IITs + ${extraCount} IIT${extraCount === 1 ? "" : "s"}`;
+  if (normalized.length === IITs.length) return "All IITs";
+  return `${normalized.length} IITs`;
 }
 
 const DASHBOARD_SEARCH_ALIASES = {
@@ -1163,10 +1191,33 @@ export default function Dashboard({
   const lastUpdatedLabel = formatDateTime(lastUpdated);
   const lastDownloadedLabel = formatDateTime(lastDownloadedAt);
   const activeInstituteId = instituteId && instituteId !== "__ALL__" ? instituteId : IITs[0].id;
+  const canUseDashboardIitSelector = role === "ministry" || role === "admin";
+  const [dashboardScopeIits, setDashboardScopeIits] = useState(() =>
+    normalizeDashboardIitScope([activeInstituteId], activeInstituteId),
+  );
+  const [dashboardScopePopoverOpen, setDashboardScopePopoverOpen] = useState(false);
+  const [dashboardScopeDraftIits, setDashboardScopeDraftIits] = useState(() =>
+    normalizeDashboardIitScope([activeInstituteId], activeInstituteId, activeInstituteId),
+  );
+  const [dashboardScopeDraftYearRange, setDashboardScopeDraftYearRange] = useState(DEFAULT_YEAR_RANGE);
+  const [dashboardScopeDraftYearFilterMode, setDashboardScopeDraftYearFilterMode] = useState("single");
+  const [dashboardScopeSearch, setDashboardScopeSearch] = useState("");
+  const [compareLegendDropdownOpen, setCompareLegendDropdownOpen] = useState(false);
+  const normalizedDashboardScopeIits = useMemo(() => {
+    if (!canUseDashboardIitSelector) {
+      return normalizeDashboardIitScope([activeInstituteId], activeInstituteId, activeInstituteId);
+    }
+    return normalizeDashboardIitScope(dashboardScopeIits, activeInstituteId, activeInstituteId);
+  }, [activeInstituteId, canUseDashboardIitSelector, dashboardScopeIits]);
+  const isDashboardCompare = canUseDashboardIitSelector && normalizedDashboardScopeIits.length > 1;
+  const effectiveInstituteId = normalizedDashboardScopeIits.length === 1
+    ? normalizedDashboardScopeIits[0]
+    : activeInstituteId;
   const currentInstitute = useMemo(() => {
-    return IITs.find((item) => item.id === activeInstituteId) ?? IITs[0];
-  }, [activeInstituteId]);
-  const currentInstituteLogo = IIT_HOME_LOGOS[activeInstituteId] ?? null;
+    return IITs.find((item) => item.id === effectiveInstituteId) ?? IITs[0];
+  }, [effectiveInstituteId]);
+  const currentInstituteLogo = IIT_HOME_LOGOS[effectiveInstituteId] ?? null;
+  const dashboardScopeLabel = dashboardIitScopeLabel(normalizedDashboardScopeIits);
   const selectedYears = useMemo(
     () => YEARS.filter((year) => Number(year) >= Number(yearRange.from) && Number(year) <= Number(yearRange.to)),
     [yearRange.from, yearRange.to],
@@ -1178,8 +1229,8 @@ export default function Dashboard({
       ? String(yearRange.to)
       : `${yearRange.from}\u2013${yearRange.to}`;
   const chartContextSubtitle = isMultiYearSelection
-    ? `Year-wise values, ${yearContextLabel} \u00b7 ${currentInstitute.name}`
-    : `${yearContextLabel} \u00b7 ${currentInstitute.name}`;
+    ? `Year-wise values, ${yearContextLabel} \u00b7 ${dashboardScopeLabel}`
+    : `${yearContextLabel} \u00b7 ${dashboardScopeLabel}`;
   const yearFileLabel =
     Number(yearRange.from) === Number(yearRange.to)
       ? String(yearRange.to)
@@ -1231,6 +1282,24 @@ export default function Dashboard({
   }, [notice]);
 
   useEffect(() => {
+    setDashboardScopeIits((prev) => {
+      const nextScope = canUseDashboardIitSelector
+        ? normalizeDashboardIitScope(prev, activeInstituteId, activeInstituteId)
+        : normalizeDashboardIitScope([activeInstituteId], activeInstituteId, activeInstituteId);
+      return sameIitScope(prev, nextScope) ? prev : nextScope;
+    });
+  }, [activeInstituteId, canUseDashboardIitSelector]);
+
+  useEffect(() => {
+    if (!dashboardScopePopoverOpen) {
+      setDashboardScopeDraftIits(normalizedDashboardScopeIits);
+      setDashboardScopeDraftYearRange(yearRange);
+      setDashboardScopeDraftYearFilterMode(yearFilterMode);
+    }
+  }, [dashboardScopePopoverOpen, normalizedDashboardScopeIits.join("|"), yearRange.from, yearRange.to, yearFilterMode]);
+
+
+  useEffect(() => {
     const previousBodyOverflow = document.body.style.overflow;
     const previousHtmlOverflow = document.documentElement.style.overflow;
     if (isFullscreen) {
@@ -1272,7 +1341,6 @@ export default function Dashboard({
     CompareRequestKey: 1,
   });
 
-  const [dashboardCompareMode, setDashboardCompareMode] = useState(false);
   const [compareAdvancedFilterKey, setCompareAdvancedFilterKey] = useState(null);
   const [dashboardCompareLegendControls, setDashboardCompareLegendControls] = useState(null);
 
@@ -1444,9 +1512,9 @@ export default function Dashboard({
   const compareSeedInstituteIds = useMemo(() => {
     return dedupeList([
       ...LEGACY_COMPARE_IITS,
-      ...(activeInstituteId && !LEGACY_COMPARE_IITS.includes(activeInstituteId) ? [activeInstituteId] : []),
+      ...(effectiveInstituteId && !LEGACY_COMPARE_IITS.includes(effectiveInstituteId) ? [effectiveInstituteId] : []),
     ]);
-  }, [activeInstituteId]);
+  }, [effectiveInstituteId]);
 
   function buildCompareDefaults({ autoApply = true } = {}) {
     return {
@@ -1470,11 +1538,11 @@ export default function Dashboard({
     };
   }
 
-  function rankedDashboardCompareInstituteIds(direction = "top") {
+  function rankedDashboardCompareInstituteIds(direction = "top", rankingYearOverride = yearRange.to) {
     const kpi = selectedKpi;
     if (!kpi?.fact) return [];
 
-    const rankingYear = Number(yearRange.to ?? LATEST_YEAR);
+    const rankingYear = Number(rankingYearOverride ?? LATEST_YEAR);
     const rows = facts?.[kpi.fact] ?? [];
     return IITs.map((iit) => {
       const value = kpiValue(
@@ -1497,6 +1565,44 @@ export default function Dashboard({
       .map((item) => item.id);
   }
 
+  function setDashboardIitScope(nextIds, message = "", options = {}) {
+    if (!canUseDashboardIitSelector) return;
+    const normalized = normalizeDashboardIitScope(nextIds, activeInstituteId, activeInstituteId);
+    setDashboardScopeIits(normalized);
+    setDashboardScopeDraftIits(normalized);
+    if (!options.keepOpen) setDashboardScopePopoverOpen(false);
+    if (message) setNotice(message);
+    if (isFullscreen) setIsFullscreen(false);
+  }
+
+  function handleEmbeddedDashboardCompareConfigChange(updater) {
+    setCompareCfg((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const chartFilterOnly = Boolean(next?.__compareChartFilter);
+      let nextConfig = next;
+      if (!chartFilterOnly && canUseDashboardIitSelector && Array.isArray(next?.InstituteId) && next.InstituteId.length) {
+        const nextScope = normalizeDashboardIitScope(next.InstituteId, activeInstituteId, activeInstituteId);
+        nextConfig = { ...nextConfig, InstituteId: nextScope };
+        setDashboardScopeIits((current) => (sameIitScope(current, nextScope) ? current : nextScope));
+        setDashboardScopeDraftIits((current) => (sameIitScope(current, nextScope) ? current : nextScope));
+      }
+      if (!chartFilterOnly && next?.YearRange?.from != null && next?.YearRange?.to != null) {
+        const nextRange = {
+          from: Math.min(Number(next.YearRange.from), Number(next.YearRange.to)),
+          to: Math.max(Number(next.YearRange.from), Number(next.YearRange.to)),
+        };
+        nextConfig = { ...nextConfig, YearRange: nextRange, ActiveYear: nextRange.to };
+        setYearRange((current) => (
+          Number(current.from) === nextRange.from && Number(current.to) === nextRange.to
+            ? current
+            : nextRange
+        ));
+        setYearFilterMode(nextRange.from === nextRange.to ? "single" : "range");
+      }
+      return nextConfig;
+    });
+  }
+
   function activateDashboardCompareIitPreset(preset = "old") {
     const presetIits = preset === "all"
       ? IITs.map((iit) => iit.id)
@@ -1504,112 +1610,209 @@ export default function Dashboard({
         ? rankedDashboardCompareInstituteIds("top")
         : preset === "bottom"
           ? rankedDashboardCompareInstituteIds("bottom")
-          : [...LEGACY_COMPARE_IITS];
+          : preset === "single"
+            ? [effectiveInstituteId]
+            : [...LEGACY_COMPARE_IITS];
 
     if (!presetIits.length) {
       setNotice("No ranked IITs available for the selected KPI and year.");
       return;
     }
 
-    if (isFullscreen) setIsFullscreen(false);
-    setDashboardCompareMode(true);
-    setCompareCfg({
-      ...buildCompareDefaults({ autoApply: true }),
-      CompareView: "grouped",
-      ActiveYear: yearRange.to,
-      InstituteId: presetIits,
-      YearRange: { ...yearRange },
-      CompareRequestKey: Date.now(),
-    });
+    setDashboardIitScope(presetIits);
   }
 
   function openDashboardCompareAdvancedFilters() {
+    if (!canUseDashboardIitSelector) return;
     if (isFullscreen) setIsFullscreen(false);
-    setDashboardCompareMode(true);
-    setCompareCfg((prev) => ({
-      ...buildCompareDefaults({ autoApply: true }),
-      CompareScale: prev.CompareScale ?? "raw",
-      CompareView: prev.CompareView === "table" ? "table" : "grouped",
-      ActiveYear: yearRange.to,
-      InstituteId: prev.InstituteId?.length ? [...prev.InstituteId] : [...compareSeedInstituteIds],
-      YearRange: { ...yearRange },
-      CompareRequestKey: Date.now(),
-    }));
     setCompareAdvancedFilterKey(Date.now());
   }
 
-  function exitDashboardCompareMode() {
-    setDashboardCompareMode(false);
+  function openDashboardScopeAdvancedSelector() {
+    if (!canUseDashboardIitSelector) return;
+    setDashboardScopeDraftIits(normalizedDashboardScopeIits);
+    setDashboardScopeDraftYearRange(yearRange);
+    setDashboardScopeDraftYearFilterMode(yearFilterMode);
+    setDashboardScopeSearch("");
+    setDashboardScopePopoverOpen(true);
+    if (isFullscreen) setIsFullscreen(false);
+  }
+
+  function cancelDashboardScopeAdvancedSelector() {
+    setDashboardScopeDraftIits(normalizedDashboardScopeIits);
+    setDashboardScopeDraftYearRange(yearRange);
+    setDashboardScopeDraftYearFilterMode(yearFilterMode);
+    setDashboardScopePopoverOpen(false);
+  }
+
+  function setDashboardDraftSingleYearFilter(value) {
+    const year = Number(value);
+    setDashboardScopeDraftYearRange({ from: year, to: year });
+    setDashboardScopeDraftYearFilterMode("single");
+  }
+
+  function setDashboardDraftInclusiveYearRange(nextRange) {
+    const from = Number(nextRange.from);
+    const to = Number(nextRange.to);
+    const normalizedRange = {
+      from: Math.min(from, to),
+      to: Math.max(from, to),
+    };
+    setDashboardScopeDraftYearRange(normalizedRange);
+    setDashboardScopeDraftYearFilterMode(normalizedRange.from === normalizedRange.to ? "single" : "range");
+  }
+
+  function chooseDashboardDraftYearFilterMode(modeId) {
+    setDashboardScopeDraftYearFilterMode(modeId);
+    if (modeId === "single") {
+      setDashboardScopeDraftYearRange((prev) => ({ from: prev.to, to: prev.to }));
+    } else {
+      setDashboardScopeDraftYearRange((prev) => (
+        prev.from === prev.to
+          ? { from: Math.min(DEFAULT_MULTI_YEAR_FROM, prev.to), to: prev.to }
+          : prev
+      ));
+    }
+  }
+
+  function applyDashboardScopeAdvancedSelector() {
+    const nextScope = normalizeDashboardIitScope(dashboardScopeDraftIits, activeInstituteId, activeInstituteId);
+    const nextRange = {
+      from: Math.min(Number(dashboardScopeDraftYearRange.from), Number(dashboardScopeDraftYearRange.to)),
+      to: Math.max(Number(dashboardScopeDraftYearRange.from), Number(dashboardScopeDraftYearRange.to)),
+    };
+    setDashboardScopeIits(nextScope);
+    setDashboardScopeDraftIits(nextScope);
+    setYearRange(nextRange);
+    setYearFilterMode(nextRange.from === nextRange.to ? "single" : dashboardScopeDraftYearFilterMode);
+    setDashboardScopePopoverOpen(false);
+    if (isFullscreen) setIsFullscreen(false);
+  }
+
+  function toggleDashboardScopeDraftIit(iitId) {
+    if (!canUseDashboardIitSelector || !iitId) return;
+    setDashboardScopeDraftIits((prev) => {
+      const current = normalizeDashboardIitScope(prev, activeInstituteId, activeInstituteId);
+      if (iitId === activeInstituteId) return current;
+      const next = current.includes(iitId)
+        ? current.filter((id) => id !== iitId)
+        : [...current, iitId];
+      return normalizeDashboardIitScope(next, activeInstituteId, activeInstituteId);
+    });
   }
 
   const dashboardCompareViewByRow = useMemo(() => {
     const controls = dashboardCompareLegendControls;
-    const hasCompareViewByControls = Boolean(controls?.items?.length);
-    const items = hasCompareViewByControls
-      ? controls.items
-      : [
-          {
-            id: "compare-breakdown-placeholder",
-            label: "Compare breakdown",
-            title: `Turn on Compare IITs to choose view-by breakdowns for ${currentViewLabel}.`,
-            color: THEME_COLORS.Compare.accent,
-          },
-        ];
-    const locked = !dashboardCompareMode || !hasCompareViewByControls;
+    if (!isDashboardCompare || !controls?.items?.length) return null;
 
     return {
       id: "dashboard-compare-view-by",
       label: "View by",
-      items: items.map((item) => ({
+      items: controls.items.map((item) => ({
         id: item.id,
         label: item.label,
         tooltip: item.title ?? item.fullLabel ?? item.label,
         accent: item.color || THEME_COLORS.Compare.accent,
         soft: "#eff6ff",
       })),
-      activeId: null,
-      activeIds: controls?.activeIds?.length && dashboardCompareMode ? controls.activeIds : [],
-      autoScrollTargetId: controls?.activeIds?.[0] ?? items[0]?.id ?? null,
+      activeIds: controls.activeIds?.length ? controls.activeIds : [],
       onPick: (itemId) => controls?.onToggle?.(itemId),
-      accent: THEME_COLORS.Compare.accent,
-      soft: "#eff6ff",
-      disabled: locked,
-      disabledMessage: dashboardCompareMode
-        ? "Compare view-by options are loading."
-        : COMPARE_LOCKED_MESSAGE,
+      onMore: controls?.onMore,
     };
-  }, [currentViewLabel, dashboardCompareMode, dashboardCompareLegendControls]);
+  }, [isDashboardCompare, dashboardCompareLegendControls]);
 
   function renderDashboardCompareLegendControls() {
     const row = dashboardCompareViewByRow;
-    if (!row) return null;
+    if (!row?.items?.length) return null;
+
+    const activeLabels = row.items
+      .filter((item) => row.activeIds.includes(item.id))
+      .map((item) => item.label);
+    const summary = activeLabels.length ? activeLabels.join(", ") : "Default total";
 
     return (
-      <div className="mt-3">
-        <CombinedKpiSelector
-          title="Comparison breakdown"
-          helper="Select the breakdowns visible in the comparison chart."
-          accent={THEME_COLORS.Compare.accent}
-          soft="#eff6ff"
-          rows={[row]}
-        />
+      <div className="relative" data-export-hide="true">
+        <button
+          type="button"
+          onClick={() => setCompareLegendDropdownOpen((value) => !value)}
+          className="flex min-h-11 w-full items-center justify-between gap-3 rounded-2xl border bg-white px-4 py-2 text-left text-sm shadow-sm transition hover:-translate-y-0.5"
+          style={{ borderColor: "rgba(37,99,235,0.18)", color: "#0f2a5e" }}
+          title="Choose comparison breakdowns"
+        >
+          <span className="min-w-0">
+            <span className="block text-[11px] font-black uppercase tracking-[0.12em] text-slate-500">View by</span>
+            <span className="block truncate text-[13px] font-extrabold">{summary}</span>
+          </span>
+          <span className="rounded-full bg-sky-50 px-2 py-1 text-[11px] font-black text-sky-700">Change</span>
+        </button>
+
+        {compareLegendDropdownOpen ? (
+          <div className="absolute right-0 top-full z-[180] mt-2 w-full min-w-[280px] rounded-[24px] border border-sky-100 bg-white p-3 shadow-2xl">
+            <div className="mb-2 text-xs font-bold text-slate-500">Select breakdowns visible in the comparison bars.</div>
+            <div className="max-h-72 space-y-1 overflow-auto pr-1">
+              {row.items.map((item) => {
+                const active = row.activeIds.includes(item.id);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => row.onPick?.(item.id)}
+                    className="flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-2 text-left text-sm font-bold transition hover:bg-sky-50"
+                    style={{ color: active ? THEME_COLORS.Compare.accent : "#334155" }}
+                    title={item.tooltip}
+                  >
+                    <span className="truncate">{item.label}</span>
+                    <span
+                      className="grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[10px]"
+                      style={{
+                        borderColor: active ? THEME_COLORS.Compare.accent : "rgba(148,163,184,0.35)",
+                        background: active ? THEME_COLORS.Compare.accent : "white",
+                        color: active ? "white" : "transparent",
+                      }}
+                    >
+                      ✓
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-3 flex justify-end gap-2 border-t border-slate-100 pt-3">
+              {row.onMore ? (
+                <button type="button" onClick={row.onMore} className="rounded-full px-3 py-1.5 text-xs font-extrabold text-sky-700 hover:bg-sky-50">More filters</button>
+              ) : null}
+              <button type="button" onClick={() => setCompareLegendDropdownOpen(false)} className="rounded-full bg-sky-600 px-3 py-1.5 text-xs font-extrabold text-white">Done</button>
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }
 
   useEffect(() => {
-    if (!dashboardCompareMode) return;
+    if (!isDashboardCompare) {
+      setDashboardCompareLegendControls(null);
+      setCompareLegendDropdownOpen(false);
+      return;
+    }
     setCompareCfg((prev) => ({
       ...buildCompareDefaults({ autoApply: true }),
       CompareScale: prev.CompareScale ?? "raw",
-      CompareView: prev.CompareView === "table" ? "table" : "grouped",
+      CompareView: "grouped",
       ActiveYear: yearRange.to,
-      InstituteId: prev.InstituteId?.length ? [...prev.InstituteId] : [...compareSeedInstituteIds],
+      InstituteId: [...normalizedDashboardScopeIits],
       YearRange: { ...yearRange },
-      CompareRequestKey: Date.now(),
+      CompareRequestKey: [
+        selectedSubsectionId,
+        selectedKpiId,
+        compareSourceCategoryId ?? "",
+        currentIgViewId ?? "",
+        yearRange.from,
+        yearRange.to,
+        normalizedDashboardScopeIits.join(","),
+      ].join("|"),
     }));
   }, [
-    dashboardCompareMode,
+    isDashboardCompare,
     activeDomain,
     selectedSubsectionId,
     selectedKpiId,
@@ -1618,6 +1821,7 @@ export default function Dashboard({
     currentIgViewId,
     yearRange.from,
     yearRange.to,
+    normalizedDashboardScopeIits.join(","),
   ]);
 
   useEffect(() => {
@@ -1641,7 +1845,7 @@ export default function Dashboard({
 
   const scopedFacts = useMemo(() => {
     const matchesInstitute = (row) =>
-      !activeInstituteId || row.InstituteId === activeInstituteId;
+      !effectiveInstituteId || row.InstituteId === effectiveInstituteId;
     const thisYear = (rows) =>
       rows.filter((row) => row.Year === yearRange.to && matchesInstitute(row));
     const prevYearRows = (rows) =>
@@ -1778,7 +1982,7 @@ export default function Dashboard({
         },
       },
     };
-  }, [facts, activeInstituteId, yearRange.to]);
+  }, [facts, effectiveInstituteId, yearRange.to]);
 
   const nationalMonthly = useMemo(
     () => buildMonthlyAverage(scopedFacts.allIITs.monthly, yearRange.to),
@@ -1820,7 +2024,7 @@ export default function Dashboard({
       subsectionId: selectedSubsectionId,
       viewId: currentIgViewId,
       categoryId: currentInstitutionGovernanceCategoryId,
-      instituteId: activeInstituteId,
+      instituteId: effectiveInstituteId,
       yearRange,
       drillPath,
       detailFocus,
@@ -1832,7 +2036,7 @@ export default function Dashboard({
     facts,
     selectedSubsectionId,
     currentIgViewId,
-    activeInstituteId,
+    effectiveInstituteId,
     yearRange,
     drillPath,
     detailFocus,
@@ -1923,7 +2127,7 @@ export default function Dashboard({
         const rows = buildFacultyStaffRowsForPathway(pathway)
           .filter(
             (row) =>
-              row.InstituteId === activeInstituteId &&
+              row.InstituteId === effectiveInstituteId &&
               Number(row.Year ?? 0) === Number(yearRange.to),
           )
           .map((row) => ({
@@ -1940,7 +2144,7 @@ export default function Dashboard({
       }
     }
     return out;
-  }, [isFacultyStaffHierarchyView, activeInstituteId, yearRange.to]);
+  }, [isFacultyStaffHierarchyView, effectiveInstituteId, yearRange.to]);
 
   const facultyStaffDisplayRowsByPathway = useMemo(() => {
     if (!isFacultyStaffHierarchyView) return {};
@@ -1966,10 +2170,10 @@ export default function Dashboard({
     return Object.fromEntries(
       allPathways.map((pathway) => [
         pathway.pathwayNo,
-        getFacultyStaffRootValue(pathway, activeInstituteId, yearRange.to),
+        getFacultyStaffRootValue(pathway, effectiveInstituteId, yearRange.to),
       ]),
     );
-  }, [isFacultyStaffHierarchyView, activeInstituteId, yearRange.to]);
+  }, [isFacultyStaffHierarchyView, effectiveInstituteId, yearRange.to]);
 
   const facultyStaffDisplayBreakdown = activeFacultyStaffPathway
     ? facultyStaffDisplayRowsByPathway[activeFacultyStaffPathway.pathwayNo] ?? []
@@ -1999,7 +2203,7 @@ export default function Dashboard({
       return selectedYears.map((year) => {
         const rows = allRows.filter(
           (row) =>
-            row.InstituteId === activeInstituteId &&
+            row.InstituteId === effectiveInstituteId &&
             Number(row.Year ?? 0) === Number(year),
         );
         return {
@@ -2013,8 +2217,8 @@ export default function Dashboard({
       let rows = facts?.[selectedKpi.fact] ?? [];
       rows = scopeRowsForKpi(selectedKpi, rows);
       rows = rows.filter((row) => Number(row.Year ?? 0) === Number(year));
-      if (activeInstituteId) {
-        rows = rows.filter((row) => row.InstituteId === activeInstituteId);
+      if (effectiveInstituteId) {
+        rows = rows.filter((row) => row.InstituteId === effectiveInstituteId);
       }
       return {
         name: String(year),
@@ -2024,7 +2228,7 @@ export default function Dashboard({
   }, [
     facts,
     selectedKpi,
-    activeInstituteId,
+    effectiveInstituteId,
     selectedYears,
     isFacultyStaffHierarchyView,
     activeFacultyStaffPathway,
@@ -2046,7 +2250,7 @@ export default function Dashboard({
     if (!isMultiYearSelection || isInstitutionGovernanceVisualActive || isFacultyStaffHierarchyView) return [];
 
     const sourceRows = scopeRowsForKpi(selectedKpi, facts?.[selectedKpi.fact] ?? []).filter(
-      (row) => !activeInstituteId || row.InstituteId === activeInstituteId,
+      (row) => !effectiveInstituteId || row.InstituteId === effectiveInstituteId,
     );
 
     const rows = selectedYears.flatMap((year) => {
@@ -2074,7 +2278,7 @@ export default function Dashboard({
 
     return rows.filter((row) => Number.isFinite(Number(row.value)));
   }, [
-    activeInstituteId,
+    effectiveInstituteId,
     drillPath,
     facts,
     isFacultyStaffHierarchyView,
@@ -2230,7 +2434,7 @@ export default function Dashboard({
           ["Total Enrolled Students", "Total enrolled students"].includes(String(row.StudentSegment ?? "")),
         )?.Students ??
         (sumStudents("UG Enrolled") + sumStudents("PG Enrolled") + sumStudents("PhD Enrolled"));
-    const instituteOffset = Math.max(0, IITs.findIndex((item) => item.id === activeInstituteId));
+    const instituteOffset = Math.max(0, IITs.findIndex((item) => item.id === effectiveInstituteId));
     const yearOffset = Number(yearRange.to) - 2021;
 
     return {
@@ -2256,7 +2460,7 @@ export default function Dashboard({
       researchFundingCr: Number(researchFundingRow?.Allocated_Cr ?? 0),
       collaborations: collaborationRows.reduce((sum, row) => sum + Number(row.Count ?? 0), 0),
     };
-  }, [activeInstituteId, scopedFacts, yearRange.to]);
+  }, [effectiveInstituteId, scopedFacts, yearRange.to]);
 
   const homeRankingCards = useMemo(
     () => [
@@ -2332,7 +2536,7 @@ export default function Dashboard({
   const homeChartData = useMemo(() => {
     const yearsToShow = YEARS.slice(-5);
     const filterByInstitute = (rows) =>
-      (rows ?? []).filter((row) => row.InstituteId === activeInstituteId);
+      (rows ?? []).filter((row) => row.InstituteId === effectiveInstituteId);
 
     const studentSummaryAll = filterByInstitute(facts.studentProfileSummaryWide ?? facts.studentProfileSummary ?? []);
     const enrollmentCurrent = scopedFacts.thisIIT.enrollmentDetails ?? [];
@@ -2427,7 +2631,7 @@ export default function Dashboard({
       facultyTrend,
       facultyGender,
     };
-  }, [activeInstituteId, facts, homeSnapshot, scopedFacts, yearRange.to]);
+  }, [effectiveInstituteId, facts, homeSnapshot, scopedFacts, yearRange.to]);
 
   const homeStudentTabs = [
     { id: "trend", label: "Students Over Years" },
@@ -2644,7 +2848,7 @@ export default function Dashboard({
     if (isFacultyStaffHierarchyView && activeFacultyStaffPathway) {
       let scoped = buildFacultyStaffRowsForPathway(activeFacultyStaffPathway).filter(
         (row) =>
-          row.InstituteId === activeInstituteId &&
+          row.InstituteId === effectiveInstituteId &&
           selectedYearSet.has(Number(row.Year ?? 0)),
       );
       if (detailFocus?.field === "Breakdown") {
@@ -2665,7 +2869,7 @@ export default function Dashboard({
 
     const rows = scopeRowsForKpi(selectedKpi, facts?.[selectedKpi.fact] ?? []).filter(
       (row) =>
-        (!activeInstituteId || row.InstituteId === activeInstituteId) &&
+        (!effectiveInstituteId || row.InstituteId === effectiveInstituteId) &&
         selectedYearSet.has(Number(row.Year ?? 0)),
     );
     let scoped = applyDrill(rows, drillPath, selectedKpi.levels ?? []);
@@ -2705,7 +2909,7 @@ export default function Dashboard({
     detailFocus,
     isFacultyStaffHierarchyView,
     activeFacultyStaffPathway,
-    activeInstituteId,
+    effectiveInstituteId,
     selectedYearSet,
     isInstitutionGovernanceVisualActive,
     institutionGovernanceVisual,
@@ -3140,7 +3344,7 @@ export default function Dashboard({
         subsectionId: selectedSubsectionId,
         viewId: currentIgViewId,
         categoryId: currentInstitutionGovernanceCategoryId,
-        instituteId: activeInstituteId,
+        instituteId: effectiveInstituteId,
         yearRange,
         drillPath: candidatePath,
         detailFocus: null,
@@ -3175,7 +3379,7 @@ export default function Dashboard({
     const candidatePath = [...drillPath, name];
     const previewRows = facts?.[selectedKpi.fact] ?? [];
     const preview = kpiBreakdown(selectedKpi, scopeRowsForKpi(selectedKpi, previewRows).filter((row) =>
-      (!activeInstituteId || row.InstituteId === activeInstituteId) &&
+      (!effectiveInstituteId || row.InstituteId === effectiveInstituteId) &&
       selectedYearSet.has(Number(row.Year ?? 0))
     ), candidatePath);
     if (!preview.length) {
@@ -3279,7 +3483,7 @@ export default function Dashboard({
     },
     {
       id: "compare",
-      label: "Compare IITs",
+      label: "Institute Comparison",
       icon: "compare",
       action: () => {
         setSpeedDialOpen(false);
@@ -3587,7 +3791,7 @@ export default function Dashboard({
     showFacultyStaffCategoryCarousel ||
     showInstitutionGovernanceCategoryCarousel ||
     showGenericCategoryCarousel;
-  const showDashboardCompareSurface = dashboardCompareMode;
+  const showDashboardCompareSurface = isDashboardCompare;
   const categorySelectorAccent = accent;
   const categorySelectorSoft = soft;
 
@@ -3734,7 +3938,7 @@ export default function Dashboard({
         draft={filterDraft}
         setDraft={setFilterDraft}
         role={role}
-        lockedInstituteId={activeInstituteId || IITs[0].id}
+        lockedInstituteId={effectiveInstituteId || IITs[0].id}
         onReset={() => {
           if (filterContext === "compare") {
             setFilterDraft({
@@ -4315,7 +4519,6 @@ export default function Dashboard({
                             },
                           ]
                         : []),
-                      ...(dashboardCompareViewByRow ? [dashboardCompareViewByRow] : []),
                     ]}
                   />
                 ) : (
@@ -4335,7 +4538,6 @@ export default function Dashboard({
                     }
                   />
                 )}
-                {dashboardCompareViewByRow && !hasCombinedKpiSelector ? renderDashboardCompareLegendControls() : null}
               </div>
               <div
                 className="flex h-full flex-col rounded-[28px] p-3 shadow-sm xl:max-w-none"
@@ -4417,89 +4619,208 @@ export default function Dashboard({
                     </div>
                   )}
 
-                  <div className="mt-1 flex items-center justify-between gap-3">
-                    <div className="text-sm font-bold" style={{ color: THEME_COLORS.Compare.accent }}>
-                      Compare IITs
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={dashboardCompareMode}
-                      onClick={() => (dashboardCompareMode ? exitDashboardCompareMode() : activateDashboardCompareIitPreset("old"))}
-                      className="inline-flex h-8 w-[76px] items-center rounded-full border p-1 transition"
-                      style={{
-                        justifyContent: dashboardCompareMode ? "flex-end" : "flex-start",
-                        background: dashboardCompareMode ? THEME_COLORS.Compare.accent : "rgba(241,245,249,0.92)",
-                        borderColor: dashboardCompareMode ? `${THEME_COLORS.Compare.accent}55` : "rgba(148,163,184,0.35)",
-                        boxShadow: dashboardCompareMode ? "0 8px 18px rgba(37,99,235,0.18)" : "inset 0 1px 2px rgba(15,23,42,0.04)",
-                      }}
-                      title={dashboardCompareMode ? "Switch off IIT comparison" : "Switch on IIT comparison"}
-                    >
-                      <span
-                        className="grid h-6 w-6 place-items-center rounded-full bg-white text-[9px] font-black shadow-sm transition"
-                        style={{ color: dashboardCompareMode ? THEME_COLORS.Compare.accent : "#64748b" }}
-                      >
-                        {dashboardCompareMode ? "ON" : "OFF"}
-                      </span>
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {[
-                      { id: "old", label: "OLD IITs", title: "Compare with old IITs" },
-                      { id: "all", label: "ALL", title: "Compare with all IITs" },
-                      { id: "top", label: "Top 10 by KPI", title: "Compare top 10 IITs for the selected KPI and year" },
-                      { id: "bottom", label: "Bottom 10 by KPI", title: "Compare bottom 10 IITs for the selected KPI and year" },
-                    ].map((item) => {
-                      const locked = !dashboardCompareMode;
-                      return (
-                        <DisabledHoverTooltip key={item.id} message={locked ? COMPARE_LOCKED_MESSAGE : ""}>
+                  {canUseDashboardIitSelector ? (
+                    <div className="rounded-[24px] border border-sky-100 bg-white p-3 shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-bold" style={{ color: THEME_COLORS.Compare.accent }}>
+                            Compare IITs
+                          </div>
+                          <div className="mt-1 text-xs font-bold text-sky-800">
+                            {normalizedDashboardScopeIits.length === 1 ? "Single-IIT view" : "Multiple IIT view"}
+                          </div>
+                        </div>
+                        <div className="rounded-full bg-sky-50 px-3 py-1 text-[11px] font-black text-sky-700">
+                          {normalizedDashboardScopeIits.length} selected
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {[
+                          { id: "old", label: "OLD IITs", title: "Select old IITs plus the current page IIT" },
+                          { id: "all", label: "ALL", title: "Select all IITs" },
+                          { id: "top", label: "Top 10 by KPI", title: "Select top 10 IITs for the selected KPI and year" },
+                          { id: "bottom", label: "Bottom 10 by KPI", title: "Select bottom 10 IITs for the selected KPI and year" },
+                        ].map((item) => (
                           <button
+                            key={item.id}
                             type="button"
-                            disabled={locked}
-                            aria-disabled={locked}
-                            onClick={() => {
-                              if (!locked) activateDashboardCompareIitPreset(item.id);
-                            }}
-                            title={locked ? undefined : item.title}
-                            className={`rounded-full px-4 py-2 text-[12px] font-extrabold transition ${locked ? "cursor-not-allowed" : "hover:-translate-y-0.5"}`}
+                            onClick={() => activateDashboardCompareIitPreset(item.id)}
+                            title={item.title}
+                            className="rounded-full px-4 py-2 text-[12px] font-extrabold transition hover:-translate-y-0.5"
                             style={{
-                              background: locked ? "rgba(148,163,184,0.08)" : "#e0f2fe",
-                              color: locked ? "#94a3b8" : "#075985",
-                              border: `1px solid ${locked ? "rgba(148,163,184,0.22)" : "rgba(14,165,233,0.18)"}`,
-                              boxShadow: locked ? "none" : "0 8px 18px rgba(14,165,233,0.08)",
-                              opacity: locked ? 0.76 : 1,
+                              background: "#e0f2fe",
+                              color: "#075985",
+                              border: "1px solid rgba(14,165,233,0.18)",
+                              boxShadow: "0 8px 18px rgba(14,165,233,0.08)",
                             }}
                           >
                             {item.label}
                           </button>
-                        </DisabledHoverTooltip>
-                      );
-                    })}
-                    <DisabledHoverTooltip message={!dashboardCompareMode ? COMPARE_LOCKED_MESSAGE : ""}>
-                      <button
-                        type="button"
-                        disabled={!dashboardCompareMode}
-                        aria-disabled={!dashboardCompareMode}
-                        onClick={() => {
-                          if (dashboardCompareMode) openDashboardCompareAdvancedFilters();
-                        }}
-                        className={`rounded-full px-4 py-2 text-[12px] font-extrabold transition ${dashboardCompareMode ? "hover:-translate-y-0.5" : "cursor-not-allowed"}`}
-                        style={{
-                          background: dashboardCompareMode ? "#e0f2fe" : "rgba(148,163,184,0.08)",
-                          color: dashboardCompareMode ? "#075985" : "#94a3b8",
-                          border: `1px solid ${dashboardCompareMode ? "rgba(14,165,233,0.18)" : "rgba(148,163,184,0.22)"}`,
-                          boxShadow: dashboardCompareMode ? "0 8px 18px rgba(14,165,233,0.08)" : "none",
-                          opacity: dashboardCompareMode ? 1 : 0.76,
-                        }}
-                      >
-                        Advanced filters
-                      </button>
-                    </DisabledHoverTooltip>
-                  </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={openDashboardScopeAdvancedSelector}
+                          className="rounded-full px-4 py-2 text-[12px] font-extrabold transition hover:-translate-y-0.5"
+                          style={{
+                            background: "#e0f2fe",
+                            color: "#075985",
+                            border: "1px solid rgba(14,165,233,0.18)",
+                            boxShadow: "0 8px 18px rgba(14,165,233,0.08)",
+                          }}
+                        >
+                          Advanced filters
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-extrabold text-slate-700">
+                      {currentInstitute.name}
+                      <div className="mt-1 text-xs font-semibold text-slate-500">IIT users can only view their own institute dashboard.</div>
+                    </div>
+                  )}
+
+                  {!isDashboardCompare ? (
+                    <div className="rounded-2xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800">
+                      {chartHasVisibleDrillAction
+                        ? "Click a bar to drill down. Select two or more IITs for a multi-institute view."
+                        : "Select two or more IITs for a multi-institute view. Drill-down is not available for this KPI."
+                      }
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
           ) : null}
+
+          <Modal
+            open={dashboardScopePopoverOpen && canUseDashboardIitSelector}
+            title="Advanced filters"
+            onClose={cancelDashboardScopeAdvancedSelector}
+          >
+            <div className="space-y-5">
+              <div
+                className="rounded-[28px] border border-sky-100 bg-white p-4 shadow-sm"
+              >
+                <div className="text-lg font-extrabold text-[#0f2a5e]">Select Date</div>
+                <div className="mt-4 grid grid-cols-2 gap-1 rounded-2xl border p-1" style={{ background: "rgba(248,250,252,0.78)", borderColor: "rgba(59,130,246,0.14)" }}>
+                  {YEAR_FILTER_MODES.map((mode) => {
+                    const active = dashboardScopeDraftYearFilterMode === mode.id;
+                    return (
+                      <button
+                        key={`advanced-year-${mode.id}`}
+                        type="button"
+                        onClick={() => chooseDashboardDraftYearFilterMode(mode.id)}
+                        className="min-h-11 rounded-xl px-2 text-[12px] font-extrabold leading-tight transition"
+                        style={{ background: active ? THEME_COLORS.Compare.accent : "transparent", color: active ? "white" : "#0f2a5e" }}
+                      >
+                        {mode.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-4">
+                  {dashboardScopeDraftYearFilterMode === "single" ? (
+                    <Select
+                      label="Year"
+                      value={String(dashboardScopeDraftYearRange.to)}
+                      onChange={setDashboardDraftSingleYearFilter}
+                      options={YEARS.map((value) => ({ value: String(value), label: String(value) }))}
+                    />
+                  ) : (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Select
+                        label="From"
+                        value={String(dashboardScopeDraftYearRange.from)}
+                        onChange={(value) => setDashboardDraftInclusiveYearRange({ from: Number(value), to: dashboardScopeDraftYearRange.to })}
+                        options={YEARS.map((value) => ({ value: String(value), label: String(value) }))}
+                      />
+                      <Select
+                        label="To"
+                        value={String(dashboardScopeDraftYearRange.to)}
+                        onChange={(value) => setDashboardDraftInclusiveYearRange({ from: dashboardScopeDraftYearRange.from, to: Number(value) })}
+                        options={YEARS.map((value) => ({ value: String(value), label: String(value) }))}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-[28px] border border-sky-100 bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-lg font-extrabold text-[#0f2a5e]">Compare IITs</div>
+                    <div className="mt-1 text-xs font-semibold text-slate-500">
+                      {dashboardScopeDraftIits.length} selected.
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDashboardScopeDraftIits(normalizeDashboardIitScope(IITs.map((iit) => iit.id), activeInstituteId, activeInstituteId))}
+                      className="rounded-full bg-sky-50 px-4 py-2 text-sm font-extrabold text-sky-700 hover:bg-sky-100"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDashboardScopeDraftIits(normalizeDashboardIitScope([activeInstituteId], activeInstituteId, activeInstituteId))}
+                      className="rounded-full px-4 py-2 text-sm font-extrabold text-sky-700 hover:bg-sky-50"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => setDashboardScopeDraftIits(normalizeDashboardIitScope(LEGACY_COMPARE_IITS, activeInstituteId, activeInstituteId))} className="rounded-full bg-sky-50 px-4 py-2 text-[12px] font-extrabold text-sky-700 hover:bg-sky-100">OLD IITs</button>
+                  <button type="button" onClick={() => setDashboardScopeDraftIits(normalizeDashboardIitScope(rankedDashboardCompareInstituteIds("top", dashboardScopeDraftYearRange.to), activeInstituteId, activeInstituteId))} className="rounded-full bg-sky-50 px-4 py-2 text-[12px] font-extrabold text-sky-700 hover:bg-sky-100">Top 10 by KPI</button>
+                  <button type="button" onClick={() => setDashboardScopeDraftIits(normalizeDashboardIitScope(rankedDashboardCompareInstituteIds("bottom", dashboardScopeDraftYearRange.to), activeInstituteId, activeInstituteId))} className="rounded-full bg-sky-50 px-4 py-2 text-[12px] font-extrabold text-sky-700 hover:bg-sky-100">Bottom 10 by KPI</button>
+                </div>
+
+                <input
+                  value={dashboardScopeSearch}
+                  onChange={(event) => setDashboardScopeSearch(event.target.value)}
+                  placeholder="Search IIT by name, short code, or state"
+                  className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-sky-300"
+                />
+
+                <div className="mt-4 grid max-h-[46vh] gap-3 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {IITs.filter((iit) => {
+                    const query = dashboardScopeSearch.trim().toLowerCase();
+                    if (!query) return true;
+                    return `${iit.id} ${iit.name} ${iit.state}`.toLowerCase().includes(query);
+                  }).map((iit) => {
+                    const active = dashboardScopeDraftIits.includes(iit.id);
+                    const locked = iit.id === activeInstituteId;
+                    return (
+                      <label
+                        key={`advanced-iit-${iit.id}`}
+                        className={`flex min-h-[56px] items-center gap-3 rounded-2xl border px-3 py-2 transition ${active ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white hover:border-sky-200 hover:bg-sky-50/65"} ${locked ? "cursor-default" : "cursor-pointer"}`}
+                        title={locked ? "Current page IIT stays included" : active ? "Remove from selected institutes" : "Add to selected institutes"}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={active}
+                          disabled={locked}
+                          onChange={() => toggleDashboardScopeDraftIit(iit.id)}
+                          className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-extrabold text-blue-700">{iit.id}</span>
+                          <span className="block truncate text-[11px] font-semibold text-slate-500">{iit.name}{locked ? " · Current" : ""}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-5 flex items-center justify-end gap-4 border-t border-slate-100 pt-4">
+                  <button type="button" onClick={cancelDashboardScopeAdvancedSelector} className="rounded-full px-5 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50">Cancel</button>
+                  <button type="button" onClick={applyDashboardScopeAdvancedSelector} className="rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-extrabold text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-600">Apply filters</button>
+                </div>
+              </div>
+            </div>
+          </Modal>
 
           {section === "Home" ? (
             <div className="space-y-5">
@@ -4784,7 +5105,7 @@ export default function Dashboard({
               config={reportsCfg}
               accent={THEME_COLORS.Reports.accent}
               role={role}
-              instituteId={activeInstituteId || IITs[0].id}
+              instituteId={effectiveInstituteId || IITs[0].id}
               onOpenFilters={() => openFilterFor("reports")}
               onOpenSource={() => setSourceOpen(true)}
               onOpenInstructions={() => setInstructionsOpen(true)}
@@ -4896,10 +5217,12 @@ export default function Dashboard({
                 config={compareCfg}
                 accent={THEME_COLORS.Compare.accent}
                 role={role}
-                onConfigChange={setCompareCfg}
+                onConfigChange={handleEmbeddedDashboardCompareConfigChange}
                 hideInlineFilters
+                embeddedDashboardMode
+                simpleBarsOnly
+                hideStandaloneKpiSelectors
                 externalOpenFiltersKey={compareAdvancedFilterKey}
-                onEmbeddedLegendControlsChange={setDashboardCompareLegendControls}
               />
             ) : (
             <div

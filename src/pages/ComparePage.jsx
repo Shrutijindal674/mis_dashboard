@@ -36,6 +36,7 @@ const LEGACY_IITS = ["IITD", "IITB", "IITKGP", "IITM", "IITK"];
 const PALETTE = ["#061a40", "#0d47a1", "#1565c0", "#0284c7", "#0ea5e9", "#38bdf8", "#7dd3fc", "#c7edff", "#082f49", "#1e3a8a", "#2563eb", "#60a5fa", "#bae6fd", "#eff6ff", "#0f172a", "#1d4ed8", "#67e8f9", "#dbeafe"];
 const IIT_BLUE_PALETTE = ["#061a40", "#0d47a1", "#1565c0", "#0284c7", "#0ea5e9", "#38bdf8", "#7dd3fc", "#c7edff", "#082f49", "#1e3a8a", "#2563eb", "#60a5fa", "#bae6fd", "#eff6ff", "#0f172a", "#1d4ed8", "#67e8f9", "#dbeafe", "#075985", "#1e40af", "#0891b2", "#93c5fd", "#e0f2fe"];
 const COMPARE_PATTERN_TYPES = ["diagonal", "dots", "cross", "horizontal", "vertical", "grid", "reverseDiagonal", "wideDiagonal"];
+const SINGLE_YEAR_SINGLE_IIT_DRILLDOWN_HINT = "Drill-down is available only for single-year, single-IIT views.";
 
 
 const COMPARE_EXPORT_MAX_CANVAS_PIXELS = 110_000_000;
@@ -465,6 +466,16 @@ function cn(...parts) {
   return parts.filter(Boolean).join(" ");
 }
 
+function CompareDrillStatusIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10 3 18 17H2L10 3Z" />
+      <path d="M10 8v4" />
+      <path d="M10 15h.01" />
+    </svg>
+  );
+}
+
 function dedupeList(values) {
   return Array.from(new Set((values ?? []).filter(Boolean)));
 }
@@ -731,26 +742,40 @@ function CompareTexturedBarShape({ x = 0, y = 0, width = 0, height = 0, fill, co
   const safeHeight = Math.abs(numericHeight);
   if (safeWidth < 1 || safeHeight < 1) return null;
 
+  const rawRadii = Array.isArray(radius) ? radius : [radius, radius, radius, radius];
+  const [rawTl = 0, rawTr = 0, rawBr = 0, rawBl = 0] = rawRadii;
+  const maxRadius = Math.min(safeWidth / 2, safeHeight / 2);
+  const tl = Math.min(Math.max(Number(rawTl) || 0, 0), maxRadius);
+  const tr = Math.min(Math.max(Number(rawTr) || 0, 0), maxRadius);
+  const br = Math.min(Math.max(Number(rawBr) || 0, 0), maxRadius);
+  const bl = Math.min(Math.max(Number(rawBl) || 0, 0), maxRadius);
+  const pathD = [
+    `M ${left + tl} ${top}`,
+    `H ${left + safeWidth - tr}`,
+    tr ? `Q ${left + safeWidth} ${top} ${left + safeWidth} ${top + tr}` : `L ${left + safeWidth} ${top}`,
+    `V ${top + safeHeight - br}`,
+    br ? `Q ${left + safeWidth} ${top + safeHeight} ${left + safeWidth - br} ${top + safeHeight}` : `L ${left + safeWidth} ${top + safeHeight}`,
+    `H ${left + bl}`,
+    bl ? `Q ${left} ${top + safeHeight} ${left} ${top + safeHeight - bl}` : `L ${left} ${top + safeHeight}`,
+    `V ${top + tl}`,
+    tl ? `Q ${left} ${top} ${left + tl} ${top}` : `L ${left} ${top}`,
+    "Z",
+  ].join(" ");
+
   const barColor = color || fill || "#2563eb";
   const textureStroke = comparePatternStroke(barColor);
   const borderStroke = stroke || compareBarStroke(barColor);
-  const rx = 0;
-  const clipId = comparePatternId(`bar_clip_${patternType}_${Math.round(left)}_${Math.round(top)}_${Math.round(safeWidth)}_${Math.round(safeHeight)}_${barColor}`);
+  const clipId = comparePatternId(`bar_clip_${patternType}_${Math.round(left)}_${Math.round(top)}_${Math.round(safeWidth)}_${Math.round(safeHeight)}_${barColor}_${tl}_${tr}_${br}_${bl}`);
 
   return (
     <g>
       <defs>
         <clipPath id={clipId}>
-          <rect x={left} y={top} width={safeWidth} height={safeHeight} rx={rx} ry={rx} />
+          <path d={pathD} />
         </clipPath>
       </defs>
-      <rect
-        x={left}
-        y={top}
-        width={safeWidth}
-        height={safeHeight}
-        rx={rx}
-        ry={rx}
+      <path
+        d={pathD}
         fill={barColor}
         stroke={borderStroke}
         strokeWidth={1.25}
@@ -820,11 +845,18 @@ function GroupedYearIitTick({ x = 0, y = 0, payload, index = 0, onClick, onYearC
       onClick={clickable ? () => onClick(iid) : undefined}
       style={{ cursor: clickable ? "pointer" : "default" }}
       role={clickable ? "button" : undefined}
-      aria-label={clickable ? `Drill down to ${fullLabel}` : undefined}
+      aria-label={clickable ? `Filter chart to ${fullLabel}` : undefined}
     >
-      <title>{clickable ? `Click IIT to drill down to ${fullLabel}; click year to compare IITs in that year` : fullLabel}</title>
-      <text textAnchor="middle" fill="#475569" fontSize={fontSize} fontWeight="800">
-        <tspan x="0" dy={labelDy} transform={!alternateRows && rotate ? "rotate(-55 0 14)" : undefined}>{label}</tspan>
+      <title>{clickable ? `Click to filter data for ${fullLabel}. Click the year label to filter data for ${year}.` : fullLabel}</title>
+      <text textAnchor="middle" fill={clickable ? "#0f2a5e" : "#475569"} fontSize={fontSize} fontWeight="800">
+        <tspan
+          x="0"
+          dy={labelDy}
+          transform={!alternateRows && rotate ? "rotate(-55 0 14)" : undefined}
+          style={{ cursor: clickable ? "pointer" : "default" }}
+        >
+          {label}
+        </tspan>
         <tspan
           x="0"
           dy={yearDy}
@@ -850,12 +882,14 @@ function YearPanelCompareChart({
   seriesList,
   scaleMode,
   activeSegment,
+  drillHint = "",
   onIitClick,
   onYearClick,
   onSegmentHover,
   onSegmentClick,
   onChartLeave,
   onDetailClose,
+  simpleBarsOnly = false,
 }) {
   const visibleSeries = seriesList ?? [];
 
@@ -910,7 +944,7 @@ function YearPanelCompareChart({
     <div className="relative" onMouseLeave={onChartLeave}>
       {activeSegment ? (
         <div className="absolute right-3 top-3 z-20">
-          <BarSegmentDetailCard segment={activeSegment} scaleMode={scaleMode} onClose={activeSegment.pinned ? onDetailClose : undefined} />
+          <BarSegmentDetailCard segment={activeSegment} scaleMode={scaleMode} drillHint={drillHint} onClose={activeSegment.pinned ? onDetailClose : undefined} />
         </div>
       ) : null}
 
@@ -951,7 +985,7 @@ function YearPanelCompareChart({
                     key={`label-${row.xKey}`}
                     type="button"
                     className="flex h-7 w-full items-center justify-end truncate rounded-lg px-1.5 text-right text-[11px] font-black text-slate-700 transition hover:bg-sky-50 hover:text-blue-700"
-                    title={`Drill down to ${row.instituteName}`}
+                    title={`Filter chart to ${row.instituteName}`}
                     onClick={() => onIitClick?.(row.instituteId)}
                   >
                     {row.shortName}
@@ -1029,7 +1063,7 @@ function YearPanelCompareChart({
                     key={`right-label-${row.xKey}`}
                     type="button"
                     className="flex h-7 w-full items-center justify-start truncate rounded-lg px-1.5 text-left text-[11px] font-black text-slate-700 transition hover:bg-sky-50 hover:text-blue-700"
-                    title={`Drill down to ${row.instituteName}`}
+                    title={`Filter chart to ${row.instituteName}`}
                     onClick={() => onIitClick?.(row.instituteId)}
                   >
                     {row.shortName}
@@ -1792,7 +1826,7 @@ function EmptyStateCard({ onBuild }) {
 }
 
 
-function BarSegmentDetailCard({ segment, scaleMode, onClose }) {
+function BarSegmentDetailCard({ segment, scaleMode, drillHint = "", onClose }) {
   if (!segment) return null;
   const valueLabel = fmtDisplay(segment.kpi, segment.displayValue, scaleMode);
   const rawLabel = fmtRaw(segment.kpi, segment.rawValue);
@@ -1848,23 +1882,30 @@ function BarSegmentDetailCard({ segment, scaleMode, onClose }) {
           <span className={cn("font-extrabold", Number(segment.changePct) >= 0 ? "text-emerald-600" : "text-rose-600")}>{changeLabel}</span>
         </div>
       </div>
-      <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-        <span>{segment.pinned ? "Pinned selection" : "Click segment to pin"}</span>
-        {onClose ? (
-          <button type="button" onClick={onClose} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-extrabold text-slate-600">
-            Clear
-          </button>
-        ) : null}
-      </div>
+      {drillHint ? (
+        <div className="flex items-center gap-1.5 border-t border-slate-100 bg-rose-50/70 px-4 py-2 text-[11px] font-extrabold leading-tight text-[#dc2626]">
+          <CompareDrillStatusIcon />
+          <span>{drillHint}</span>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+          <span>{segment.pinned ? "Pinned selection" : "Click segment to pin"}</span>
+          {onClose ? (
+            <button type="button" onClick={onClose} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-extrabold text-slate-600">
+              Clear
+            </button>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
 
-function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLookup, scaleMode, activeSegment }) {
+function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLookup, scaleMode, activeSegment, drillHint = "" }) {
   if (!active || !payload?.length) return null;
   if (mode === "grouped") {
     if (activeSegment) {
-      return <BarSegmentDetailCard segment={activeSegment} scaleMode={scaleMode} />;
+      return <BarSegmentDetailCard segment={activeSegment} scaleMode={scaleMode} drillHint={drillHint} />;
     }
     const row = payload[0]?.payload;
     const seenMetricIds = new Set();
@@ -1929,9 +1970,16 @@ function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLook
             </span>
           </div>
         </div>
-        <div className="border-t border-slate-100 px-4 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-          Hover or click a colored bar segment for exact details
-        </div>
+        {drillHint ? (
+          <div className="flex items-center justify-center gap-1.5 border-t border-slate-100 bg-rose-50/70 px-4 py-2 text-[11px] font-extrabold leading-tight text-[#dc2626]">
+            <CompareDrillStatusIcon />
+            <span>{drillHint}</span>
+          </div>
+        ) : (
+          <div className="border-t border-slate-100 px-4 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+            Hover or click a colored bar segment for exact details
+          </div>
+        )}
       </div>
     );
   }
@@ -1956,7 +2004,7 @@ function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLook
   }
   if (mode === "smallMultiples") {
     if (activeSegment) {
-      return <BarSegmentDetailCard segment={activeSegment} scaleMode={scaleMode} />;
+      return <BarSegmentDetailCard segment={activeSegment} scaleMode={scaleMode} drillHint={drillHint} />;
     }
     const row = payload[0]?.payload;
     const visibleEntries = payload
@@ -2000,9 +2048,16 @@ function CompareTooltip({ active, payload, label, mode, metricLookup, seriesLook
             <span className="font-extrabold text-slate-700">{row?.instituteName ?? row?.year ?? row?.label ?? "—"}</span>
           </div>
         </div>
-        <div className="border-t border-slate-100 px-4 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-          Hover or click a colored bar segment for exact details
-        </div>
+        {drillHint ? (
+          <div className="flex items-center justify-center gap-1.5 border-t border-slate-100 bg-rose-50/70 px-4 py-2 text-[11px] font-extrabold leading-tight text-[#dc2626]">
+            <CompareDrillStatusIcon />
+            <span>{drillHint}</span>
+          </div>
+        ) : (
+          <div className="border-t border-slate-100 px-4 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+            Hover or click a colored bar segment for exact details
+          </div>
+        )}
       </div>
     );
   }
@@ -2134,6 +2189,7 @@ function SmallMultipleBarCard({
   activeLegendIds = [],
   sharedYMax = null,
   detailSegment = null,
+  drillHint = "",
   onSegmentHover,
   onSegmentClick,
   onChartLeave,
@@ -2148,7 +2204,7 @@ function SmallMultipleBarCard({
     <div className="relative rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm">
       {detailSegment ? (
         <div className="absolute right-4 top-4 z-20" data-export-hide="true">
-          <BarSegmentDetailCard segment={detailSegment} scaleMode={scaleMode} onClose={onDetailClose} />
+          <BarSegmentDetailCard segment={detailSegment} scaleMode={scaleMode} drillHint={drillHint} onClose={onDetailClose} />
         </div>
       ) : null}
       <div className="mb-3 pr-2">
@@ -2201,7 +2257,7 @@ function SmallMultipleBarCard({
   );
 }
 
-function SmallMultipleLineCard({ series, scaleMode, sharedYMax = null }) {
+function SmallMultipleLineCard({ series, scaleMode, sharedYMax = null, drillHint = "" }) {
   const { rows, lines, label, subtitle } = series;
   const seriesLookup = useMemo(
     () => Object.fromEntries((lines ?? []).map((line) => [line.id, line])),
@@ -2220,7 +2276,7 @@ function SmallMultipleLineCard({ series, scaleMode, sharedYMax = null }) {
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
             <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} />
             <YAxis tick={{ fontSize: 12, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} width={70} domain={sharedYMax ? [0, sharedYMax] : [0, "auto"]} />
-            <Tooltip content={<CompareTooltip seriesLookup={seriesLookup} scaleMode={scaleMode} mode="smallMultiples" />} />
+            <Tooltip content={<CompareTooltip seriesLookup={seriesLookup} scaleMode={scaleMode} mode="smallMultiples" drillHint={drillHint} />} />
             {(lines ?? []).map((line, lineIndex) => (
               <Line
                 key={line.id}
@@ -2536,6 +2592,10 @@ export default function ComparePage({
   hideInlineFilters = false,
   externalOpenFiltersKey = null,
   onEmbeddedLegendControlsChange = null,
+  embeddedDashboardMode = false,
+  hideEmbeddedLegend = false,
+  simpleBarsOnly = false,
+  hideStandaloneKpiSelectors = false,
 }) {
   const hierarchy = COMPARE_HIERARCHY;
   const moduleMap = useMemo(() => Object.fromEntries(hierarchy.map((module) => [module.id, module])), [hierarchy]);
@@ -2736,10 +2796,10 @@ export default function ComparePage({
     setOpenPopover("filters");
   }, [externalOpenFiltersKey]);
 
-  if (role !== "ministry") {
+  if (role !== "ministry" && role !== "admin") {
     return (
       <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700 shadow-sm">
-        Compare is available for Ministry access in this build.
+        Institute comparison is available for Ministry access in this build.
       </div>
     );
   }
@@ -3040,8 +3100,12 @@ export default function ComparePage({
     return Math.max(460, Math.min(640, base));
   }, [appliedYears.length, groupedIITs.length]);
 
-  const groupedChartMinWidth = useMemo(() => "100%", []);
-  const useYearPanelLayout = applied?.view === "grouped" && groupedIITs.length > 10;
+  const groupedChartMinWidth = useMemo(() => {
+    const visibleSlots = groupedChartRows.filter((row) => !row?.isGap).length;
+    if (simpleBarsOnly && visibleSlots > 14) return `${Math.max(920, visibleSlots * 58)}px`;
+    return "100%";
+  }, [groupedChartRows, simpleBarsOnly]);
+  const useYearPanelLayout = !simpleBarsOnly && applied?.view === "grouped" && groupedIITs.length > 10;
 
   const yearPanelData = useMemo(() => {
     if (!useYearPanelLayout || !groupedChartRows.length) return [];
@@ -3721,7 +3785,7 @@ export default function ComparePage({
     setDraft(normalizedNext);
   }
 
-  function syncCompareConfig(next) {
+  function syncCompareConfig(next, extra = {}) {
     if (!next) return;
     onConfigChange?.((prev) => ({
       ...prev,
@@ -3737,6 +3801,7 @@ export default function ComparePage({
       InstituteId: next.iits ?? [],
       YearRange: { from: next.yearFrom, to: next.yearTo },
       __compareApplied: true,
+      ...extra,
     }));
   }
 
@@ -3790,7 +3855,7 @@ export default function ComparePage({
     if (!target || index === selections.length - 1) return;
     setDrillTrail(trail.slice(0, index));
     commitAppliedSelection(target);
-    syncCompareConfig(target);
+    syncCompareConfig(target, { __compareChartFilter: "breadcrumb" });
   }
 
   function drillToIitFromAxisLabel(axisValue) {
@@ -3801,7 +3866,7 @@ export default function ComparePage({
     setDrillTrail(nextDrillTrailFrom(applied));
     const nextApplied = { ...applied, iits: [match] };
     commitAppliedSelection(nextApplied);
-    syncCompareConfig(nextApplied);
+    syncCompareConfig(nextApplied, { __compareChartFilter: "institute" });
   }
 
   function drillToYearFromAxisLabel(yearValue) {
@@ -3823,7 +3888,7 @@ export default function ComparePage({
       focusYear: year,
     };
     commitAppliedSelection(nextApplied);
-    syncCompareConfig(nextApplied);
+    syncCompareConfig(nextApplied, { __compareChartFilter: "year" });
   }
 
   function returnFromIitDrill() {
@@ -3878,6 +3943,12 @@ export default function ComparePage({
 
   function handleBarSegmentClick(series, row, event) {
     event?.stopPropagation?.();
+    const canUseDeepDrilldown =
+      (applied?.iits?.length ?? 0) === 1 &&
+      Number(applied?.yearFrom) === Number(applied?.yearTo);
+    if (!canUseDeepDrilldown) {
+      return;
+    }
     const nextSegment = buildBarSegment(series, row, true);
     setActiveBarSegment((prev) => {
       if (prev?.pinned && prev.seriesId === nextSegment?.seriesId && prev.instituteId === nextSegment?.instituteId && Number(prev.year) === Number(nextSegment?.year) && (prev.cardId ?? null) === (nextSegment?.cardId ?? null)) return null;
@@ -4473,7 +4544,7 @@ export default function ComparePage({
           className="mx-auto flex h-full w-full max-w-[1040px] flex-col overflow-hidden rounded-[30px] border border-slate-200 bg-[#f3f4f6] shadow-[0_30px_90px_rgba(15,23,42,0.18)]"
         >
           <div className="flex items-start justify-between gap-4 px-6 py-5">
-            <div className="text-[1.25rem] font-extrabold text-slate-900">Select KPI</div>
+            <div className="text-[1.25rem] font-extrabold text-slate-900">{hideStandaloneKpiSelectors ? "Select Date & IIT Scope" : "Select KPI"}</div>
             <button
               type="button"
               onClick={() => setOpenPopover(null)}
@@ -4486,6 +4557,7 @@ export default function ComparePage({
 
           <div className="min-h-0 flex-1 overflow-auto px-5 pb-5">
             <div className="space-y-4">
+              {!hideStandaloneKpiSelectors ? (
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div className="text-[1.02rem] font-extrabold text-slate-900">Select KPI</div>
@@ -4528,6 +4600,7 @@ export default function ComparePage({
                   />
                 </div>
               </div>
+              ) : null}
 
               <div id="compare-by-filter-section" className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
@@ -4560,7 +4633,7 @@ export default function ComparePage({
 
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Select Date</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Date</div>
                   <CompareDateSelector
                     source={draft}
                     updateSource={setDraft}
@@ -4572,7 +4645,7 @@ export default function ComparePage({
 
               <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
                 <div className="grid gap-4 md:grid-cols-[120px_minmax(0,1fr)] md:items-start">
-                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">Compare IITs</div>
+                  <div className="pt-2 text-[1.02rem] font-extrabold text-slate-900">IIT scope</div>
                   <div>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex flex-wrap items-center gap-2">
@@ -4741,18 +4814,20 @@ export default function ComparePage({
       }))
       : [];
     const compareAccent = "#2563eb";
-    const compactToolbarOptions = [
-      { id: "grouped", label: "Bar graph" },
-      { id: "table", label: "Table" },
-    ];
+    const compactToolbarOptions = simpleBarsOnly
+      ? [{ id: "grouped", label: "Bar graph" }]
+      : [
+          { id: "grouped", label: "Bar graph" },
+          { id: "table", label: "Table" },
+        ];
     const visualToolbarItems = [
-      ...compactToolbarOptions
+      ...(simpleBarsOnly ? [] : compactToolbarOptions
         .filter((option) => appliedModeValidity[option.id]?.valid)
         .map((option) => ({
           id: option.id,
           label: option.label,
           icon: compareToolbarIcon(option.id, option.id === applied.view, option.id === applied.view ? "#ffffff" : compareAccent),
-        })),
+        }))),
       {
         id: "ai-interpretation",
         label: "AI interpretation",
@@ -4762,10 +4837,15 @@ export default function ComparePage({
     ];
     const comparisonSeriesLookup = Object.fromEntries(groupedStackSeries.map((series) => [series.id, series]));
     const compareLegendTitle = "";
+    const canUseDeepDrilldown = appliedIITs.length === 1 && Number(applied.yearFrom) === Number(applied.yearTo);
+    const drillDisabledHint = canUseDeepDrilldown ? "" : SINGLE_YEAR_SINGLE_IIT_DRILLDOWN_HINT;
     const viewInstruction = {
-      grouped: ["Click a bar, axis label, or legend label to drill down."],
-      smallBars: ["Click a bar, axis label, or legend label to drill down."],
-      smallLines: ["Click a line point, axis label, or legend label to drill down."],
+      grouped: [
+        { text: appliedIITs.length > 1 ? "Click a year or institute label to filter the chart." : "Click a bar to inspect the value." },
+        { text: "Drill down not available", unavailable: true, title: drillDisabledHint },
+      ],
+      smallBars: [{ text: "Click a bar, axis label, or legend label to drill down." }],
+      smallLines: [{ text: "Click a line point, axis label, or legend label to drill down." }],
     }[applied.view] ?? [];
     const smallBarDetailTargetId = activeBarSegment?.cardId?.startsWith?.("year-bars-")
       ? activeBarSegment.cardId
@@ -4804,9 +4884,21 @@ export default function ComparePage({
                 })}
               </div>
               {viewInstruction.length ? (
-                <div className="mt-2 max-w-[560px] text-[11px] font-extrabold leading-5 text-[#2563eb]">
+                <div className="mt-2 flex max-w-[560px] flex-col items-start gap-1.5 text-[11px] font-extrabold leading-5 text-[#2563eb]">
                   {viewInstruction.map((line) => (
-                    <div key={line}>{line}</div>
+                    line.unavailable ? (
+                      <div
+                        key={line.text}
+                        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-left text-[11px] font-extrabold leading-tight text-[#dc2626]"
+                        style={{ background: "rgba(220,38,38,0.08)" }}
+                        title={line.title || undefined}
+                      >
+                        <CompareDrillStatusIcon />
+                        <span>{line.text}</span>
+                      </div>
+                    ) : (
+                      <div key={line.text}>{line.text}</div>
+                    )
                   ))}
                 </div>
               ) : null}
@@ -4892,7 +4984,7 @@ export default function ComparePage({
 
             {applied.view === "grouped" && appliedModeValidity.grouped.valid ? (
               <>
-                {!onEmbeddedLegendControlsChange || fullscreen || hideInlineFilters ? (
+                {(!onEmbeddedLegendControlsChange || fullscreen || hideInlineFilters) && !hideEmbeddedLegend ? (
                   <div className="mb-3">
                     <InteractiveCompareLegend
                       items={comparisonLegendItems}
@@ -4910,6 +5002,7 @@ export default function ComparePage({
                     panels={yearPanelData}
                     seriesList={renderedGroupedStackSeries}
                     scaleMode={applied.scale}
+                    drillHint={drillDisabledHint}
                     maxValue={yearPanelMaxValue}
                     activeSegment={activeBarSegment}
                     onIitClick={drillToIitFromAxisLabel}
@@ -4918,14 +5011,16 @@ export default function ComparePage({
                     onSegmentClick={handleBarSegmentClick}
                     onChartLeave={handleBarChartMouseLeave}
                     onDetailClose={() => setActiveBarSegment(null)}
+                    simpleBarsOnly={simpleBarsOnly}
                   />
                 ) : (
-                  <div className="relative overflow-x-hidden overflow-y-hidden pb-2" style={{ height: fullscreen ? Math.max(620, groupedChartHeight) : groupedChartHeight }}>
+                  <div className="relative overflow-x-auto overflow-y-hidden pb-2" style={{ height: fullscreen ? Math.max(620, groupedChartHeight) : groupedChartHeight }}>
                     {activeBarSegment?.pinned ? (
                       <div className="absolute right-4 top-3 z-20">
                         <BarSegmentDetailCard
                           segment={activeBarSegment}
                           scaleMode={applied.scale}
+                          drillHint={drillDisabledHint}
                           onClose={() => setActiveBarSegment(null)}
                         />
                       </div>
@@ -4951,7 +5046,7 @@ export default function ComparePage({
                         />
                         <YAxis tick={{ fontSize: 13, fill: "#475569" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} width={78} />
                         <Tooltip
-                          content={<CompareTooltip metricLookup={comparisonSeriesLookup} scaleMode={applied.scale} mode="grouped" activeSegment={activeBarSegment} />}
+                          content={<CompareTooltip metricLookup={comparisonSeriesLookup} scaleMode={applied.scale} mode="grouped" activeSegment={activeBarSegment} drillHint={drillDisabledHint} />}
                         />
                         {groupedYearSeparatorRows.map((row) => (
                           <ReferenceLine key={`separator-${row.xKey}`} x={row.xKey} stroke="#93c5fd" strokeWidth={1.2} ifOverflow="visible" />
@@ -4968,7 +5063,7 @@ export default function ComparePage({
                               fill={series.color || "#2563eb"}
                               stroke={series.color || "#2563eb"}
                               shape={(props) => <CompareTexturedBarShape {...props} color={series.color || "#2563eb"} patternType={series.patternType} seriesId={series.id} />}
-                              radius={[0, 0, 0, 0]}
+                              radius={singleSlotBreakdownView || isTopVisibleSeries ? [10, 10, 0, 0] : [0, 0, 0, 0]}
                               maxBarSize={groupedBarMaxSize}
                               onMouseEnter={(entry) => handleBarSegmentHover(series, entry?.payload ?? entry)}
                               onClick={(entry, index, event) => handleBarSegmentClick(series, entry?.payload ?? entry, event)}
@@ -4990,7 +5085,7 @@ export default function ComparePage({
 
             {applied.view === "smallBars" && appliedModeValidity.smallBars.valid ? (
               <>
-                {!onEmbeddedLegendControlsChange || fullscreen || hideInlineFilters ? (
+                {(!onEmbeddedLegendControlsChange || fullscreen || hideInlineFilters) && !hideEmbeddedLegend ? (
                   <div className="mb-4">
                     <InteractiveCompareLegend
                       items={comparisonLegendItems}
@@ -5018,6 +5113,7 @@ export default function ComparePage({
                       activeLegendIds={activeComparisonLegendIds}
                       sharedYMax={smallMultipleSharedYMax}
                       detailSegment={smallBarDetailTargetId === series.id ? activeBarSegment : null}
+                      drillHint={drillDisabledHint}
                       onSegmentHover={handleBarSegmentHover}
                       onSegmentClick={handleBarSegmentClick}
                       onChartLeave={handleBarChartMouseLeave}
@@ -5030,7 +5126,7 @@ export default function ComparePage({
 
             {applied.view === "smallLines" && appliedModeValidity.smallLines.valid ? (
               <>
-                {!onEmbeddedLegendControlsChange || fullscreen || hideInlineFilters ? (
+                {(!onEmbeddedLegendControlsChange || fullscreen || hideInlineFilters) && !hideEmbeddedLegend ? (
                   <div className="mb-4">
                     <InteractiveCompareLegend
                       items={comparisonLegendItems}
@@ -5056,6 +5152,7 @@ export default function ComparePage({
                       series={series}
                       scaleMode={applied.scale}
                       sharedYMax={smallMultipleSharedYMax}
+                      drillHint={drillDisabledHint}
                     />
                   ))}
                 </div>
@@ -5135,7 +5232,7 @@ export default function ComparePage({
               background: 'rgba(255,255,255,0.94)',
             }}
           >
-            <div className="text-sm font-bold" style={{ color: '#1d4ed8' }}>Select Date</div>
+            <div className="text-sm font-bold" style={{ color: '#1d4ed8' }}>Select Date & IIT Scope</div>
             <div className="mt-3">
               <CompareDateSelector
                 source={selectionSource}
@@ -5145,7 +5242,7 @@ export default function ComparePage({
               />
             </div>
 
-            <div className="mt-5 text-sm font-bold" style={{ color: '#1d4ed8' }}>Compare IITs</div>
+            <div className="mt-5 text-sm font-bold" style={{ color: '#1d4ed8' }}>IIT scope</div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <SelectionActionButton label="OLD IITs" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: [...LEGACY_IITS] }))} title="Select old IITs" />
               <SelectionActionButton label="ALL" onClick={() => updateSelectionSummarySource((prev) => ({ ...prev, iits: IITs.map((iit) => iit.id) }))} title="Select all IITs" />
@@ -5306,6 +5403,3 @@ export default function ComparePage({
   );
 
 }
-
-
-
