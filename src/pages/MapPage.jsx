@@ -3,8 +3,8 @@ import { MapContainer, GeoJSON, ZoomControl, useMap } from "react-leaflet";
 import L from "leaflet";
 import { IITs } from "../constants";
 
-// ── Local India states GeoJSON (served from /public/india_states_a.geojson) ──
-const INDIA_GEO_URL = "/india_states_a.geojson";
+// ── Local India states GeoJSON: Vite base path handles subdirectory hosting ──
+const INDIA_GEO_URL = `${import.meta.env.BASE_URL}india_states_a.geojson`;
 
 // ── Pulse keyframe injected once ─────────────────────────────────────────────
 if (typeof document !== "undefined" && !document.getElementById("iit-pulse-style")) {
@@ -147,20 +147,36 @@ function IITMarkers({ selectedId, onSelect }) {
 }
 
 // ── India states GeoJSON layer ───────────────────────────────────────────────
-function IndiaStates({ onReady }) {
+function IndiaStates({ onReady, onError }) {
   const [data, setData] = useState(null);
-  const map = useMap();
+  const callbacksRef = useRef({ onReady, onError });
+  callbacksRef.current = { onReady, onError };
 
   useEffect(() => {
-    fetch(INDIA_GEO_URL)
-      .then((r) => r.json())
-      .then((d) => { setData(d); })
-      .catch(console.error);
+    const controller = new AbortController();
+    fetch(INDIA_GEO_URL, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`India map data unavailable (${response.status}) at ${INDIA_GEO_URL}`);
+        }
+        return response.json();
+      })
+      .then((geoJSON) => {
+        if (geoJSON?.type !== "FeatureCollection" || !Array.isArray(geoJSON.features)) {
+          throw new Error("India map data is not a valid GeoJSON FeatureCollection.");
+        }
+        setData(geoJSON);
+      })
+      .catch((error) => {
+        if (error.name === "AbortError") return;
+        console.error("Unable to load India state boundaries:", error);
+        callbacksRef.current.onError?.();
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) callbacksRef.current.onReady?.();
+      });
+    return () => controller.abort();
   }, []);
-
-  useEffect(() => {
-    if (data && onReady) onReady();
-  }, [data, onReady]);
 
   if (!data) return null;
 
@@ -228,6 +244,7 @@ function FocusSelected({ selectedId, isInitialLoad }) {
 // ── Main IndiaMap component ───────────────────────────────────────────────────
 function IndiaMap({ selectedId, onSelect, isInitialLoad }) {
   const [loading, setLoading] = useState(true);
+  const [mapError, setMapError] = useState(false);
 
   return (
     <div
@@ -315,6 +332,12 @@ function IndiaMap({ selectedId, onSelect, isInitialLoad }) {
         ))}
       </div>
 
+      {mapError && !loading && (
+        <div role="alert" className="absolute bottom-4 left-4 z-[1000] rounded-xl bg-white/95 px-3 py-2 text-xs font-semibold text-amber-900 shadow-lg">
+          State boundaries could not be loaded. IIT locations remain selectable.
+        </div>
+      )}
+
       <MapContainer
         center={[22, 82.5]}
         zoom={5}
@@ -332,7 +355,10 @@ function IndiaMap({ selectedId, onSelect, isInitialLoad }) {
         <FitIndia />
         <ZoomControl position="bottomright" />
         <FocusSelected selectedId={selectedId} isInitialLoad={isInitialLoad} />
-        <IndiaStates onReady={() => setLoading(false)} />
+        <IndiaStates
+          onReady={() => setLoading(false)}
+          onError={() => setMapError(true)}
+        />
         <IITMarkers selectedId={selectedId} onSelect={onSelect} />
       </MapContainer>
     </div>
